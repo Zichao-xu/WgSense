@@ -124,9 +124,14 @@ func configureInterface(name, address string) error {
 	return nil
 }
 
-// addRoute 用 route add 添加路由到 TUN(需 root)。
+// addRoute 用 route add 添加路由到 TUN(需 root)。支持 IPv4 和 IPv6。
 func addRoute(cidr, dev string) error {
-	cmd := exec.Command("route", "-n", "add", "-net", cidr, "-interface", dev)
+	var cmd *exec.Cmd
+	if strings.Contains(cidr, ":") {
+		cmd = exec.Command("route", "-n", "add", "-inet6", cidr, "-interface", dev)
+	} else {
+		cmd = exec.Command("route", "-n", "add", "-net", cidr, "-interface", dev)
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("route add 失败: %s: %w", strings.TrimSpace(string(out)), err)
 	}
