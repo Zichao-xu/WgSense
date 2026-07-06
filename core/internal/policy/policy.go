@@ -115,3 +115,42 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 	}
 }
+
+// StatusSnapshot 是当前状态快照，供 UI 查询。
+type StatusSnapshot struct {
+	AtHome  bool   `json:"at_home"`
+	State   string `json:"state"`
+	Paused  bool   `json:"paused"`
+	Service string `json:"service"`
+}
+
+// Status 返回当前状态快照。
+func (e *Engine) Status() StatusSnapshot {
+	state, _ := e.tun.Status(e.service)
+	return StatusSnapshot{
+		AtHome:  e.loc.IsHome(e.cfg.HomeNetworkPrefixes),
+		State:   string(state),
+		Paused:  e.pause.IsPaused(),
+		Service: e.service,
+	}
+}
+
+// Connect 手动连接隧道。
+func (e *Engine) Connect() error {
+	return e.tun.Connect(e.service)
+}
+
+// Disconnect 手动断开隧道。
+func (e *Engine) Disconnect() error {
+	return e.tun.Disconnect(e.service)
+}
+
+// Pause 暂停自动管理。
+func (e *Engine) Pause() error {
+	return e.pause.Pause()
+}
+
+// Resume 恢复自动管理。
+func (e *Engine) Resume() error {
+	return e.pause.Resume()
+}
