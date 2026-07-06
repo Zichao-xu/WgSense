@@ -1,0 +1,32 @@
+name: WgSense
+options:
+  bundleIdPrefix: com.wgsense
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  WgSense:
+    type: application
+    platform: macOS
+    sources:
+      - path: WgSense
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        INFOPLIST_KEY_CFBundleDisplayName: WgSense
+        INFOPLIST_KEY_LSMinimumSystemVersion: "14.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+
+  # 阶段 1 将添加 NetworkExtension target
