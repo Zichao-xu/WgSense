@@ -4,6 +4,8 @@ package policy
 
 import (
 	"context"
+	"log"
+	"time"
 
 	"github.com/wgsense/core/internal/config"
 	"github.com/wgsense/core/internal/healthcheck"
@@ -14,17 +16,22 @@ import (
 
 // Engine 智能管理引擎。
 type Engine struct {
-	cfg   config.Config
-	loc   location.Locator
-	tun   tunnel.Manager
-	hc    healthcheck.Checker
-	pause pause.Controller
+	cfg        config.Config
+	loc        location.Locator
+	tun        tunnel.Manager
+	hc         healthcheck.Checker
+	pause      pause.Controller
+	service    string
+	lastAutoUp time.Time
 }
 
 // New 创建引擎。
 func New(cfg config.Config, loc location.Locator, tun tunnel.Manager, hc healthcheck.Checker, p pause.Controller) *Engine {
 	return &Engine{cfg: cfg, loc: loc, tun: tun, hc: hc, pause: p}
 }
+
+// SetService 设置当前管理的隧道/profile 名。
+func (e *Engine) SetService(s string) { e.service = s }
 
 // RunOnce 执行一次巡检。
 // 逻辑：
@@ -33,13 +40,78 @@ func New(cfg config.Config, loc location.Locator, tun tunnel.Manager, hc healthc
 //   - 不在家 + Disconnected → 自动连上
 //   - 不在家 + Connected → 假连接检测，失效则强制 stop/start
 func (e *Engine) RunOnce() error {
-	// 阶段 1 实现完整逻辑
+	atHome := e.loc.IsHome(e.cfg.HomeNetworkPrefixes)
+	state, _ := e.tun.Status(e.service)
+	log.Printf("巡检 at_home=%v state=%s service=%s", atHome, state, e.service)
+
+	// 在家 → 断开
+	if atHome {
+		if state != tunnel.StateDisconnected {
+			log.Println("命中家网段，断开 WireGuard")
+			return e.tun.Disconnect(e.service)
+		}
+		return nil
+	}
+
+	// 不在家：检查暂停
+	if e.pause.IsPaused() {
+		log.Println("用户暂停中，跳过自动管理")
+		return nil
+	}
+
+	// 不在家：根据隧道状态处理
+	switch state {
+	case tunnel.StateDisconnected:
+		if e.recentAutoUp() {
+			log.Println("刚自动拉起，等待连接建立")
+			return nil
+		}
+		log.Println("不在家网段，自动连接 WireGuard")
+		if err := e.tun.Connect(e.service); err != nil {
+			return err
+		}
+		e.lastAutoUp = time.Now()
+
+	case tunnel.StateConnected:
+		// 假连接检测（bash 守护没做的）
+		if e.hc.IsStaleConnected(true) {
+			log.Println("检测到假连接（Connected 但不通），强制重启隧道")
+			_ = e.tun.Disconnect(e.service)
+			if err := e.tun.Connect(e.service); err != nil {
+				return err
+			}
+			e.lastAutoUp = time.Now()
+		}
+	}
 	return nil
+}
+
+// recentAutoUp 判断是否刚自动拉起（在宽限期内）。
+func (e *Engine) recentAutoUp() bool {
+	if e.lastAutoUp.IsZero() {
+		return false
+	}
+	return time.Since(e.lastAutoUp) < time.Duration(e.cfg.AutoUpGraceSeconds)*time.Second
 }
 
 // Start 启动守护循环，每 IntervalSeconds 秒巡检一次。
 func (e *Engine) Start(ctx context.Context) error {
-	// 阶段 1 实现：ticker + RunOnce 循环
-	<-ctx.Done()
-	return ctx.Err()
+	ticker := time.NewTicker(time.Duration(e.cfg.IntervalSeconds) * time.Second)
+	defer ticker.Stop()
+
+	// 立即执行一次
+	if err := e.RunOnce(); err != nil {
+		log.Printf("巡检错误: %v", err)
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := e.RunOnce(); err != nil {
+				log.Printf("巡检错误: %v", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
