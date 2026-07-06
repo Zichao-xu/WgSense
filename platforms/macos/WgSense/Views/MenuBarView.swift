@@ -4,6 +4,7 @@ import AppKit
 // 菜单栏下拉：状态 + 快速开关
 struct MenuBarView: View {
     @EnvironmentObject var client: DaemonClient
+    @Environment(\.openWindow) var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -17,6 +18,10 @@ struct MenuBarView: View {
             }
             if let s = client.status {
                 Text("\(s.service) · \(s.at_home ? "在家" : "在外")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("daemon 未连接")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -39,10 +44,8 @@ struct MenuBarView: View {
             Divider()
 
             Button("打开主窗口") {
+                openWindow(id: "main")
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                if let win = NSApplication.shared.windows.first(where: { $0.title.isEmpty || $0.title == "WgSense" }) {
-                    win.makeKeyAndOrderFront(nil)
-                }
             }
             Button("退出") {
                 NSApplication.shared.terminate(nil)

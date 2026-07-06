@@ -14,6 +14,32 @@ class DaemonClient: ObservableObject {
     @Published var errorMsg: String?
 
     private let baseURL = URL(string: "http://127.0.0.1:8765")!
+    private var pollTimer: Timer?
+
+    init() {
+        startPolling()
+    }
+
+    deinit {
+        pollTimer?.invalidate()
+    }
+
+    /// 启动定时轮询，确保菜单栏图标状态始终最新
+    func startPolling(interval: TimeInterval = 5.0) {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            Task { @MainActor in
+                await self.fetchStatus()
+            }
+        }
+        // 立即拉一次
+        Task { await fetchStatus() }
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
 
     func refresh() async {
         await fetchStatus()
