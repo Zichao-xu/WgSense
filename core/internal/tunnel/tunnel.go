@@ -24,8 +24,7 @@ type Manager interface {
 	DiscoverServices() ([]string, error)
 }
 
-// New 返回当前平台的 Manager。
-// 桌面：调用 scutil/wg-quick 等；移动：调用系统 VPN API。
-func New() Manager {
-	return newPlatformManager()
+// New 返回当前平台的 Manager。configDir 是 .conf 配置文件目录。
+func New(configDir string) Manager {
+	return newPlatformManager(configDir)
 }

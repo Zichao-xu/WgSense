@@ -29,6 +29,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("/api/pause", s.handlePause)
 	mux.HandleFunc("/api/resume", s.handleResume)
+	mux.HandleFunc("/api/profiles", s.handleProfiles)
 	srv := &http.Server{
 		Addr:    s.addr,
 		Handler: mux,
@@ -70,6 +71,10 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.eng.Profiles())
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

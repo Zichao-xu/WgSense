@@ -5,7 +5,9 @@ package tunnel
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -16,18 +18,19 @@ import (
 )
 
 type darwinManager struct {
-	dev     *device.Device
-	tunName string
+	dev       *device.Device
+	tunName   string
+	configDir string
 }
 
-func newPlatformManager() Manager {
-	return &darwinManager{}
+func newPlatformManager(configDir string) Manager {
+	return &darwinManager{configDir: configDir}
 }
 
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
-// 这是阶段 1 核心实现。需要 root(CreateTUN + ifconfig + route)。
+// 需要 root(CreateTUN + ifconfig + route)。
 func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
-	// 1. 创建 TUN(macOS utun，需 root)
+	// 1. 创建 TUN
 	tunDev, err := tun.CreateTUN("utun", profile.Interface.MTU)
 	if err != nil {
 		return fmt.Errorf("创建 TUN: %w", err)
@@ -38,14 +41,14 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	logger := device.NewLogger(device.LogLevelError, "wgsense")
 	m.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
 
-	// 3. IPC 配置(private key / peers / endpoint / allowedIPs)
+	// 3. IPC 配置
 	if err := m.dev.IpcSet(buildUAPI(profile)); err != nil {
 		m.dev.Close()
 		m.dev = nil
 		return fmt.Errorf("IPC 配置: %w", err)
 	}
 
-	// 4. 启动 UDP 监听
+	// 4. 启动 UDP
 	if err := m.dev.BindUpdate(); err != nil {
 		m.dev.Close()
 		m.dev = nil
@@ -68,9 +71,14 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	return nil
 }
 
-// Connect 按 service 名连接(阶段 1:从配置目录加载 profile)。
+// Connect 按 service 名连接:从 configDir 加载 {service}.conf → ConnectWithProfile。
 func (m *darwinManager) Connect(service string) error {
-	return fmt.Errorf("Connect(service) 待实现:用 ConnectWithProfile，配置管理完善后接入")
+	confPath := filepath.Join(m.configDir, service+".conf")
+	profile, err := config.ParseFile(confPath)
+	if err != nil {
+		return fmt.Errorf("加载配置 %s: %w", confPath, err)
+	}
+	return m.ConnectWithProfile(profile)
 }
 
 func (m *darwinManager) Disconnect(service string) error {
@@ -85,17 +93,25 @@ func (m *darwinManager) Status(service string) (State, error) {
 	if m.dev == nil {
 		return StateDisconnected, nil
 	}
-	// TODO: 更精确的状态(wireguard-go 没有直接暴露 Connected 状态)
 	return StateConnected, nil
 }
 
+// DiscoverServices 扫描 configDir 的 .conf 文件，返回 profile 名列表。
 func (m *darwinManager) DiscoverServices() ([]string, error) {
-	// 阶段 1:扫描配置目录的 .conf 文件
-	return nil, nil
+	entries, err := os.ReadDir(m.configDir)
+	if err != nil {
+		return nil, err
+	}
+	var services []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".conf") {
+			services = append(services, strings.TrimSuffix(e.Name(), ".conf"))
+		}
+	}
+	return services, nil
 }
 
 // configureInterface 用 ifconfig 设置 TUN 的 IP 地址(需 root)。
-// address 格式 10.0.0.2/24，macOS: ifconfig utunN inet 10.0.0.2 10.0.0.2 prefixlen 24
 func configureInterface(name, address string) error {
 	ip, mask, err := parseCIDR(address)
 	if err != nil {
@@ -109,7 +125,6 @@ func configureInterface(name, address string) error {
 }
 
 // addRoute 用 route add 添加路由到 TUN(需 root)。
-// macOS: route -n add -net <cidr> -interface <dev>
 func addRoute(cidr, dev string) error {
 	cmd := exec.Command("route", "-n", "add", "-net", cidr, "-interface", dev)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -118,7 +133,6 @@ func addRoute(cidr, dev string) error {
 	return nil
 }
 
-// parseCIDR 把 10.0.0.2/24 拆成 ip 和 prefixlen。
 func parseCIDR(cidr string) (ip, mask string, err error) {
 	parts := strings.SplitN(cidr, "/", 2)
 	if len(parts) != 2 {

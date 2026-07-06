@@ -154,3 +154,9 @@ func (e *Engine) Pause() error {
 func (e *Engine) Resume() error {
 	return e.pause.Resume()
 }
+
+// Profiles 返回可用 profile 列表(扫描配置目录)。
+func (e *Engine) Profiles() []string {
+	services, _ := e.tun.DiscoverServices()
+	return services
+}
