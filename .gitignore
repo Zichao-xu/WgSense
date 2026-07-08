@@ -29,3 +29,6 @@ xcuserdata/
 # 构建产物
 wgsense-daemon
 /tmp/
+
+# 内部归档（不公开）
+.archive-*

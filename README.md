@@ -23,15 +23,18 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-阶段 0(骨架)已完成：
-- [x] Go 核心模块骨架(config/location/tunnel/healthcheck/pause/policy)
-- [x] macOS SwiftUI app 骨架(XcodeGen + xcodebuild 通过)
-- [x] GitHub Actions CI
-- [ ] gomobile 绑定(阶段 1)
-- [ ] wireguard-go 集成(阶段 1)
-- [ ] NetworkExtension target(阶段 1)
+**v0.1.0-alpha** — macOS 基础版已就位：
 
-全职下阶段 0-2 约 2 个月，完成后 bash 守护退役，macOS 智能管理上线。
+- [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
+- [x] wireguard-go 集成 — 真实隧道测试通过
+- [x] macOS SwiftUI app — Surge 风格 sidebar + 菜单栏图标
+- [x] daemon HTTP API — `127.0.0.1:8765`
+- [x] GitHub Actions CI
+- [x] 路由修复 — 握手门控 + endpoint 排除 + DNS 不动系统配置
+- [ ] NetworkExtension target(等 Apple Developer 账号)
+- [ ] Windows / Linux / iOS / Android 平台
+
+> alpha 阶段：daemon 需 `sudo` 运行(手动创建 TUN)，NetworkExtension 尚未实现。
 
 ## 开发
 
@@ -43,6 +46,24 @@ cd core && go build ./...
 cd platforms/macos
 xcodegen generate
 open WgSense.xcodeproj
+```
+
+## 安装(alpha)
+
+从 [Releases](../../releases) 下载最新构建，或自行编译：
+
+```bash
+# 编译 daemon
+cd core && go build -o wgsense-daemon ./cmd/wgsense-daemon/
+
+# 编译 macOS app
+cd platforms/macos
+xcodegen generate
+xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Release build
+
+# 运行(需 sudo 创建 TUN)
+sudo ./wgsense-daemon
+open build/Release/WgSense.app
 ```
 
 ## 商业模式
