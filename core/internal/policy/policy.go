@@ -40,6 +40,14 @@ func (e *Engine) SetService(s string) { e.service = s }
 //   - 不在家 + Disconnected → 自动连上
 //   - 不在家 + Connected → 假连接检测，失效则强制 stop/start
 func (e *Engine) RunOnce() error {
+	// 暂停时跳过所有自动管理（包括在家断开、在外连接、假连接检测）
+	if e.pause.IsPaused() {
+		state, _ := e.tun.Status(e.service)
+		log.Printf("巡检 at_home=%v state=%s service=%s（已暂停，跳过）",
+			e.loc.IsHome(e.cfg.HomeNetworkPrefixes), state, e.service)
+		return nil
+	}
+
 	atHome := e.loc.IsHome(e.cfg.HomeNetworkPrefixes)
 	state, _ := e.tun.Status(e.service)
 	log.Printf("巡检 at_home=%v state=%s service=%s", atHome, state, e.service)
@@ -53,13 +61,7 @@ func (e *Engine) RunOnce() error {
 		return nil
 	}
 
-	// 不在家：检查暂停
-	if e.pause.IsPaused() {
-		log.Println("用户暂停中，跳过自动管理")
-		return nil
-	}
-
-	// 不在家：根据隧道状态处理
+	// 不到家：根据隧道状态处理
 	switch state {
 	case tunnel.StateDisconnected:
 		if e.recentAutoUp() {
@@ -74,6 +76,11 @@ func (e *Engine) RunOnce() error {
 
 	case tunnel.StateConnected:
 		// 假连接检测（bash 守护没做的）
+		// 刚连接后给 15 秒握手宽限期，不要立刻判定假连接
+		if e.recentAutoUp() {
+			log.Println("刚连接，等待握手（跳过假连接检测）")
+			return nil
+		}
 		if e.hc.IsStaleConnected(true) {
 			log.Println("检测到假连接（Connected 但不通），强制重启隧道")
 			_ = e.tun.Disconnect(e.service)

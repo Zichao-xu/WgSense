@@ -21,7 +21,7 @@ func Default() Config {
 		HomeNetworkPrefixes:        []string{"10.10.1."},
 		IntervalSeconds:            10,
 		AutoUpGraceSeconds:         20,
-		HealthCheckTarget:          "https://www.google.com",
+		HealthCheckTarget:          "https://1.1.1.1",
 		HealthCheckIntervalSeconds: 30,
 	}
 }
