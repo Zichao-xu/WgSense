@@ -72,4 +72,66 @@ class DaemonClient: ObservableObject {
         _ = try? await URLSession.shared.data(for: req)
         await fetchStatus()
     }
+
+    // MARK: - Profile 管理
+
+    func importProfile(name: String, content: String) async {
+        let body: [String: String] = ["name": name, "content": content]
+        var req = URLRequest(url: baseURL.appendingPathComponent("api/profile/import"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func exportProfile(name: String) async -> String {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/profile/export"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components.url else { return "" }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let result = try JSONDecoder().decode(ExportResponse.self, from: data)
+            return result.content
+        } catch {
+            return ""
+        }
+    }
+
+    func saveProfile(_ profile: WGProfile) async {
+        let body: [String: Any] = [
+            "Name": profile.name,
+            "Interface": [
+                "PrivateKey": profile.privateKey,
+                "Address": profile.address,
+                "DNS": profile.dns,
+                "MTU": profile.mtu
+            ],
+            "Peers": [[
+                "PublicKey": profile.publicKey,
+                "PresharedKey": profile.presharedKey,
+                "Endpoint": profile.endpoint,
+                "AllowedIPs": profile.allowedIPs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) },
+                "PersistentKeepaliveInterval": profile.keepalive
+            ]]
+        ]
+        var req = URLRequest(url: baseURL.appendingPathComponent("api/profile/save"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func deleteProfile(name: String) async {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/profile/delete"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components.url else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        _ = try? await URLSession.shared.data(for: req)
+    }
+}
+
+struct ExportResponse: Codable {
+    let name: String
+    let content: String
 }

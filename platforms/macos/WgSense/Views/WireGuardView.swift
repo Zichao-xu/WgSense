@@ -36,28 +36,8 @@ struct WireGuardView: View {
                     infoRow("假连接检测", "每 30s 探测 google.com")
                 }
 
-                // Profiles
-                Text("Profiles").font(.headline)
-                if client.profiles.isEmpty {
-                    Text("无可用 profile（放入 ~/.local/share/wgsense/profiles/*.conf）")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    VStack(spacing: 6) {
-                        ForEach(client.profiles, id: \.self) { p in
-                            HStack {
-                                Image(systemName: client.status?.service == p ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(.tint)
-                                Text(p)
-                                Spacer()
-                                Text(p == client.status?.service ? "当前" : "")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            .padding(8)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                        }
-                    }
-                }
+                // Profiles（导入/导出/手动填写向导）
+                ProfileManagerView()
             }
             .padding(20)
         }
