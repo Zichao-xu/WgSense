@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go-core:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  macos-build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: platforms/macos
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Debug build -destination 'platform=macOS' CODE_SIGN_IDENTITY="-"
