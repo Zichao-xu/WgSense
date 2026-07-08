@@ -223,6 +223,36 @@ func (m *darwinManager) DiscoverServices() ([]string, error) {
 	return services, nil
 }
 
+// ConfigDir 返回配置文件目录路径。
+func (m *darwinManager) ConfigDir() string {
+	return m.configDir
+}
+
+// SaveProfile 将 .conf 文本保存为 {name}.conf。
+func (m *darwinManager) SaveProfile(name, content string) error {
+	if err := os.MkdirAll(m.configDir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(m.configDir, name+".conf")
+	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// LoadProfileContent 读取 {name}.conf 的文本内容。
+func (m *darwinManager) LoadProfileContent(name string) (string, error) {
+	path := filepath.Join(m.configDir, name+".conf")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// DeleteProfile 删除 {name}.conf。
+func (m *darwinManager) DeleteProfile(name string) error {
+	path := filepath.Join(m.configDir, name+".conf")
+	return os.Remove(path)
+}
+
 // setupSignalHandler 注册信号处理，确保 daemon 被 kill 时清理路由。
 func (m *darwinManager) setupSignalHandler() {
 	sigCh := make(chan os.Signal, 1)

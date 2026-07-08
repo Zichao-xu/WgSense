@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
 		4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA034BB1EC7512467D785C99 /* MainView.swift */; };
 		65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF23D4A47461A7F12D1F16B /* OverviewView.swift */; };
@@ -23,6 +24,7 @@
 		89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseApp.swift; sourceTree = "<group>"; };
 		8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireGuardView.swift; sourceTree = "<group>"; };
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
+		C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileManagerView.swift; sourceTree = "<group>"; };
 		EA034BB1EC7512467D785C99 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -53,6 +55,7 @@
 				FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */,
 				8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */,
 				7DF23D4A47461A7F12D1F16B /* OverviewView.swift */,
+				C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */,
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
 			);
 			path = Views;
@@ -130,6 +133,7 @@
 				80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */,
 				A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */,
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
+				00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */,
 			);

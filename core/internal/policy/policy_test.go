@@ -16,10 +16,14 @@ func (m mockLocation) CurrentIPv4s() []string     { return nil }
 
 type mockTunnel struct{ state tunnel.State }
 
-func (m *mockTunnel) Connect(string) error             { m.state = tunnel.StateConnected; return nil }
-func (m *mockTunnel) Disconnect(string) error          { m.state = tunnel.StateDisconnected; return nil }
+func (m *mockTunnel) Connect(string) error                { m.state = tunnel.StateConnected; return nil }
+func (m *mockTunnel) Disconnect(string) error             { m.state = tunnel.StateDisconnected; return nil }
 func (m *mockTunnel) Status(string) (tunnel.State, error) { return m.state, nil }
 func (m *mockTunnel) DiscoverServices() ([]string, error) { return nil, nil }
+func (m *mockTunnel) ConfigDir() string                   { return "/tmp/mock" }
+func (m *mockTunnel) SaveProfile(string, string) error    { return nil }
+func (m *mockTunnel) LoadProfileContent(string) (string, error) { return "", nil }
+func (m *mockTunnel) DeleteProfile(string) error          { return nil }
 
 type mockHealth struct{ connected bool }
 

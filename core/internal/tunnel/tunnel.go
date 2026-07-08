@@ -22,6 +22,14 @@ type Manager interface {
 	Status(service string) (State, error)
 	// DiscoverServices 发现系统中的 WG 隧道名列表。
 	DiscoverServices() ([]string, error)
+	// ConfigDir 返回配置文件目录路径。
+	ConfigDir() string
+	// SaveProfile 将 .conf 文本保存为 profile 文件。
+	SaveProfile(name, content string) error
+	// LoadProfileContent 读取 profile 的 .conf 文本。
+	LoadProfileContent(name string) (string, error)
+	// DeleteProfile 删除 profile 文件。
+	DeleteProfile(name string) error
 }
 
 // New 返回当前平台的 Manager。configDir 是 .conf 配置文件目录。

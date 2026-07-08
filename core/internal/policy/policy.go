@@ -167,3 +167,23 @@ func (e *Engine) Profiles() []string {
 	services, _ := e.tun.DiscoverServices()
 	return services
 }
+
+// ConfigDir 返回配置目录路径。
+func (e *Engine) ConfigDir() string {
+	return e.tun.ConfigDir()
+}
+
+// ImportProfile 将 .conf 文本内容保存为新 profile。
+func (e *Engine) ImportProfile(name, content string) error {
+	return e.tun.SaveProfile(name, content)
+}
+
+// ExportProfile 读取指定 profile 的 .conf 文本内容。
+func (e *Engine) ExportProfile(name string) (string, error) {
+	return e.tun.LoadProfileContent(name)
+}
+
+// DeleteProfile 删除指定 profile。
+func (e *Engine) DeleteProfile(name string) error {
+	return e.tun.DeleteProfile(name)
+}
