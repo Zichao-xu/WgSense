@@ -73,7 +73,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 
 	// 1. 解析 endpoint IP 并添加排除路由（在创建 TUN 之前，确保后续 UDP 包走物理接口）
 	var endpointIP string
-	for _, peer := range profile.Peers {
+	for i, peer := range profile.Peers {
 		if peer.Endpoint != "" {
 			ip, err := resolveEndpoint(peer.Endpoint)
 			if err != nil {
@@ -81,6 +81,13 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 			}
 			endpointIP = ip
 			log.Printf("[tunnel] endpoint %s → %s", peer.Endpoint, ip)
+
+			// 把 endpoint 从 host:port 替换为 ip:port，避免 wireguard-go 内部再解析域名
+			host, port, _ := net.SplitHostPort(peer.Endpoint)
+			if host != ip {
+				profile.Peers[i].Endpoint = ip + ":" + port
+				log.Printf("[tunnel] UAPI endpoint 改为 IP: %s", profile.Peers[i].Endpoint)
+			}
 
 			// endpoint 排除路由：走物理网关，不走隧道
 			if err := m.addExclusionRoute(endpointIP, gw); err != nil {
@@ -112,18 +119,14 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	logger := device.NewLogger(device.LogLevelVerbose, "wgsense")
 	m.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
 
-	// 5. IPC 配置
-	if err := m.dev.IpcSet(buildUAPI(profile)); err != nil {
+	// 5. IPC 配置（IpcSet 内部会触发 BindUpdate + 握手发起，不需要再显式调用 BindUpdate）
+	uapi := buildUAPI(profile)
+	log.Printf("[tunnel] UAPI 配置:\n%s", uapi)
+	if err := m.dev.IpcSet(uapi); err != nil {
 		m.cleanup()
 		return fmt.Errorf("IPC 配置: %w", err)
 	}
-
-	// 6. 启动 UDP — 此时 endpoint 排除路由已就位，UDP 包走物理接口
-	if err := m.dev.BindUpdate(); err != nil {
-		m.cleanup()
-		return fmt.Errorf("BindUpdate: %w", err)
-	}
-	log.Printf("[tunnel] BindUpdate 完成，UDP 包走 %s", m.physIface)
+	log.Printf("[tunnel] IpcSet 完成（含内部 BindUpdate + 握手发起）")
 
 	// 7. 配置 TUN IP
 	if profile.Interface.Address != "" {
@@ -134,28 +137,17 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 		log.Printf("[tunnel] TUN IP: %s", profile.Interface.Address)
 	}
 
-	// 8. 添加探测路由（仅 1.1.1.1/32 → TUN）
-	//    不加全量路由，避免握手失败时全流量黑洞。
-	//    1.1.1.1 的流量进入 TUN → wireguard-go 尝试加密 → 触发握手发起。
-	probeTarget := "1.1.1.1/32"
-	if err := m.addTunnelRoute(probeTarget); err != nil {
-		m.cleanup()
-		return fmt.Errorf("添加探测路由: %w", err)
-	}
-	log.Printf("[tunnel] 探测路由已添加 (1.1.1.1/32 → %s)", m.tunName)
-
-	// 9. 等待握手（探测流量触发握手，不影响其他网络流量）
+	// 8. 等待握手（IpcSet 已自动发起握手，不需要外部流量触发）
+	//    不加任何路由 → 握手失败时不影响网络
 	log.Printf("[tunnel] 等待握手（最多 15s）...")
 	handshakeOK := m.waitForHandshake(15 * time.Second)
 	if !handshakeOK {
-		log.Printf("[tunnel] ⚠️ 握手失败，清理探测路由")
 		m.cleanup()
-		return fmt.Errorf("WG 握手失败（15s 内无响应）— 仅 1.1.1.1 受影响，其他网络正常")
+		return fmt.Errorf("WG 握手失败（15s 内无响应）")
 	}
 	log.Printf("[tunnel] ✅ 握手成功，添加全量路由")
 
-	// 10. 握手成功，删除探测路由，添加全量隧道路由
-	m.removeRoute(routeEntry{cidr: "1.1.1.1/32", dev: m.tunName})
+	// 9. 握手成功，添加全量隧道路由（0.0.0.0/0 拆分为 0/1 + 128.0/1）
 	for _, peer := range profile.Peers {
 		for _, cidr := range peer.AllowedIPs {
 			if err := m.addTunnelRoute(cidr); err != nil {
@@ -171,20 +163,22 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 }
 
 // waitForHandshake 等待 wireguard-go 设备完成握手。
-// 通过轮询 IPC 获取 peer 的 latest handshake 时间来判断。
+// waitForHandshake 轮询 IPC 判断握手是否完成。
+// IpcSet 创建 peer 时会自动发送 handshake initiation，不需要外部触发。
+// 不依赖 ping（避免与 Clash fake-ip 等代理工具冲突）。
 func (m *darwinManager) waitForHandshake(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
+
 	for time.Now().Before(deadline) {
-		// 从 IPC 获取 peer 状态
 		ipc, err := m.dev.IpcGet()
 		if err != nil {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-		// 查找 latest_handshake 不为 0
+		// 查找 last_handshake_time_sec 不为 0
 		for _, line := range strings.Split(ipc, "\n") {
-			if strings.HasPrefix(line, "latest_handshake=") {
-				ts := strings.TrimPrefix(line, "latest_handshake=")
+			if strings.HasPrefix(line, "last_handshake_time_sec=") {
+				ts := strings.TrimPrefix(line, "last_handshake_time_sec=")
 				if ts != "0" && ts != "" {
 					return true
 				}

@@ -13,8 +13,9 @@ import (
 )
 
 // buildUAPI 把 Profile 转成 wireguard-go 的 UAPI 配置文本。
-// UAPI 格式:key=value 每行，空行分隔 interface 和每个 peer。
-// 注意:UAPI 不含 Address/DNS(那是 wg-quick 扩展)，需单独配置 TUN。
+// UAPI 格式:key=value 每行。
+// 注意：空行在 wireguard-go 的 IpcSet 中表示"结束"，不能用来分段。
+// public_key= 行本身会触发从 device 配置到 peer 配置的切换。
 func buildUAPI(p *config.Profile) string {
 	var b strings.Builder
 	// Interface 段
@@ -22,9 +23,8 @@ func buildUAPI(p *config.Profile) string {
 	if p.Interface.ListenPort > 0 {
 		b.WriteString(fmt.Sprintf("listen_port=%d\n", p.Interface.ListenPort))
 	}
-	// Peer 段(每个 peer 前空行)
+	// Peer 段（直接跟在 interface 后面，不加空行）
 	for _, peer := range p.Peers {
-		b.WriteString("\n")
 		b.WriteString("public_key=" + base64ToHex(peer.PublicKey) + "\n")
 		if peer.PresharedKey != "" {
 			b.WriteString("preshared_key=" + base64ToHex(peer.PresharedKey) + "\n")
