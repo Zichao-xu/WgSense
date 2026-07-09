@@ -51,6 +51,9 @@ func newPlatformManager(configDir string) Manager {
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
 // 需要 root(CreateTUN + ifconfig + route)。
 func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
+	// 重置 cleanup 标志，允许新一轮清理
+	m.cleaned = false
+
 	// 0. 获取物理网络信息（必须在路由表变更前）
 	gw, err := getDefaultGateway()
 	if err != nil {
@@ -122,26 +125,37 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	}
 	log.Printf("[tunnel] BindUpdate 完成，UDP 包走 %s", m.physIface)
 
-	// 7. 配置 TUN IP（不加路由，先等握手）
+	// 7. 配置 TUN IP
 	if profile.Interface.Address != "" {
 		if err := configureInterface(m.tunName, profile.Interface.Address); err != nil {
 			m.cleanup()
 			return fmt.Errorf("配置 TUN IP: %w", err)
 		}
-		log.Printf("[tunnel] TUN IP: %s（路由暂未添加，等待握手）", profile.Interface.Address)
+		log.Printf("[tunnel] TUN IP: %s", profile.Interface.Address)
 	}
 
-	// 8. 等待 WG 握手成功（最多 15 秒）
-	//    握手成功后再加路由 → 如果握手失败，路由不会加 → 不影响网络
+	// 8. 添加探测路由（仅 1.1.1.1/32 → TUN）
+	//    不加全量路由，避免握手失败时全流量黑洞。
+	//    1.1.1.1 的流量进入 TUN → wireguard-go 尝试加密 → 触发握手发起。
+	probeTarget := "1.1.1.1/32"
+	if err := m.addTunnelRoute(probeTarget); err != nil {
+		m.cleanup()
+		return fmt.Errorf("添加探测路由: %w", err)
+	}
+	log.Printf("[tunnel] 探测路由已添加 (1.1.1.1/32 → %s)", m.tunName)
+
+	// 9. 等待握手（探测流量触发握手，不影响其他网络流量）
 	log.Printf("[tunnel] 等待握手（最多 15s）...")
 	handshakeOK := m.waitForHandshake(15 * time.Second)
 	if !handshakeOK {
+		log.Printf("[tunnel] ⚠️ 握手失败，清理探测路由")
 		m.cleanup()
-		return fmt.Errorf("WG 握手失败（15s 内无响应）— 不添加路由，不影响网络")
+		return fmt.Errorf("WG 握手失败（15s 内无响应）— 仅 1.1.1.1 受影响，其他网络正常")
 	}
-	log.Printf("[tunnel] ✅ 握手成功！开始添加隧道路由")
+	log.Printf("[tunnel] ✅ 握手成功，添加全量路由")
 
-	// 9. 握手成功后，添加隧道路由（0.0.0.0/0 拆分为 0/1 + 128.0/1）
+	// 10. 握手成功，删除探测路由，添加全量隧道路由
+	m.removeRoute(routeEntry{cidr: "1.1.1.1/32", dev: m.tunName})
 	for _, peer := range profile.Peers {
 		for _, cidr := range peer.AllowedIPs {
 			if err := m.addTunnelRoute(cidr); err != nil {
@@ -150,14 +164,9 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 			}
 		}
 	}
-	log.Printf("[tunnel] 隧道路由已添加 (0/1 + 128.0/1 → %s)", m.tunName)
+	log.Printf("[tunnel] 全量隧道路由已添加 (0/1 + 128.0/1 → %s)", m.tunName)
 
-	// 注意：不修改系统 DNS。
-	// DNS 查询的流量走向取决于系统 DNS 服务器地址：
-	// - 如果 DNS 是本地网段的（如路由器 192.168.x.1），查询走排除路由 → 物理接口 → 正常解析
-	// - 如果 DNS 是隧道内的（如 10.66.66.1），查询走隧道路由 → 走 TUN → WG 内解析
-	// 无论哪种，都由系统 resolver 处理，不需要 networksetup 改 DNS
-	log.Printf("[tunnel] 连接完成，不修改系统 DNS")
+	// 不修改系统 DNS
 	return nil
 }
 
@@ -342,6 +351,23 @@ func (m *darwinManager) addTunnelRoute(cidr string) error {
 	}
 	m.addedRoutes = append(m.addedRoutes, routeEntry{cidr: cidr, gw: "", dev: m.tunName})
 	return nil
+}
+
+// removeRoute 删除单条路由（不经过 addedRoutes 列表）。
+func (m *darwinManager) removeRoute(r routeEntry) {
+	var cmd *exec.Cmd
+	if r.gw != "" {
+		cmd = exec.Command("route", "-n", "delete", "-host", r.cidr, r.gw)
+	} else if r.dev != "" {
+		if strings.Contains(r.cidr, ":") {
+			cmd = exec.Command("route", "-n", "delete", "-inet6", r.cidr, "-interface", r.dev)
+		} else {
+			cmd = exec.Command("route", "-n", "delete", "-net", r.cidr, "-interface", r.dev)
+		}
+	}
+	if cmd != nil {
+		_ = cmd.Run()
+	}
 }
 
 // --- 网络工具函数 ---
