@@ -22,6 +22,7 @@ import (
 
 func main() {
 	apiAddr := flag.String("api", "127.0.0.1:8765", "API 监听地址")
+	configDir := flag.String("config-dir", "", "配置目录（默认 ~/.local/share/wgsense/profiles）")
 	flag.Parse()
 
 	cfg := config.Default()
@@ -31,11 +32,14 @@ func main() {
 	pauseFile := filepath.Join(rtDir, "pause-marker")
 
 	// 配置目录(放 .conf profile)
-	configDir := filepath.Join(rtDir, "profiles")
-	os.MkdirAll(configDir, 0755)
+	cDir := *configDir
+	if cDir == "" {
+		cDir = filepath.Join(rtDir, "profiles")
+	}
+	os.MkdirAll(cDir, 0755)
 
 	loc := location.New()
-	tun := tunnel.New(configDir)
+	tun := tunnel.New(cDir)
 	hc := healthcheck.New(cfg.HealthCheckTarget)
 	p := pause.New(pauseFile)
 	eng := policy.New(cfg, loc, tun, hc, p)

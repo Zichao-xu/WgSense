@@ -11,19 +11,26 @@ struct ProfileManagerView: View {
     @State private var exportProfile: String?
     @State private var showDeleteConfirm = false
     @State private var deleteProfile: String?
+    @State private var editProfile: ProfileName?
+
+// Wrapper for sheet(item:)
+struct ProfileName: Identifiable {
+    let name: String
+    var id: String { name }
+}
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // 标题 + 操作按钮
+        VStack(alignment: .leading, spacing: WgTheme.spacing) {
             HStack {
-                Text("Profiles").font(.headline)
+                Text("Profiles").font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     showImport = true
                 } label: {
-                    Label("导入 .conf", systemImage: "square.and.arrow.down")
+                    Label("导入", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 Button {
                     showWizard = true
@@ -31,19 +38,25 @@ struct ProfileManagerView: View {
                     Label("手动填写", systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
 
             // Profile 列表
             if client.profiles.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(client.profiles, id: \.self) { p in
-                            profileRow(p)
+                VStack(spacing: 1) {
+                    ForEach(client.profiles, id: \.self) { p in
+                        profileRow(p)
+                        if p != client.profiles.last {
+                            Divider().opacity(0.3)
                         }
                     }
                 }
+                .padding(12)
+                .background(WgTheme.cardBg)
+                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
             }
         }
         .sheet(isPresented: $showImport) {
@@ -51,8 +64,8 @@ struct ProfileManagerView: View {
                 Task {
                     await client.importProfile(name: name, content: content)
                     await client.fetchProfiles()
+                    showImport = false
                 }
-                showImport = false
             }
         }
         .sheet(isPresented: $showWizard) {
@@ -60,8 +73,8 @@ struct ProfileManagerView: View {
                 Task {
                     await client.saveProfile(profile)
                     await client.fetchProfiles()
+                    showWizard = false
                 }
-                showWizard = false
             }
         }
         .sheet(isPresented: $showExport) {
@@ -71,6 +84,20 @@ struct ProfileManagerView: View {
                 }
                 .environmentObject(client)
             }
+        }
+        .sheet(item: $editProfile) { item in
+            EditProfileView(profileName: item.name) {
+                Task {
+                    await client.fetchProfiles()
+                    // 如果编辑的是当前使用的 profile，重新连接使其生效
+                    if client.status?.service == item.name {
+                        await client.post("disconnect")
+                        await client.post("connect")
+                    }
+                }
+                editProfile = nil
+            }
+            .environmentObject(client)
         }
         .confirmationDialog("确认删除？", isPresented: $showDeleteConfirm) {
             Button("删除 \(deleteProfile ?? "")", role: .destructive) {
@@ -88,34 +115,50 @@ struct ProfileManagerView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.badge.plus")
-                .font(.system(size: 40))
+                .font(.system(size: 36))
                 .foregroundStyle(.secondary)
             Text("还没有 Profile")
-                .font(.headline)
-            Text("导入 .conf 文件或手动填写密钥信息")
+                .font(.subheadline)
+            Text("导入 .conf 或手动填写")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(30)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(WgTheme.cardBg)
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
     }
 
     private func profileRow(_ name: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: client.status?.service == name ? "checkmark.shield.fill" : "shield")
-                .foregroundStyle(client.status?.service == name ? .green : .secondary)
-                .font(.title3)
+        let isActive = client.status?.service == name
+        return HStack(spacing: 12) {
+            Image(systemName: isActive ? "checkmark.shield.fill" : "shield")
+                .foregroundStyle(isActive ? .green : .secondary)
+                .font(.body)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).fontWeight(.medium)
-                if client.status?.service == name {
-                    Text("当前使用").font(.caption).foregroundStyle(.green)
-                }
-            }
+            Text(name)
+                .fontWeight(isActive ? .medium : .regular)
+                .foregroundStyle(isActive ? .primary : .secondary)
 
             Spacer()
+
+            if !isActive {
+                Button("切换") {
+                    Task { await client.switchProfile(name) }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            // 编辑
+            Button {
+                editProfile = ProfileName(name: name)
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .help("编辑")
 
             // 导出
             Button {
@@ -137,13 +180,7 @@ struct ProfileManagerView: View {
             .buttonStyle(.borderless)
             .help("删除")
         }
-        .padding(12)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .transition(.asymmetric(
-            insertion: .scale(scale: 0.9).combined(with: .opacity),
-            removal: .opacity
-        ))
+        .padding(.vertical, 4)
     }
 }
 
@@ -257,9 +294,13 @@ struct ImportConfView: View {
 
     private func pickFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "选择 WireGuard 配置文件"
+        panel.message = "选择 .conf 文件"
+        // 不限制文件类型，.conf 没有标准 UTType，用 allowedFileTypes 过滤扩展名
+        panel.allowedFileTypes = ["conf", "txt"]
         if panel.runModal() == .OK, let url = panel.url {
             loadFile(url)
         }
@@ -372,6 +413,7 @@ struct WGProfile: Codable {
 }
 
 struct ManualWizardView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var step = 0
     @State private var profile = WGProfile()
     let onComplete: (WGProfile) -> Void
@@ -386,7 +428,7 @@ struct ManualWizardView: View {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(i <= step ? Color.accentColor : Color.secondary.opacity(0.3))
-                            .frame(width: 24, height: 24)
+                            .frame(width: 22, height: 22)
                             .overlay(
                                 Group {
                                     if i < step {
@@ -396,8 +438,7 @@ struct ManualWizardView: View {
                                     }
                                 }
                             )
-                            .scaleEffect(i == step ? 1.15 : 1.0)
-                            .animation(.spring(response: 0.3), value: step)
+                            .scaleEffect(i == step ? 1.1 : 1.0)
 
                         Text(steps[i])
                             .font(.caption)
@@ -405,108 +446,120 @@ struct ManualWizardView: View {
 
                         if i < steps.count - 1 {
                             Rectangle()
-                                .fill(i < step ? Color.accentColor : Color.secondary.opacity(0.3))
-                                .frame(height: 2)
+                                .fill(i < step ? Color.accentColor : Color.secondary.opacity(0.2))
+                                .frame(height: 1.5)
                                 .frame(maxWidth: .infinity)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 32)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
 
             Divider()
 
-            // 步骤内容（带转场动画）
-            TabView(selection: $step) {
-                // Step 0: 名称
-                VStack(spacing: 16) {
-                    wizardIcon("person.crop.circle.badge.questionmark")
-                    wizardTitle("给你的配置起个名字", "方便后续识别和管理")
-                    TextField("如：home-vpn", text: $profile.name)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.title3)
-                        .frame(maxWidth: 300)
-                }
-                .tag(0)
-
-                // Step 1: Interface
-                VStack(spacing: 12) {
-                    wizardIcon("key.fill")
-                    wizardTitle("本机密钥信息", "这些信息来自你的 WireGuard 服务端配置")
-
-                    wizardField("Private Key", "本机私钥 (base64)", text: $profile.privateKey, monospaced: true)
-                    wizardField("Address", "本机隧道 IP (如 10.66.66.3/24)", text: $profile.address)
-                    HStack(spacing: 16) {
-                        wizardField("DNS (可选)", "DNS 服务器", text: $profile.dns)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("MTU").font(.caption).foregroundStyle(.secondary)
-                            TextField("1420", value: $profile.mtu, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
+            // 步骤内容
+            ZStack {
+                if step == 0 {
+                    VStack(spacing: 20) {
+                        wizardIcon("person.crop.circle.badge.questionmark")
+                        wizardTitle("给你的配置起个名字", "方便后续识别和管理")
+                        TextField("如：home-vpn", text: $profile.name)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.title3)
+                            .frame(maxWidth: 320)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
                 }
-                .tag(1)
 
-                // Step 2: Peer
-                VStack(spacing: 12) {
-                    wizardIcon("network")
-                    wizardTitle("对端（服务器）信息", "WireGuard 服务端的连接信息")
-
-                    wizardField("Public Key", "服务器公钥 (base64)", text: $profile.publicKey, monospaced: true)
-                    wizardField("Endpoint", "服务器地址 (如 vpn.example.com:51820)", text: $profile.endpoint)
-                    wizardField("Allowed IPs", "走隧道的网段", text: $profile.allowedIPs)
-
-                    HStack(spacing: 16) {
-                        wizardField("Preshared Key (可选)", "预共享密钥", text: $profile.presharedKey, monospaced: true)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Keepalive").font(.caption).foregroundStyle(.secondary)
-                            TextField("25", value: $profile.keepalive, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                    }
-                }
-                .tag(2)
-
-                // Step 3: 确认
-                VStack(spacing: 12) {
-                    wizardIcon("checkmark.seal.fill")
-                    wizardTitle("确认配置信息", "检查无误后点击保存")
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
-                            reviewRow("名称", profile.name)
-                            Divider()
-                            reviewRow("Private Key", String(profile.privateKey.prefix(16)) + "...")
-                            reviewRow("Address", profile.address)
-                            if !profile.dns.isEmpty { reviewRow("DNS", profile.dns) }
-                            reviewRow("MTU", "\(profile.mtu)")
-                            Divider()
-                            reviewRow("Public Key", String(profile.publicKey.prefix(16)) + "...")
-                            reviewRow("Endpoint", profile.endpoint)
-                            reviewRow("Allowed IPs", profile.allowedIPs)
-                            if !profile.presharedKey.isEmpty {
-                                reviewRow("Preshared Key", String(profile.presharedKey.prefix(16)) + "...")
+                if step == 1 {
+                    VStack(spacing: 16) {
+                        wizardIcon("key.fill")
+                        wizardTitle("本机密钥信息", "来自你的 WireGuard 服务端配置")
+                        VStack(spacing: 12) {
+                            wizardField("Private Key", "本机私钥 (base64)", text: $profile.privateKey, monospaced: true)
+                            wizardField("Address", "本机隧道 IP (如 10.66.66.3/24)", text: $profile.address)
+                            HStack(spacing: 12) {
+                                wizardField("DNS (可选)", "DNS 服务器", text: $profile.dns)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("MTU").font(.caption).foregroundStyle(.secondary)
+                                    TextField("1420", value: $profile.mtu, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                }
                             }
-                            reviewRow("Keepalive", "\(profile.keepalive)s")
                         }
-                        .padding(16)
-                        .background(.regularMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(maxWidth: 400)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
                 }
-                .tag(3)
+
+                if step == 2 {
+                    VStack(spacing: 16) {
+                        wizardIcon("network")
+                        wizardTitle("对端（服务器）信息", "WireGuard 服务端的连接信息")
+                        VStack(spacing: 12) {
+                            wizardField("Public Key", "服务器公钥 (base64)", text: $profile.publicKey, monospaced: true)
+                            wizardField("Endpoint", "服务器地址 (如 vpn.example.com:51820)", text: $profile.endpoint)
+                            wizardField("Allowed IPs", "走隧道的网段", text: $profile.allowedIPs)
+                            HStack(spacing: 12) {
+                                wizardField("Preshared Key (可选)", "预共享密钥", text: $profile.presharedKey, monospaced: true)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Keepalive").font(.caption).foregroundStyle(.secondary)
+                                    TextField("25", value: $profile.keepalive, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: 400)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                }
+
+                if step == 3 {
+                    VStack(spacing: 16) {
+                        wizardIcon("checkmark.seal.fill")
+                        wizardTitle("确认配置信息", "检查无误后点击保存")
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 8) {
+                                reviewRow("名称", profile.name)
+                                Divider()
+                                reviewRow("Private Key", String(profile.privateKey.prefix(16)) + "...")
+                                reviewRow("Address", profile.address)
+                                if !profile.dns.isEmpty { reviewRow("DNS", profile.dns) }
+                                reviewRow("MTU", "\(profile.mtu)")
+                                Divider()
+                                reviewRow("Public Key", String(profile.publicKey.prefix(16)) + "...")
+                                reviewRow("Endpoint", profile.endpoint)
+                                reviewRow("Allowed IPs", profile.allowedIPs)
+                                if !profile.presharedKey.isEmpty {
+                                    reviewRow("Preshared Key", String(profile.presharedKey.prefix(16)) + "...")
+                                }
+                                reviewRow("Keepalive", "\(profile.keepalive)s")
+                            }
+                            .padding(16)
+                            .background(.regularMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .frame(maxWidth: 400)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                }
             }
             .animation(.easeInOut(duration: 0.3), value: step)
+            .padding(.top, 8)
 
             Divider()
 
             // 底部导航
             HStack {
-                Button("取消") {}
+                Button("取消") { dismiss() }
                     .buttonStyle(.bordered)
                 Spacer()
                 if step > 0 {
@@ -528,9 +581,9 @@ struct ManualWizardView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            .padding(24)
+            .padding(20)
         }
-        .frame(width: 560, height: 580)
+        .frame(width: 520, height: 560)
     }
 
     private var canProceed: Bool {
@@ -545,7 +598,7 @@ struct ManualWizardView: View {
     private func wizardIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 44))
-            .foregroundStyle(.tint)
+            .foregroundStyle(Color.accentColor)
             .padding(.bottom, 4)
     }
 
@@ -578,5 +631,64 @@ struct ManualWizardView: View {
             Spacer()
             Text(value).font(.system(.caption, design: .monospaced))
         }
+    }
+}
+
+// MARK: - 编辑 Profile
+
+struct EditProfileView: View {
+    @EnvironmentObject var client: DaemonClient
+    @Environment(\.dismiss) private var dismiss
+    let profileName: String
+    let onSaved: () -> Void
+
+    @State private var content: String = ""
+    @State private var loaded = false
+    @State private var saved = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("编辑 \(profileName)").font(.title2).fontWeight(.semibold)
+
+            if !loaded {
+                ProgressView("加载配置...")
+            } else {
+                TextEditor(text: $content)
+                    .font(.system(.body, design: .monospaced))
+                    .padding(8)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                if saved {
+                    Label("已保存", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .transition(.scale.combined(with: .opacity))
+                }
+
+                HStack {
+                    Button("取消") { dismiss() }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Button("保存") {
+                        Task {
+                            await client.updateProfile(name: profileName, content: content)
+                            withAnimation { saved = true }
+                            onSaved()
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                            dismiss()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(content.isEmpty)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 520, height: 500)
+        .task {
+            content = await client.loadProfileContent(name: profileName)
+            loaded = true
+        }
+        .animation(.spring(response: 0.4), value: saved)
     }
 }

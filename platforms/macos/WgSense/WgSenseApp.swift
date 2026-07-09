@@ -24,6 +24,14 @@ struct WgSenseApp: App {
             MainView()
                 .environmentObject(client)
                 .frame(minWidth: 720, minHeight: 480)
+                .alert("操作失败", isPresented: Binding(
+                    get: { client.alertMsg != nil },
+                    set: { if !$0 { client.alertMsg = nil } }
+                )) {
+                    Button("确定", role: .cancel) { client.alertMsg = nil }
+                } message: {
+                    Text(client.alertMsg ?? "")
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 900, height: 600)

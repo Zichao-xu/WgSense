@@ -36,6 +36,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/profile/export", s.handleProfileExport)
 	mux.HandleFunc("/api/profile/save", s.handleProfileSave)
 	mux.HandleFunc("/api/profile/delete", s.handleProfileDelete)
+	mux.HandleFunc("/api/config", s.handleConfig)
 	srv := &http.Server{
 		Addr:    s.addr,
 		Handler: mux,
@@ -150,6 +151,24 @@ func (s *Server) handleProfileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.eng.DeleteProfile(name); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleConfig GET 返回当前配置，POST 更新配置。
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		writeJSON(w, s.eng.GetConfig())
+		return
+	}
+	var cfg config.Config
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.eng.UpdateConfig(cfg); err != nil {
 		writeError(w, err)
 		return
 	}

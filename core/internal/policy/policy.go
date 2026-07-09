@@ -187,3 +187,33 @@ func (e *Engine) ExportProfile(name string) (string, error) {
 func (e *Engine) DeleteProfile(name string) error {
 	return e.tun.DeleteProfile(name)
 }
+
+// GetConfig 返回当前运行配置。
+func (e *Engine) GetConfig() config.Config {
+	return e.cfg
+}
+
+// UpdateConfig 更新运行配置（热更新，不需要重启 daemon）。
+func (e *Engine) UpdateConfig(cfg config.Config) error {
+	// 确保必要字段有合理值
+	if cfg.IntervalSeconds <= 0 {
+		cfg.IntervalSeconds = 10
+	}
+	if cfg.AutoUpGraceSeconds <= 0 {
+		cfg.AutoUpGraceSeconds = 20
+	}
+	if cfg.HealthCheckTarget == "" {
+		cfg.HealthCheckTarget = "https://1.1.1.1"
+	}
+	if cfg.HealthCheckIntervalSeconds <= 0 {
+		cfg.HealthCheckIntervalSeconds = 30
+	}
+	if len(cfg.HomeNetworkPrefixes) == 0 {
+		cfg.HomeNetworkPrefixes = []string{"10.10.1."}
+	}
+	e.cfg = cfg
+	e.hc = healthcheck.New(cfg.HealthCheckTarget)
+	log.Printf("配置已更新: 间隔=%ds 宽限=%ds 探测=%s 家网段=%v",
+		cfg.IntervalSeconds, cfg.AutoUpGraceSeconds, cfg.HealthCheckTarget, cfg.HomeNetworkPrefixes)
+	return nil
+}
