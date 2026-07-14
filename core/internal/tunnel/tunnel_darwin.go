@@ -256,6 +256,58 @@ func (m *darwinManager) DeleteProfile(name string) error {
 	return os.Remove(path)
 }
 
+// InterfaceBytes 返回当前活跃网络接口的累计发送/接收字节数。
+// 从所有非 loopback 接口中选取流量最大的一个，避免叠加导致数值虚高。
+func (m *darwinManager) InterfaceBytes(_ string) (tx, rx uint64) {
+	return getActiveInterfaceBytes()
+}
+
+// getActiveInterfaceBytes 通过 netstat -ib 读取所有非 lo 接口，
+// 取 ibytes+obytes 最大的那个接口作为当前活跃网络接口。
+func getActiveInterfaceBytes() (tx, rx uint64) {
+	out, err := exec.Command("netstat", "-ib").Output()
+	if err != nil {
+		return 0, 0
+	}
+	var bestTx, bestRx, bestTotal uint64
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		name := fields[0]
+		// 排除 loopback
+		if name == "lo0" {
+			continue
+		}
+		// 只看 Link 层行
+		if !strings.HasPrefix(fields[2], "<Link") {
+			continue
+		}
+		// 跳过没有流量的接口
+		var ibytes, obytes uint64
+		if v, err := parseUint(fields[6]); err == nil {
+			ibytes = v
+		}
+		if v, err := parseUint(fields[9]); err == nil {
+			obytes = v
+		}
+		total := ibytes + obytes
+		if total > bestTotal {
+			bestTotal = total
+			bestTx = obytes
+			bestRx = ibytes
+		}
+	}
+	return bestTx, bestRx
+}
+
+func parseUint(s string) (uint64, error) {
+	var v uint64
+	_, err := fmt.Sscanln(s, &v)
+	return v, err
+}
+
 // setupSignalHandler 注册信号处理，确保 daemon 被 kill 时清理路由。
 func (m *darwinManager) setupSignalHandler() {
 	sigCh := make(chan os.Signal, 1)

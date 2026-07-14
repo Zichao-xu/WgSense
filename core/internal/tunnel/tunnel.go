@@ -30,6 +30,8 @@ type Manager interface {
 	LoadProfileContent(name string) (string, error)
 	// DeleteProfile 删除 profile 文件。
 	DeleteProfile(name string) error
+	// InterfaceBytes 返回 utun 接口的累计发送/接收字节数。
+	InterfaceBytes(service string) (tx uint64, rx uint64)
 }
 
 // New 返回当前平台的 Manager。configDir 是 .conf 配置文件目录。

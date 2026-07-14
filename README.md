@@ -1,15 +1,16 @@
 # WgSense
 
-跨平台 WireGuard 客户端，带智能管理能力——位置感知自动开关、假连接检测、睡眠唤醒恢复。
+跨平台网络工具套件，以 WireGuard 为首个模块——带智能管理能力：位置感知自动开关、假连接检测、睡眠唤醒恢复、Mihomo 代理面板。
 
 ## 为什么
 
 官方 WireGuard 客户端缺少智能管理：
-- 出门后隧道进入“假 Connected”状态，流量黑洞，必须手动停启
+- 出门后隧道进入"假 Connected"状态，流量黑洞，必须手动停启
 - 不会基于网络位置自动开关
 - 睡眠唤醒后不主动重建数据通道
+- 缺少统一的多协议代理管理界面
 
-WgSense 解决这些。
+WgSense 解决这些，并演进为**网络工具套件平台**（WireGuard + 局域网传输 + 代理管理等）。
 
 ## 架构
 
@@ -23,18 +24,49 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.1.0-alpha** — macOS 基础版已就位：
+**v0.2.0-alpha** — macOS 基础版 + 代理面板：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
-- [x] macOS SwiftUI app — Surge 风格 sidebar + 菜单栏图标
+- [x] macOS SwiftUI app — Surge 风格 sidebar + 菜单栏图标 + 磁贴仪表盘
 - [x] daemon HTTP API — `127.0.0.1:8765`
+- [x] Mihomo (Clash Meta) 代理面板 — 策略/域名/节点/订阅四页签
+- [x] 局域网传输模块 (LocalSend 协议兼容, 端口 53318)
+- [x] Profile CRUD — 导入/导出/编辑/切换，支持 daemon 离线操作
+- [x] 流量监控 — netstat 自动选活跃接口
 - [x] GitHub Actions CI
 - [x] 路由修复 — 握手门控 + endpoint 排除 + DNS 不动系统配置
 - [ ] NetworkExtension target(等 Apple Developer 账号)
 - [ ] Windows / Linux / iOS / Android 平台
 
 > alpha 阶段：daemon 需 `sudo` 运行(手动创建 TUN)，NetworkExtension 尚未实现。
+
+## 项目结构
+
+```
+wgsense/
+├── core/                          # Go 核心层（跨平台 ~90% 复用）
+│   ├── cmd/wgsense-daemon/        # daemon 主入口
+│   ├── internal/
+│   │   ├── tunnel/                # WireGuard 隧道 (wireguard-go)
+│   │   ├── proxy/                 # Mihomo 代理 API 对接
+│   │   ├── transfer/              # 局域网传输 (LocalSend 协议)
+│   │   ├── logbuf/                # 日志环形缓冲区
+│   │   ├── policy/                # 智能策略引擎
+│   │   └── config/                # 配置管理
+│   └── api/                       # daemon HTTP API (:8765)
+├── platforms/macos/               # macOS 原生 UI (SwiftUI)
+│   └── WgSense/
+│       ├── DaemonClient.swift     # daemon API 客户端
+│       ├── Views/
+│       │   ├── MainView.swift     # 仪表盘 + 磁贴系统
+│       │   ├── ProxyView.swift    # Mihomo 代理面板
+│       │   ├── OverviewView.swift # WG 连接概览
+│       │   ├── ProfileManagerView.swift  # Profile 管理
+│       │   └── OtherViews.swift   # 设置/日志/关于
+│       └── WgSenseApp.swift       # App 入口
+└── .github/workflows/             # CI
+```
 
 ## 开发
 

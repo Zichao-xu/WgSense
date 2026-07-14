@@ -28,7 +28,9 @@ xcuserdata/
 
 # 构建产物
 /core/wgsense-daemon
+/core/cmd/wgsense-daemon/wgsense-daemon
 /tmp/
+*.bak
 
 # 内部归档（不公开）
 .archive-*

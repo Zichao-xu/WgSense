@@ -25,7 +25,6 @@ struct OverviewView: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: WgTheme.spacing) {
-                infoCard(title: "Profile", value: client.status?.service ?? "—", icon: "doc.text.fill", color: .orange)
                 infoCard(title: "位置", value: client.status?.at_home == true ? "在家网段" : "在外", icon: "location.fill", color: client.status?.at_home == true ? .green : .blue)
                 infoCard(title: "守护", value: client.status?.paused == false ? "运行中" : "已暂停", icon: "shield.checkered", color: client.status?.paused == false ? .green : .gray)
                 infoCard(title: "状态", value: client.status?.state ?? "Unknown", icon: "network", color: statusColor)
@@ -81,7 +80,6 @@ struct OverviewView: View {
 
                 if let s = client.status {
                     VStack(alignment: .leading, spacing: 4) {
-                        detailLine("Profile", s.service)
                         detailLine("位置", s.at_home ? "在家网段" : "在外网段")
                         detailLine("管理", s.paused ? "已暂停" : "自动管理")
                     }

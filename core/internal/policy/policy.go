@@ -4,12 +4,15 @@ package policy
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/wgsense/core/internal/config"
 	"github.com/wgsense/core/internal/healthcheck"
 	"github.com/wgsense/core/internal/location"
+	"github.com/wgsense/core/internal/logbuf"
 	"github.com/wgsense/core/internal/pause"
 	"github.com/wgsense/core/internal/tunnel"
 )
@@ -23,11 +26,29 @@ type Engine struct {
 	pause      pause.Controller
 	service    string
 	lastAutoUp time.Time
+
+	// 日志缓冲（供 /api/logs 使用）
+	LogBuf *logbuf.Buffer
+
+	// 流量统计
+	trafficMu    sync.RWMutex
+	lastTxBytes  uint64
+	lastRxBytes  uint64
+	lastTxTime   time.Time
+	txSpeed      float64 // bytes/sec
+	rxSpeed      float64 // bytes/sec
 }
 
 // New 创建引擎。
 func New(cfg config.Config, loc location.Locator, tun tunnel.Manager, hc healthcheck.Checker, p pause.Controller) *Engine {
-	return &Engine{cfg: cfg, loc: loc, tun: tun, hc: hc, pause: p}
+	return &Engine{
+		cfg:    cfg,
+		loc:    loc,
+		tun:    tun,
+		hc:     hc,
+		pause:  p,
+		LogBuf: logbuf.New(200),
+	}
 }
 
 // SetService 设置当前管理的隧道/profile 名。
@@ -43,19 +64,19 @@ func (e *Engine) RunOnce() error {
 	// 暂停时跳过所有自动管理（包括在家断开、在外连接、假连接检测）
 	if e.pause.IsPaused() {
 		state, _ := e.tun.Status(e.service)
-		log.Printf("巡检 at_home=%v state=%s service=%s（已暂停，跳过）",
+		e.Logf("巡检 at_home=%v state=%s service=%s（已暂停，跳过）",
 			e.loc.IsHome(e.cfg.HomeNetworkPrefixes), state, e.service)
 		return nil
 	}
 
 	atHome := e.loc.IsHome(e.cfg.HomeNetworkPrefixes)
 	state, _ := e.tun.Status(e.service)
-	log.Printf("巡检 at_home=%v state=%s service=%s", atHome, state, e.service)
+	e.Logf("巡检 at_home=%v state=%s service=%s", atHome, state, e.service)
 
 	// 在家 → 断开
 	if atHome {
 		if state != tunnel.StateDisconnected {
-			log.Println("命中家网段，断开 WireGuard")
+			e.Logf("命中家网段，断开 WireGuard")
 			return e.tun.Disconnect(e.service)
 		}
 		return nil
@@ -65,10 +86,10 @@ func (e *Engine) RunOnce() error {
 	switch state {
 	case tunnel.StateDisconnected:
 		if e.recentAutoUp() {
-			log.Println("刚自动拉起，等待连接建立")
+			e.Logf("刚自动拉起，等待连接建立")
 			return nil
 		}
-		log.Println("不在家网段，自动连接 WireGuard")
+		e.Logf("不在家网段，自动连接 WireGuard")
 		if err := e.tun.Connect(e.service); err != nil {
 			return err
 		}
@@ -78,11 +99,11 @@ func (e *Engine) RunOnce() error {
 		// 假连接检测（bash 守护没做的）
 		// 刚连接后给 15 秒握手宽限期，不要立刻判定假连接
 		if e.recentAutoUp() {
-			log.Println("刚连接，等待握手（跳过假连接检测）")
+			e.Logf("刚连接，等待握手（跳过假连接检测）")
 			return nil
 		}
 		if e.hc.IsStaleConnected(true) {
-			log.Println("检测到假连接（Connected 但不通），强制重启隧道")
+			e.Logf("检测到假连接（Connected 但不通），强制重启隧道")
 			_ = e.tun.Disconnect(e.service)
 			if err := e.tun.Connect(e.service); err != nil {
 				return err
@@ -108,14 +129,14 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// 立即执行一次
 	if err := e.RunOnce(); err != nil {
-		log.Printf("巡检错误: %v", err)
+		e.Logf("巡检错误: %v", err)
 	}
 
 	for {
 		select {
 		case <-ticker.C:
 			if err := e.RunOnce(); err != nil {
-				log.Printf("巡检错误: %v", err)
+				e.Logf("巡检错误: %v", err)
 			}
 		case <-ctx.Done():
 			return ctx.Err()
@@ -213,7 +234,63 @@ func (e *Engine) UpdateConfig(cfg config.Config) error {
 	}
 	e.cfg = cfg
 	e.hc = healthcheck.New(cfg.HealthCheckTarget)
-	log.Printf("配置已更新: 间隔=%ds 宽限=%ds 探测=%s 家网段=%v",
+	e.Logf("配置已更新: 间隔=%ds 宽限=%ds 探测=%s 家网段=%v",
 		cfg.IntervalSeconds, cfg.AutoUpGraceSeconds, cfg.HealthCheckTarget, cfg.HomeNetworkPrefixes)
 	return nil
+}
+
+// Logf 写日志到标准输出 + 缓冲区。
+func (e *Engine) Logf(format string, args ...interface{}) {
+	line := fmt.Sprintf(format, args...)
+	log.Println(line)
+	e.LogBuf.WriteLine(line)
+}
+
+// Logs 返回最近 n 行日志。
+func (e *Engine) Logs(n int) []string {
+	return e.LogBuf.LastN(n)
+}
+
+// TrafficSnapshot 是流量统计快照。
+type TrafficSnapshot struct {
+	TxSpeed float64 `json:"tx_speed"` // 上行 bytes/sec
+	RxSpeed float64 `json:"rx_speed"` // 下行 bytes/sec
+	TxBytes uint64  `json:"tx_bytes"` // 累计上行
+	RxBytes uint64  `json:"rx_bytes"` // 累计下行
+}
+
+// TrafficStats 返回当前流量统计（通过 utun 接口读取）。
+func (e *Engine) TrafficStats() TrafficSnapshot {
+	e.trafficMu.RLock()
+	defer e.trafficMu.RUnlock()
+	return TrafficSnapshot{
+		TxSpeed: e.txSpeed,
+		RxSpeed: e.rxSpeed,
+		TxBytes: e.lastTxBytes,
+		RxBytes: e.lastRxBytes,
+	}
+}
+
+// UpdateTraffic 从 tun 接口读取最新字节数并计算速度。
+func (e *Engine) UpdateTraffic() {
+	tx, rx := e.tun.InterfaceBytes(e.service)
+	now := time.Now()
+
+	e.trafficMu.Lock()
+	defer e.trafficMu.Unlock()
+
+	if !e.lastTxTime.IsZero() {
+		dt := now.Sub(e.lastTxTime).Seconds()
+		if dt > 0 {
+			if tx >= e.lastTxBytes {
+				e.txSpeed = float64(tx-e.lastTxBytes) / dt
+			}
+			if rx >= e.lastRxBytes {
+				e.rxSpeed = float64(rx-e.lastRxBytes) / dt
+			}
+		}
+	}
+	e.lastTxBytes = tx
+	e.lastRxBytes = rx
+	e.lastTxTime = now
 }

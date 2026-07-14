@@ -13,6 +13,11 @@ enum WgTheme {
     static let accent = Color(red: 0.2, green: 0.5, blue: 0.95)
     static let cardRadius: CGFloat = 10
     static let spacing: CGFloat = 12
+    /// 磁贴尺寸基准：小磁贴高=y, 宽=x; 中=高y宽2x; 大=2y×2x; 间距=y/10
+    /// 设 y=80 → small: 80×(80/0.618)≈80×129, medium: 80×259, large: 160×259
+    static let tileY: CGFloat = 80
+    static let tileX: CGFloat = tileY / 0.618
+    static let tileGap: CGFloat = tileY / 10
 }
 
 // MARK: - 主窗口
@@ -34,8 +39,11 @@ struct MainView: View {
             ScrollView {
                 Group {
                     switch selection {
-                    case .dashboard: OverviewView()
-                    case .wireguard: WireGuardDetailView()
+                    case .dashboard, .wireguard: OverviewView()
+                    case .proxy: ProxyView()
+                    case .profile: ProfileManagerView()
+                    case .transferReceive: TransferReceiveView()
+                    case .transferSend: TransferSendView()
                     case .settings: SettingsView()
                     case .logs: LogsView()
                     case .about: AboutView()
@@ -56,13 +64,17 @@ struct MainView: View {
 // MARK: - Tab 枚举
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case dashboard, wireguard, settings, logs, about
+    case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .dashboard: return "概览"
         case .wireguard: return "WireGuard"
+        case .proxy: return "代理"
+        case .profile: return "配置"
+        case .transferReceive: return "接收"
+        case .transferSend: return "发送"
         case .settings: return "设置"
         case .logs: return "日志"
         case .about: return "关于"
@@ -73,7 +85,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
 // MARK: - 磁贴数据模型
 
 enum TileKind: String, CaseIterable, Identifiable, Codable {
-    case vpn, guardMode, pause, profile, logs, about, connection
+    case vpn, guardMode, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
     var id: String { rawValue }
 
     var title: String {
@@ -81,7 +93,11 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .vpn: return "VPN"
         case .guardMode: return "守护"
         case .pause: return "暂停"
-        case .profile: return "Profile"
+        case .stop: return "停止"
+        case .transferReceive: return "接收"
+        case .transferSend: return "发送"
+        case .proxy: return "代理"
+        case .profile: return "配置"
         case .logs: return "日志"
         case .about: return "关于"
         case .connection: return "连接"
@@ -93,6 +109,10 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .vpn: return "network"
         case .guardMode: return "shield.checkered"
         case .pause: return "pause.circle.fill"
+        case .stop: return "stop.circle.fill"
+        case .transferReceive: return "arrow.down.circle.fill"
+        case .transferSend: return "arrow.up.circle.fill"
+        case .proxy: return "globe.asia.australia"
         case .profile: return "doc.text.fill"
         case .logs: return "scroll"
         case .about: return "info.circle"
@@ -105,6 +125,10 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .vpn: return .green
         case .guardMode: return .blue
         case .pause: return .orange
+        case .stop: return .red
+        case .transferReceive: return .blue
+        case .transferSend: return .orange
+        case .proxy: return .purple
         case .profile: return .orange
         case .logs: return .secondary
         case .about: return .secondary
@@ -112,7 +136,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// 默认尺寸：small=1格(半行), medium=2格(全宽), large=4格(全宽两行)
+    /// 默认尺寸（首次添加时使用，之后可切换）
     var defaultSize: TileSize {
         switch self {
         case .connection: return .medium
@@ -122,9 +146,18 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
 }
 
 enum TileSize: String, Codable, CaseIterable {
-    case small   // 1 格子（半行）
+    case small   // 1 格子（半行）— 正方形
     case medium  // 2 格子（全宽一行）
     case large   // 4 格子（全宽两行）
+
+    /// 固定高度倍数（以 small 高度为 1 单位）
+    var heightUnits: Int {
+        switch self {
+        case .small: return 1
+        case .medium: return 1   // 一行高
+        case .large: return 2    // 两行高
+        }
+    }
 }
 
 struct TileData: Identifiable, Codable {
@@ -167,6 +200,10 @@ struct SidebarView: View {
             TileData(kind: .vpn),
             TileData(kind: .guardMode),
             TileData(kind: .pause),
+            TileData(kind: .stop),
+            TileData(kind: .transferReceive),
+            TileData(kind: .transferSend),
+            TileData(kind: .proxy),
             TileData(kind: .profile),
             TileData(kind: .logs),
             TileData(kind: .about),
@@ -177,7 +214,6 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
-            tabRow
             Divider().opacity(0.15).padding(.horizontal, 12)
 
             // 磁贴网格区域
@@ -232,6 +268,13 @@ struct SidebarView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(isEditMode ? .green : .secondary)
             }.buttonStyle(.plain)
+
+            // 设置图标按钮
+            Button { withAnimation(.easeInOut(duration: 0.15)) { selection = .settings } } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16))
+                    .foregroundStyle(selection == .settings ? WgTheme.accent : .secondary)
+            }.buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -241,7 +284,7 @@ struct SidebarView: View {
     // MARK: - Tab 行
 
     private var tabRow: some View {
-        let topTabs: [SidebarTab] = [.dashboard, .wireguard, .settings]
+        let topTabs: [SidebarTab] = [.dashboard, .profile, .settings]  // 概览 + 配置 + 设置
         return HStack(spacing: 6) {
             ForEach(topTabs) { tab in
                 Button {
@@ -267,28 +310,175 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func tileContent(_ tile: TileData) -> some View {
-        Group {
+        // 小磁贴：统一风格（右侧半透明大图标 + 左侧大字）
+        if tile.size == .small {
+            return AnyView(smallTileBody(tile))
+        }
+
+        let content = Group {
             switch tile.kind {
-            case .vpn:
-                vpnTile(tile)
-            case .guardMode:
-                guardTile(tile)
-            case .pause:
-                pauseTile(tile)
-            case .profile:
-                profileTile(tile)
+            case .vpn: vpnTile(tile)
+            case .guardMode: guardTile(tile)
+            case .pause: pauseTile(tile)
+            case .stop: stopTile(tile)
+            case .transferReceive: receiveTile(tile)
+            case .transferSend: sendTile(tile)
+            case .proxy: proxyTile(tile)
+            case .profile: profileTile(tile)
             case .logs:
-                navTile(tile, isSelected: selection == .logs)
-            case .about:
-                navTile(tile, isSelected: selection == .about)
-            case .connection:
-                connectionTile(tile)
+                if tile.size == .small {
+                    navTile(tile, isSelected: selection == .logs)
+                } else {
+                    logContentTile(tile)  // 中/大尺寸显示滚动日志
+                }
+            case .about: navTile(tile, isSelected: selection == .about)
+            case .connection: connectionTile(tile)
             }
         }
         .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
         .overlay(alignment: .topTrailing) {
-            if isEditMode {
-                editOverlay(tile)
+            if isEditMode { editOverlay(tile) }
+        }
+
+        return AnyView(content)
+    }
+
+    /// 小磁贴统一样式：右侧半透明大图标背景 + 左侧标题
+    @ViewBuilder
+    private func smallTileBody(_ tile: TileData) -> some View {
+        let iconColor = tile.kind.activeColor
+
+        // 控制类磁贴：显示操作按钮
+        if tile.kind == .vpn || tile.kind == .guardMode || tile.kind == .pause {
+            return AnyView(smallControlTile(tile, iconColor: iconColor))
+        }
+
+        return AnyView(
+            Button {
+                handleSmallTileTap(tile)
+            } label: {
+                ZStack(alignment: .topLeading) {
+                    Image(systemName: tile.kind.icon)
+                        .font(.system(size: 48, weight: .ultraLight))
+                        .foregroundStyle(iconColor.opacity(0.12))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .offset(x: 4, y: 4)
+
+                    // 小磁贴统一：标题左上角 + 图标背景右下角
+                    Text(tile.kind.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.leading, 10)
+                        .padding(.top, 10)
+                }
+            }
+            .buttonStyle(.plain)
+            .background(WgTheme.cardBg)
+            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+            .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
+            .overlay(alignment: .topTrailing) {
+                if isEditMode { editOverlay(tile) }
+            }
+            // 日志数据后台持续拉取（切换到中/大尺寸时立即可用）
+            .task(id: tile.kind == .logs ? UUID() : nil) {
+                if tile.kind == .logs {
+                    await client.fetchLogs(n: 15)
+                    try? await Task.sleep(for: .seconds(2))
+                    while !Task.isCancelled && tile.kind == .logs {
+                        await client.fetchLogs(n: 15)
+                        try? await Task.sleep(for: .seconds(3))
+                    }
+                }
+            }
+        )
+    }
+
+    /// 小尺寸控制磁贴（VPN/守护/暂停）— 原生 Toggle 开关
+    private func smallControlTile(_ tile: TileData, iconColor: Color) -> some View {
+        let isOn: Bool
+        let tintColor: Color
+
+        switch tile.kind {
+        case .vpn:
+            isOn = isConnected; tintColor = .green
+        case .guardMode:
+            isOn = guardRunning; tintColor = .blue
+        case .pause:
+            isOn = (client.status?.paused ?? false); tintColor = .orange
+        default:
+            isOn = false; tintColor = .gray
+        }
+
+        return Button {
+            switch tile.kind {
+            case .vpn:
+                Task {
+                    if isConnected { await client.post("disconnect") } else {
+                        await client.postAndWait("resume")
+                        try? await Task.sleep(for: .seconds(0.8))
+                        await client.postAndWait("connect")
+                    }
+                }
+            case .guardMode:
+                Task { await client.post(guardRunning ? "pause" : "resume") }
+            case .pause:
+                Task { await client.post((client.status?.paused ?? false) ? "resume" : "pause") }
+            default: break
+            }
+        } label: {
+            ZStack {
+                // 背景层：右下角半透明大图标
+                Image(systemName: tile.kind.icon)
+                    .font(.system(size: 48, weight: .ultraLight))
+                    .foregroundStyle(iconColor.opacity(0.10))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .offset(x: 4, y: 4)
+
+                // 左上角：标题文字（横向）
+                Text(tile.kind.title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white.opacity(0.9))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.leading, 10)
+                    .padding(.top, 10)
+
+                // 右上角：Toggle 开关
+                ToggleSwitch(isOn: isOn, tintColor: tintColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(10)
+
+                // 左下角：状态圆点
+                Circle()
+                    .fill(isOn ? tintColor : Color.gray.opacity(0.35))
+                    .frame(width: 7, height: 7)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(10)
+            }
+        }
+        .buttonStyle(.plain)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
+        .overlay(alignment: .topTrailing) {
+            if isEditMode { editOverlay(tile) }
+        }
+    }
+
+    /// 小磁贴点击处理
+    private func handleSmallTileTap(_ tile: TileData) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            switch tile.kind {
+            case .vpn, .connection: selection = .dashboard
+            case .proxy: selection = .proxy
+            case .profile: selection = .profile
+            case .transferReceive: selection = .transferReceive
+            case .transferSend: selection = .transferSend
+            case .logs: selection = .logs
+            case .about: selection = .about
+            case .guardMode: selection = .settings
+            case .pause, .stop: break
             }
         }
     }
@@ -306,10 +496,14 @@ struct SidebarView: View {
         ) {
             Task {
                 if isConnected { await client.post("disconnect") }
-                else { await client.post("resume"); await client.post("connect") }
+                else {
+                    await client.postAndWait("resume")
+                    try? await Task.sleep(for: .seconds(0.8))
+                    await client.postAndWait("connect")
+                }
             }
         } onTap: {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .wireguard }
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
         }
     }
 
@@ -349,10 +543,263 @@ struct SidebarView: View {
         }
     }
 
+    // --- 停止磁贴（紧急停止：关闭守护 + 断开 WG）---
+    private func stopTile(_ tile: TileData) -> some View {
+        controlTile(
+            tile: tile,
+            icon: "stop.circle.fill",
+            color: .red,
+            subtitle: "全部关闭",
+            isOn: false,
+            toggleAction: {
+                Task {
+                    await client.post("disconnect")  // 先断 WG
+                    try? await Task.sleep(for: .milliseconds(300))
+                    await client.post("pause")      // 再停守护
+                }
+            },
+            onTap: { /* 点击非控制区域不做导航 */ }
+        )
+    }
+
+    // --- 接收磁贴（LocalSend 兼容）---
+    @ViewBuilder
+    private func receiveTile(_ tile: TileData) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .transferReceive }
+        } label: {
+            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
+                HStack {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: tile.size == .small ? 14 : 20))
+                        .foregroundStyle(.blue)
+                    Text("接收")
+                        .font(.system(size: tile.size == .small ? 11 : 14, weight: .bold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    receiveStatusBadge
+                }
+                if tile.size != .small {
+                    receiveTileDetail(size: tile.size)
+                }
+            }
+            .padding(tile.size == .small ? 10 : 16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: WgTheme.cardRadius)
+                    .fill(Color.blue.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
+                        .stroke(selection == .transferReceive ? Color.blue : Color.clear,
+                                lineWidth: selection == .transferReceive ? 1.5 : 0))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var receiveStatusBadge: some View {
+        Group {
+            if let state = client.transferState {
+                HStack(spacing: 4) {
+                    Circle().fill(state.running ? Color.green : Color.red)
+                        .frame(width: 7, height: 7)
+                    Text(state.running ? "运行中" : "已停止")
+                        .font(.caption2).foregroundStyle(state.running ? .green : .red)
+                }
+            } else {
+                Text("--").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func receiveTileDetail(size: TileSize) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if size == .large, let state = client.transferState {
+                // 大尺寸：显示别名 + 端口 + 自动保存状态
+                Text(state.alias)
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider().opacity(0.1)
+                HStack(spacing: 12) {
+                    Label(":\(state.port)", systemImage: "network")
+                    Label("自动保存: 关", systemImage: "tray.full")
+                }
+                .font(.caption2).foregroundStyle(.tertiary)
+            } else if let state = client.transferState {
+                // 中尺寸：简洁信息
+                Text("\(state.alias) · :\\(state.port)")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("LocalSend 接收服务")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider().opacity(0.1)
+                Text("点击进入").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    // --- 发送磁贴（LocalSend 兼容）---
+    @ViewBuilder
+    private func sendTile(_ tile: TileData) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .transferSend }
+        } label: {
+            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
+                HStack {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: tile.size == .small ? 14 : 20))
+                        .foregroundStyle(.orange)
+                    Text("发送")
+                        .font(.system(size: tile.size == .small ? 11 : 14, weight: .bold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    sendStatusBadge
+                }
+                if tile.size != .small {
+                    sendTileDetail(size: tile.size)
+                }
+            }
+            .padding(tile.size == .small ? 10 : 16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: WgTheme.cardRadius)
+                    .fill(Color.orange.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
+                        .stroke(selection == .transferSend ? Color.orange : Color.clear,
+                                lineWidth: selection == .transferSend ? 1.5 : 0))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var sendStatusBadge: some View {
+        let count = client.transferDevices.count
+        if count > 0 {
+            Text("\(count) 设备")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.12))
+                .cornerRadius(4)
+        } else {
+            Text("--").font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    @ViewBuilder
+    private func sendTileDetail(size: TileSize) -> some View {
+        let count = client.transferDevices.count
+        VStack(alignment: .leading, spacing: 6) {
+            if count > 0 && size == .large {
+                // 大尺寸：设备列表预览
+                ForEach(client.transferDevices.prefix(3)) { device in
+                    HStack(spacing: 6) {
+                        Circle().fill(colorForDeviceSource(device.source ?? "multicast")).frame(width: 6, height: 6)
+                        Text(device.alias).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(device.ip ?? "").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                if count > 3 { Text("... 还有 \(count - 3) 个").font(.caption2).foregroundStyle(.tertiary) }
+            } else if count > 0 {
+                // 中尺寸：设备数量
+                Text("发现 \(count) 台设备")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider().opacity(0.1)
+                Text("点击进入发送").font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                Text("扫描或手动添加设备")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider().opacity(0.1)
+                Text("隧道内传输").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// 设备来源对应的颜色
+    private func colorForDeviceSource(_ source: String) -> Color {
+        switch source {
+        case "manual": return .orange
+        case "scan": return .blue
+        default: return .green
+        }
+    }
+
+    // --- 代理磁贴 ---
+    private func proxyTile(_ tile: TileData) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .proxy }
+        } label: {
+            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "globe.asia.australia")
+                        .font(.system(size: tileSizeIcon(tile.size) - 4))
+                        .foregroundStyle(client.proxyRunning ? .purple : .secondary.opacity(0.5))
+                    Text(client.proxyRunning ? (client.mihomoVersion?.version ?? "Mihomo") : "未连接")
+                        .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
+                        .fontWeight(.semibold).lineLimit(1)
+                    Spacer()
+                }
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(client.proxyRunning ? Color.purple : Color.secondary.opacity(0.3))
+                        .frame(width: 7, height: 7)
+                    Text(client.proxyRunning ? "运行中" : "离线")
+                        .font(.caption2).fontWeight(.medium)
+                        .foregroundStyle(client.proxyRunning ? .purple : .secondary)
+                    if !client.proxyAddress.isEmpty {
+                        Text(client.proxyAddress)
+                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                    Spacer()
+                }
+
+                if tile.size == .large {
+                    if let conns = client.connections {
+                        HStack(spacing: 12) {
+                            statItem("↑", formatSpeed(client.traffic?.tx_speed ?? 0), .blue)
+                            statItem("↓", formatSpeed(client.traffic?.rx_speed ?? 0), .green)
+                            statItem("链接", "\(conns.connections.count)", .orange)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+            .padding(tile.size == .small ? 12 : 16)
+        }
+        .buttonStyle(.plain)
+        .background(WgTheme.cardBg)
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .task(id: UUID()) {
+            await client.fetchProxyStatus()
+            if client.proxyRunning {
+                await client.fetchProxyVersion()
+                await client.fetchConnections()
+            }
+        }
+    }
+
+    private func statItem(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(color)
+            Text(value).font(.caption).fontWeight(.medium).monospacedDigit()
+        }
+    }
+
+    private func formatSpeed(_ bytesPerSec: Int64?) -> String {
+        guard let bps = bytesPerSec, bps > 0 else { return "0 B/s" }
+        if bps < 1024 { return "\(bps) B/s" }
+        if bps < 1024 * 1024 { return "\(bps / 1024) KB/s" }
+        return String(format: "%.1f MB/s", Double(bps) / 1024.0 / 1024.0)
+    }
+
     // --- Profile 磁贴（内容随尺寸自适应）---
     private func profileTile(_ tile: TileData) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .wireguard }
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .profile }
         } label: {
             VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
                 // 第一行：图标 + 名称
@@ -360,7 +807,7 @@ struct SidebarView: View {
                     Image(systemName: "doc.text.fill")
                         .font(.system(size: tileSizeIcon(tile.size) - 4))
                         .foregroundStyle(.orange)
-                    Text(client.status?.service ?? "无配置")
+                    Text(client.profiles.isEmpty ? "无配置" : client.profiles.joined(separator: ", "))
                         .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
                         .fontWeight(.semibold).lineLimit(1)
                     Spacer()
@@ -423,7 +870,11 @@ struct SidebarView: View {
                             }.buttonStyle(.plain)
 
                             Button {
-                                Task { await client.post("resume"); await client.post("connect") }
+                                Task {
+                                    await client.postAndWait("resume")
+                                    try? await Task.sleep(for: .seconds(0.8))
+                                    await client.postAndWait("connect")
+                                }
                             } label: {
                                 Text("连接")
                                     .font(.caption2).fontWeight(.medium)
@@ -488,6 +939,76 @@ struct SidebarView: View {
         .buttonStyle(.plain)
     }
 
+    /// 中/大尺寸日志磁贴：显示滚动日志内容
+    private func logContentTile(_ tile: TileData) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 标题栏
+            HStack(spacing: 6) {
+                Image(systemName: "scroll")
+                    .font(.system(size: tileSizeIcon(tile.size) - 4))
+                    .foregroundStyle(.secondary)
+                Text("日志")
+                    .font(tile.size == .medium ? .body : .title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.9))
+                Spacer()
+
+                // 条目数
+                Text("\(client.logLines.count)条")
+                    .font(.caption2).monospacedDigit()
+                    .foregroundColor(Color(.tertiaryLabelColor))
+            }
+            .padding(.bottom, 8)
+
+            Divider().opacity(0.15)
+
+            // 滚动日志区域
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: tile.size == .large) {
+                    VStack(alignment: .leading, spacing: tile.size == .large ? 3 : 2) {
+                        ForEach(Array(client.logLines.enumerated()), id: \.offset) { _, line in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.gray.opacity(0.25))
+                                    .frame(width: 4, height: 4)
+                                    .padding(.top, 5)
+                                Text(line)
+                                    .font(.system(size: tile.size == .medium ? 10 : 11))
+                                    .foregroundColor(.white.opacity(0.55))
+                                    .lineLimit(tile.size == .large ? 2 : 1)
+                                    .id(line)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
+                }
+                .onChange(of: client.logLines.count) { _ in
+                    if let last = client.logLines.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(tilePadding(tile.size))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .task(id: UUID()) {
+            await client.fetchLogs(n: 30)
+            try? await Task.sleep(for: .seconds(2))
+            while !Task.isCancelled {
+                await client.fetchLogs(n: 30)
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+        .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
+    }
+
     /// navTile 最小高度
     private func tileNavMinHeight(_ size: TileSize) -> CGFloat {
         switch size {
@@ -499,79 +1020,71 @@ struct SidebarView: View {
 
     // --- 连接面板（内容随尺寸自适应）---
     private func connectionTile(_ tile: TileData) -> some View {
-        VStack(spacing: tile.size == .small ? 6 : 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 6) {
+            // 第一行：标题 + 状态点
+            HStack(spacing: 6) {
                 Image(systemName: "arrow.up.arrow.down.circle")
                     .font(.system(size: tileSizeIcon(tile.size) - 6))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isConnected ? .cyan : .secondary)
                 Text("连接")
                     .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
                     .fontWeight(.medium)
                 Spacer()
-                if isConnected { Circle().fill(.green).frame(width: 6, height: 6) }
+                Circle().fill(isConnected ? Color.green : Color.gray.opacity(0.3))
+                    .frame(width: 6, height: 6)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up").font(.system(size: 9))
-                        Text("0.00 B/s").font(.caption2.monospacedDigit())
-                    }.foregroundStyle(.secondary)
+
+            // 第二行：↑/↓ 速度
+            HStack(spacing: 10) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up").font(.system(size: 9))
+                    Text(formatSpeed(client.traffic?.tx_speed ?? 0))
+                        .font(.caption2.monospacedDigit())
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.down").font(.system(size: 9))
-                        Text("0.00 B/s").font(.caption2.monospacedDigit())
-                    }.foregroundStyle(.secondary)
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.down").font(.system(size: 9))
+                    Text(formatSpeed(client.traffic?.rx_speed ?? 0))
+                        .font(.caption2.monospacedDigit())
                 }
+                .foregroundStyle(.secondary)
                 Spacer()
-                Canvas { context, size in
-                    let w = size.width; let h = size.height
-                    let gradient = Gradient(colors: [.clear, WgTheme.accent.opacity(0.3), .clear])
-                    context.fill(Path { path in
-                        path.move(to: CGPoint(x: 0, y: h))
-                        var x: CGFloat = 0
-                        while x < w {
-                            let y = h * 0.3 + sin(x * 0.05) * h * 0.2 + CGFloat.random(in: -h*0.05...h*0.05)
-                            path.addLine(to: CGPoint(x: x, y: y)); x += 2
-                        }
-                        path.addLine(to: CGPoint(x: w, y: h)); path.closeSubpath()
-                    }, with: .linearGradient(gradient, startPoint: CGPoint(x: 0, y: h*0.5), endPoint: CGPoint(x: w, y: h*0.5)))
-                }
-                .frame(width: tile.size == .small ? 60 : (tile.size == .medium ? 100 : 140),
-                       height: tile.size == .small ? 22 : (tile.size == .medium ? 28 : 40))
-                .opacity(isConnected ? 0.8 : 0.3)
-            }
-
-            // 中尺寸：简要连接状态
-            if tile.size == .medium {
-                Divider().opacity(0.15)
-                HStack(spacing: 6) {
-                    Circle().fill(isConnected ? Color.green : Color.gray.opacity(0.3)).frame(width: 6, height: 6)
-                    Text(isConnected ? "已建立隧道" : "未连接")
-                        .font(.system(size: 10)).foregroundStyle(isConnected ? .green : .secondary)
-                    Spacer()
+                if tile.size == .large {
+                    // 大尺寸显示累计流量
+                    Text("↓ \(formatSize(client.traffic?.rx_bytes ?? 0))")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
                 }
             }
+            .foregroundStyle(isConnected ? .primary : .secondary)
 
-            // 大尺寸时展示更多信息
+            // 中尺寸：增加一行状态文本（无 divider）
+            if tile.size == .medium || tile.size == .large {
+                Text(isConnected ? "已建立隧道" : "未连接")
+                    .font(.system(size: 10))
+                    .foregroundStyle(isConnected ? .green : .secondary)
+            }
+
+            // 大尺寸：详细信息
             if tile.size == .large {
-                Divider().opacity(0.2)
-                VStack(alignment: .leading, spacing: 4) {
-                    if let s = client.status {
-                        connDetailRow("状态", value: s.state == "Connected" ? "已连接" : "未连接", color: s.state == "Connected" ? .green : .red)
-                        connDetailRow("Profile", value: s.service.isEmpty ? "无" : s.service)
-                        connDetailRow("守护", value: guardRunning ? "运行中" : "暂停")
-                    } else {
-                        Text("无数据").font(.caption2).foregroundStyle(.tertiary)
-                    }
+                if let s = client.status {
+                    connDetailRow("Profile", value: s.service.isEmpty ? "无" : s.service)
+                    connDetailRow("守护", value: guardRunning ? "运行中" : "暂停")
                 }
             }
         }
         .padding(tilePadding(tile.size))
-        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(WgTheme.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
         .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .task(id: UUID()) {
+            await client.fetchTraffic()
+            // 持续刷新流量
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await client.fetchTraffic()
+            }
+        }
     }
 
     private func connDetailRow(_ label: String, value: String, color: Color? = nil) -> some View {
@@ -637,7 +1150,11 @@ struct SidebarView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }.buttonStyle(.plain)
                             Button {
-                                Task { await client.post("resume"); await client.post("connect") }
+                                Task {
+                                    await client.postAndWait("resume")
+                                    try? await Task.sleep(for: .seconds(0.8))
+                                    await client.postAndWait("connect")
+                                }
                             } label: {
                                 Text("连接")
                                     .font(.caption2).fontWeight(.medium)
@@ -752,6 +1269,23 @@ struct SidebarView: View {
         }
     }
 
+    /// 格式化网速（bytes/s → 可读字符串）
+    private func formatSpeed(_ bytesPerSec: Double) -> String {
+        let bps = bytesPerSec
+        if bps < 1024 { return String(format: "%.0f B/s", bps) }
+        if bps < 1024 * 1024 { return String(format: "%.1f KB/s", bps / 1024) }
+        if bps < 1024 * 1024 * 1024 { return String(format: "%.1f MB/s", bps / (1024*1024)) }
+        return String(format: "%.1f GB/s", bps / (1024*1024*1024))
+    }
+
+    private func formatSize(_ bytes: UInt64) -> String {
+        let b = Double(bytes)
+        if b < 1024 { return String(format: "%.0f B", b) }
+        if b < 1024 * 1024 { return String(format: "%.1f KB", b / 1024) }
+        if b < 1024 * 1024 * 1024 { return String(format: "%.1f MB", b / (1024*1024)) }
+        return String(format: "%.2f GB", b / (1024*1024*1024))
+    }
+
     /// actionTile 的最小高度
     private func actionTileMinHeight(_ size: TileSize) -> CGFloat {
         switch size {
@@ -781,7 +1315,6 @@ struct SidebarView: View {
             // 尺寸切换按钮
             Button {
                 withAnimation(.spring(response: 0.3)) {
-                    // 循环切换：small → medium → large → small
                     let next: TileSize
                     switch tile.size {
                     case .small: next = .medium
@@ -804,29 +1337,33 @@ struct SidebarView: View {
         .padding(6)
     }
 
-    // MARK: - 磁贴网格（空白处长按进编辑模式，磁贴长按/重按呼出菜单）
+    // MARK: - 磁贴网格（手动行打包 + VStack/HStack，medium/large 独占一行）
 
     private var tileGridContent: some View {
-        // 用 LazyVGrid 实现真正的 2 列均分布局（SwiftUI 原生网格）
-        let gridItems = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+        let rows = buildTileRows()
+        return VStack(spacing: WgTheme.tileGap) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                if !row.isEmpty {
+                    // 单个 small 磁贴需要占位符保持半宽
+                    let isSingleSmall = row.count == 1 && row[0].size == .small
 
-        return LazyVGrid(columns: gridItems, spacing: 8) {
-            ForEach(tiles) { tile in
-                switch tile.size {
-                case .large:
-                    // large 占满两列
-                    tileCell(tile)
-                        .gridCellColumns(2)
-                case .medium:
-                    // medium 也占满一行两列
-                    tileCell(tile)
-                        .gridCellColumns(2)
-                case .small:
-                    // small 占一列，两个自动并排
-                    tileCell(tile)
+                    HStack(spacing: WgTheme.tileGap) {
+                        if isSingleSmall {
+                            tileCell(row[0])
+                            Color.clear  // 占位，保持 small 为半宽
+                        } else {
+                            ForEach(row) { tile in
+                                tileCell(tile)
+                            }
+                        }
+                    }
                 }
             }
         }
+        .padding(.horizontal, WgTheme.tileGap)
+        .padding(.top, WgTheme.tileGap)
+        .padding(.bottom, WgTheme.tileGap)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: tiles.map { $0.kind })
         .padding(.horizontal, 12)
         .padding(.top, 8)
         // 空白处点击退出编辑
@@ -837,42 +1374,29 @@ struct SidebarView: View {
         }
         // 空白处长按进入编辑模式
         .overlay(alignment: .bottom) {
+            // 底部操作栏
             if !isEditMode {
-                VStack(spacing: 4) {
-                    // 添加磁贴按钮
-                    Button { showAddSheet = true } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus").font(.system(size: 9))
-                            Text("添加磁贴")
-                                .font(.system(size: 9)).foregroundStyle(WgTheme.accent)
-                        }
+                // 非编辑模式：只显示"长按空白处编辑"
+                Button {
+                    withAnimation(.spring(response: 0.35)) { isEditMode = true }
+                } label: {
+                    Text("长按空白处编辑")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary.opacity(0.5))
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
-                        .padding(.vertical, 5)
-                    }
-                    .buttonStyle(.plain)
-
-                    // 长按进入编辑
-                    Button {
-                        withAnimation(.spring(response: 0.35)) { isEditMode = true }
-                    } label: {
-                        Text("长按空白处编辑")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary.opacity(0.5))
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 1.5).onEnded { _ in
-                            withAnimation(.spring(response: 0.35)) { isEditMode = true }
-                        }
-                    )
+                        .padding(.vertical, 6)
                 }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 1.5).onEnded { _ in
+                        withAnimation(.spring(response: 0.35)) { isEditMode = true }
+                    }
+                )
             } else {
-                // 编辑模式下显示添加按钮（高亮）
-                HStack(spacing: 6) {
+                // 编辑模式：添加按钮 + 设置入口 + 退出提示
+                HStack(spacing: 8) {
+                    // 添加磁贴（收纳进编辑模式）
                     Button { showAddSheet = true } label: {
                         Label("添加磁贴", systemImage: "plus.circle.fill")
                             .font(.caption2).foregroundStyle(WgTheme.accent)
@@ -882,10 +1406,23 @@ struct SidebarView: View {
                                 .fill(WgTheme.accent.opacity(0.1)))
                             .overlay(RoundedRectangle(cornerRadius: 8)
                                 .stroke(WgTheme.accent.opacity(0.25), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.plain)
+
+                    // 设置图标（从 tab 栏挪到编辑栏）
+                    Button {
+                        selection = .settings
+                        withAnimation(.spring(response: 0.35)) { isEditMode = false }
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(Circle().fill(Color.white.opacity(0.06)))
+                    }.buttonStyle(.plain)
+
                     Spacer()
-                    Text("拖拽排序 · 点击退出")
+
+                    Text("点击退出编辑")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary.opacity(0.5))
                 }
@@ -897,13 +1434,28 @@ struct SidebarView: View {
         .popover(item: $contextMenuTile) { tile in
             tileMenuPopover(tile)
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: tiles.map(\.size))
     }
 
-    /// 单个磁贴单元格（LazyVGrid 内渲染，small 自动均分）
+    /// 单个磁贴单元格（三种尺寸模式各自固定物理尺寸）
     @ViewBuilder
     private func tileCell(_ tile: TileData) -> some View {
-        cellBody(tile)
-            .contextMenu { tileContextMenu(tile) }
+        Group {
+            if tile.size == .small {
+                cellBody(tile)
+                    .frame(width: WgTheme.tileX, height: WgTheme.tileY)
+                    .clipped()
+            } else if tile.size == .medium {
+                cellBody(tile)
+                    .frame(width: WgTheme.tileX * 2 + WgTheme.tileGap, height: WgTheme.tileY)
+                    .clipped()
+            } else {
+                cellBody(tile)
+                    .frame(width: WgTheme.tileX * 2 + WgTheme.tileGap, height: WgTheme.tileY * 2 + WgTheme.tileGap)
+                    .clipped()
+            }
+        }
+        .contextMenu { tileContextMenu(tile) }
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 1.5).onEnded { _ in
                     contextMenuTile = tile
@@ -959,19 +1511,16 @@ struct SidebarView: View {
     @ViewBuilder
     private func tileContextMenu(_ tile: TileData) -> some View {
         if tile.size != .small {
-            Button {
-                resizeTile(tile, to: .small)
-            } label: { Label("小 (1 格)", systemImage: "square") }
+            Button { resizeTile(tile, to: .small) }
+            label: { Label("小 (1 格)", systemImage: "square") }
         }
         if tile.size != .medium {
-            Button {
-                resizeTile(tile, to: .medium)
-            } label: { Label("中 (2 格)", systemImage: "rectangle") }
+            Button { resizeTile(tile, to: .medium) }
+            label: { Label("中 (2 格)", systemImage: "rectangle") }
         }
         if tile.size != .large {
-            Button {
-                resizeTile(tile, to: .large)
-            } label: { Label("大 (4 格)", systemImage: "rectangle.3.groupfill") }
+            Button { resizeTile(tile, to: .large) }
+            label: { Label("大 (4 格)", systemImage: "rectangle.3.groupfill") }
         }
 
         Divider()
@@ -983,9 +1532,9 @@ struct SidebarView: View {
         } label: { Label("移除磁贴", systemImage: "trash") }
     }
 
-    /// 调整磁贴尺寸
+    /// 调整磁贴尺寸（带弹性动画）
     private func resizeTile(_ tile: TileData, to newSize: TileSize) {
-        withAnimation(.spring(response: 0.3)) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
             if let idx = tiles.firstIndex(where: { $0.id == tile.id }) {
                 tiles[idx].size = newSize
             }
@@ -1039,72 +1588,68 @@ struct SidebarView: View {
     }
 
     /// 网格布局引擎：2列网格，支持 small(1格)/medium(2格全宽)/large(4格=2行)
+    /// 手动行打包：small 两个并排，medium/large 独占一行（只占 1 列宽）
     func buildTileRows() -> [[TileData]] {
-        let cols = 2
-        var grid: [Bool] = Array(repeating: false, count: 100) // 50 行 * 2 列
         var result: [[TileData]] = []
+        var i = 0
 
-        for tile in tiles {
-            let w: Int  // 占用列数
-            let h: Int  // 占用行数
+        while i < tiles.count {
+            let tile = tiles[i]
+
             switch tile.size {
-            case .small:  w = 1; h = 1
-            case .medium: w = 2; h = 1
-            case .large:  w = 2; h = 2
-            }
-
-            // 找空位（从左到右，从上到下）
-            var placed = false
-            for startRow in 0..<49 {
-                let base = startRow * cols
-
-                // 检查是否所有目标格子都空闲
-                var canFit = true
-                outer: for r in 0..<h {
-                    for c in 0..<w {
-                        if base + r * cols + c >= grid.count || grid[base + r * cols + c] {
-                            canFit = false
-                            break outer
-                        }
-                    }
-                }
-                guard canFit else { continue }
-
-                // 标记占用
-                for r in 0..<h {
-                    for c in 0..<w { grid[base + r * cols + c] = true }
+            case .small:
+                // 尝试和下一个 small 并排
+                if i + 1 < tiles.count && tiles[i + 1].size == .small {
+                    result.append([tile, tiles[i + 1]])
+                    i += 2
+                } else {
+                    // 单个 small 独占一行（渲染时限制为半宽）
+                    result.append([tile])
+                    i += 1
                 }
 
-                // 将此磁贴放入对应行的数组中
-                for r in 0..<h {
-                    while result.count <= startRow + r { result.append([]) }
-                    // 只在第一行添加该磁贴（后续行留空或已有其他磁贴）
-                    if r == 0 { result[startRow + r].append(tile) }
-                }
-                placed = true
-                break
-            }
+            case .medium:
+                result.append([tile])
+                i += 1
 
-            if !placed {
-                // 放不下就追加到新区域
-                while result.last?.count ?? 0 > 0 && result.count % 2 != 0 { /* 对齐 */ }
-                let newRowIdx = result.count
-                while result.count <= newRowIdx { result.append([]) }
-                result[newRowIdx].append(tile)
-
-                // large 需要额外一行
-                if tile.size == .large { result.append([]) }
-
-                for r in 0..<h {
-                    for c in 0..<w {
-                        let idx = (newRowIdx + r) * cols + c
-                        if idx < grid.count { grid[idx] = true }
-                    }
-                }
+            case .large:
+                result.append([tile])
+                result.append([])  // large 占用的第二行
+                i += 1
             }
         }
 
         return result.isEmpty ? [[]] : result
+    }
+}
+
+// MARK: - 原生风格 Toggle 开关
+
+/// iOS UISwitch 风格的开关组件（纯展示，点击由外层 Button 处理）
+struct ToggleSwitch: View {
+    let isOn: Bool
+    var tintColor: Color = .green
+
+    private let trackWidth: CGFloat = 44
+    private let trackHeight: CGFloat = 26
+    private let thumbSize: CGFloat = 22
+    private let padding: CGFloat = 2
+
+    var body: some View {
+        ZStack(alignment: isOn ? .trailing : .leading) {
+            // 轨道背景
+            Capsule()
+                .fill(isOn ? tintColor.opacity(0.3) : Color.gray.opacity(0.25))
+                .frame(width: trackWidth, height: trackHeight)
+
+            // 圆形滑块（thumb）
+            Circle()
+                .fill(.white)
+                .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
+                .frame(width: thumbSize, height: thumbSize)
+                .padding(padding)
+        }
+        .animation(.easeInOut(duration: 0.22), value: isOn)
     }
 }
 
@@ -1423,4 +1968,332 @@ struct TileDragContainer<Content: View>: View {
 
 extension Notification.Name {
     static let wgsenseDeleteProfile = Notification.Name("wgsenseDeleteProfile")
+}
+
+// MARK: - 接收页（独立视图）
+struct TransferReceiveView: View {
+    @EnvironmentObject var client: DaemonClient
+    @State private var autoSaveMode = 0
+    private let autoSaveLabels = ["关", "收藏夹", "开"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("文件接收")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("LocalSend 兼容接收服务")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let state = client.transferState {
+                    HStack(spacing: 6) {
+                        Circle().fill(state.running ? Color.green : Color.red).frame(width: 10, height: 10)
+                        Text(state.running ? "运行中" : "已停止").font(.callout.weight(.medium))
+                            .foregroundStyle(state.running ? .green : .red)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill((state.running ? Color.green : Color.red).opacity(0.1)))
+                }
+            }
+            Divider().opacity(0.15)
+
+            if let state = client.transferState {
+                VStack(alignment: .leading, spacing: 16) {
+                    receiveInfoRow("设备别名", value: state.alias)
+                    Divider().opacity(0.1)
+                    HStack { receiveInfoRow("端口", value: "\(state.port)"); Spacer(); receiveInfoRow("保存目录", value: URL(fileURLWithPath: state.downloads).lastPathComponent) }
+                    Divider().opacity(0.1)
+                    receiveInfoRow("下载路径", value: state.downloads)
+                }
+                .padding(20)
+                .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+            } else {
+                HStack(spacing: 12) { ProgressView(); Text("正在连接 daemon...").font(.body).foregroundStyle(.secondary) }
+                .frame(maxWidth: .infinity).padding()
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("自动保存").font(.headline.weight(.semibold))
+                HStack(spacing: 12) {
+                    ForEach(0..<autoSaveLabels.count, id: \.self) { i in
+                        Button { withAnimation { autoSaveMode = i } } label: {
+                            Text(autoSaveLabels[i])
+                                .font(.callout.weight(autoSaveMode == i ? .semibold : .regular))
+                                .foregroundStyle(autoSaveMode == i ? .white : .primary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(autoSaveMode == i ? WgTheme.accent : WgTheme.cardBg)
+                                        .overlay(RoundedRectangle(cornerRadius: 8)
+                                            .stroke(autoSaveMode == i ? WgTheme.accent : WgTheme.cardBorder, lineWidth: 1))
+                                )
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(28)
+        .onAppear { Task { await client.fetchTransferState() } }
+    }
+
+    private func receiveInfoRow(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.tertiary)
+            Text(value).font(.body.weight(.medium)).foregroundStyle(.primary)
+        }
+    }
+}
+
+// MARK: - 发送页（独立视图）
+struct TransferSendView: View {
+    @EnvironmentObject var client: DaemonClient
+
+    enum SendType: String, CaseIterable {
+        case file, folder, text, clipboard
+        var icon: String {
+            switch self { case .file: return "doc"; case .folder: return "folder"; case .text: return "text.bubble"; case .clipboard: return "clipboard" }
+        }
+        var label: String {
+            switch self { case .file: return "文件"; case .folder: return "文件夹"; case .text: return "文本"; case .clipboard: return "剪贴板" }
+        }
+    }
+
+    @State private var sendType: SendType? = nil
+    @State private var showFilePicker = false
+    @State private var showFolderPicker = false
+    @State private var selectedDevice: DaemonClient.TransferDevice?
+    @State private var sending = false
+    @State private var lastSendResult: String?
+    @State private var isScanning = false
+    @State private var showAddDeviceSheet = false
+    @State private var addDeviceAddr = ""
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("发送").font(.system(size: 22, weight: .bold)).foregroundStyle(.primary)
+                    .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 16)
+                Text("发送类型").font(.caption).fontWeight(.medium).foregroundStyle(.tertiary).padding(.horizontal, 20)
+                ForEach(SendType.allCases, id: \.self) { type in
+                    Button { selectSendType(type) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: type.icon).font(.system(size: 16, weight: .medium)).frame(width: 24)
+                            Text(type.label).font(.callout); Spacer()
+                            if sendType == type { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(WgTheme.accent) }
+                        }
+                        .foregroundStyle(sendType == type ? WgTheme.accent : .secondary)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(sendType == type ? WgTheme.accent.opacity(0.12) : Color.clear))
+                    }.buttonStyle(.plain)
+                }
+                Spacer()
+                if let result = lastSendResult {
+                    Text(result).font(.caption).foregroundStyle(result.contains("失败") || result.contains("未") ? .orange : .green).padding(16).multilineTextAlignment(.center)
+                }
+            }
+            .frame(width: 180).background(WgTheme.sidebarBg)
+            Rectangle().fill(WgTheme.cardBorder.opacity(0.5)).frame(width: 1)
+            ScrollView { sendContentArea.padding(32) }.background(WgTheme.bg)
+        }
+        .onAppear { Task { await loadInitialData() } }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data, .image, .movie, .audio], allowsMultipleSelection: true) { handleFileSelection($0) }
+        .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder], allowsMultipleSelection: false) { handleFileSelection($0) }
+        .sheet(isPresented: $showAddDeviceSheet) { addDeviceSheet }
+    }
+
+    // MARK: - 右侧内容区
+    @ViewBuilder
+    private var sendContentArea: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("目标设备").font(.headline.weight(.semibold)); Spacer()
+                    HStack(spacing: 8) {
+                        Button { Task { await refreshDevices() } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(.secondary) }.buttonStyle(.plain).disabled(isScanning)
+                        Button { Task { await scanSubnetDevices() } } label: { Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.blue) }.buttonStyle(.plain).disabled(isScanning)
+                        Button { showAddDeviceSheet = true } label: { Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(.orange) }.buttonStyle(.plain)
+                    }
+                }
+                if client.transferDevices.isEmpty && !isScanning { deviceEmptyCard }
+                else { LazyVGrid(columns: [GridItem(.flexible(), spacing: 12)], spacing: 12) { ForEach(client.transferDevices) { device in sendDeviceRow(device) } } }
+            }
+            if let device = selectedDevice { Divider().opacity(0.1); selectedDeviceActions(device) }
+            Spacer()
+        }
+    }
+
+    private var deviceEmptyCard: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "antenna.radiowaves.left.and.right.slash").font(.system(size: 48)).foregroundStyle(.quaternary)
+            VStack(spacing: 6) {
+                Text("暂无发现设备").font(.headline).foregroundStyle(.secondary)
+                Text("点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址").font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(40)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(
+            RoundedRectangle(cornerRadius: WgTheme.cardRadius)
+                .stroke(WgTheme.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+        )
+    }
+
+    private func selectedDeviceActions(_ device: DaemonClient.TransferDevice) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device.alias).font(.body.weight(.semibold))
+                if let ip = device.ip { Text(ip).font(.caption).foregroundStyle(.tertiary) }
+            }
+            Spacer()
+            if sendType != nil {
+                Button { triggerSend(target: device) } label: {
+                    Label(sending ? "发送中..." : "发送", systemImage: sending ? "arrow.triangle.2.circlepath" : "paperplane.fill")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(sending ? AnyShapeStyle(Color.gray.opacity(0.7)) : AnyShapeStyle(Color.white))
+                        .frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(sending ? Color.gray : WgTheme.accent))
+                }.disabled(sending)
+            } else { Text("请选择发送类型 →").font(.callout.italic()).foregroundStyle(.tertiary) }
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.accent.opacity(0.4), lineWidth: 1))
+    }
+
+    // MARK: - 添加设备 Sheet
+    private var addDeviceSheet: some View {
+        VStack(spacing: 20) {
+            Text("添加设备").font(.headline.weight(.bold))
+            Text("输入设备的 IP 地址（或 IP:端口）").font(.subheadline).foregroundStyle(.secondary)
+            TextField("例如：192.168.200.5 或 192.168.200.5:53317", text: $addDeviceAddr).textFieldStyle(.roundedBorder).font(.body.monospaced()).autocorrectionDisabled()
+            HStack(spacing: 12) {
+                Button("取消") { showAddDeviceSheet = false; addDeviceAddr = "" }.keyboardShortcut(.escape, modifiers: []).buttonStyle(.bordered)
+                Button {
+                    let addr = addDeviceAddr.trimmingCharacters(in: .whitespacesAndNewlines); guard !addr.isEmpty else { return }
+                    Task {
+                        if let _ = await client.addManualDevice(addr: addr) {
+                            await MainActor.run { showAddDeviceSheet = false; addDeviceAddr = ""; lastSendResult = "设备已添加"; DispatchQueue.main.asyncAfter(deadline: .now() + 3) { lastSendResult = nil } }
+                        } else { await MainActor.run { lastSendResult = "连接失败，检查地址后重试"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } }
+                    }
+                } label: { Text("添加") }.buttonStyle(.borderedProminent).disabled(addDeviceAddr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text("提示：确保目标设备已运行 LocalSend 或 WgSense").font(.caption2).foregroundStyle(.tertiary)
+            Spacer()
+        }.padding(28).frame(width: 420, height: 280)
+    }
+
+    // MARK: - Actions
+    private func loadInitialData() async { await client.fetchTransferState(); await client.fetchTransferDevices(timeoutSec: 3) }
+    private func refreshDevices() async { isScanning = true; await client.fetchTransferDevices(timeoutSec: 5); try? await Task.sleep(for: .seconds(1)); isScanning = false }
+    private func scanSubnetDevices() async { isScanning = true; let found = await client.scanSubnet(timeoutSec: 10); try? await Task.sleep(for: .seconds(1)); isScanning = false; if found.isEmpty { lastSendResult = "扫描完成，未发现 LocalSend 设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } else { lastSendResult = "扫描发现 \(found.count) 个设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } }
+    private func selectSendType(_ type: SendType) { withAnimation(.easeInOut(duration: 0.15)) { sendType = type }; switch type { case .file: showFilePicker = true; case .folder: showFolderPicker = true; default: break } }
+    private func triggerSend(target: DaemonClient.TransferDevice) { guard sendType != nil else { return }; if sendType == .file || sendType == .folder { if sendType == .file { showFilePicker = true } else { showFolderPicker = true } } else { sending = true; lastSendResult = nil; Task { let paths: [String]; switch sendType { case .text: paths = [""]; case .clipboard: paths = []; default: paths = [] }; let success = await client.sendFiles(to: target.id, paths: paths); await MainActor.run { sending = false; lastSendResult = success ? "发送完成" : "发送失败"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } } } }
+    private func handleFileSelection(_ result: Result<[URL], Error>) { guard case .success(let urls) = result else { lastSendResult = "选择文件失败"; return }; guard let target = selectedDevice else { return }; let paths = urls.compactMap { url in url.startAccessingSecurityScopedResource(); defer { url.stopAccessingSecurityScopedResource() }; return url.path }; guard !paths.isEmpty else { lastSendResult = "无法获取文件路径"; return }; sending = true; lastSendResult = nil; Task { let success = await client.sendFiles(to: target.id, paths: paths); await MainActor.run { sending = false; lastSendResult = success ? "发送完成 (\(paths.count) 个文件)" : "发送失败"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } } }
+
+    // MARK: - 设备行
+    private func sendDeviceRow(_ device: DaemonClient.TransferDevice) -> some View {
+        Button { withAnimation { selectedDevice = device } } label: {
+            HStack(spacing: 14) {
+                Image(systemName: iconForOS(device.deviceType ?? "")).font(.system(size: 26)).foregroundStyle(colorForOS(device.deviceType ?? ""))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(device.alias).font(.body.weight(.medium)).foregroundStyle(.primary)
+                        Text(sourceBadgeLabel(device.source ?? "multicast")).font(.system(size: 9)).foregroundStyle(colorForDeviceSource(device.source ?? "multicast")).padding(.horizontal, 5).padding(.vertical, 1).background(colorForDeviceSource(device.source ?? "multicast").opacity(0.12)).cornerRadius(3)
+                    }
+                    if let ip = device.ip { Text(ip).font(.caption2).foregroundStyle(.tertiary) }
+                }
+                Spacer()
+                if selectedDevice?.id == device.id { Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(WgTheme.accent) }
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(selectedDevice?.id == device.id ? WgTheme.accent.opacity(0.08) : WgTheme.cardBg).overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(selectedDevice?.id == device.id ? WgTheme.accent : WgTheme.cardBorder, lineWidth: 1)))
+        }.buttonStyle(.plain)
+    }
+
+    private func sourceBadgeLabel(_ source: String) -> String { switch source { case "manual": return "手动"; case "scan": return "扫描"; default: return "多播" } }
+    private func colorForDeviceSource(_ source: String) -> Color { switch source { case "manual": return .orange; case "scan": return .blue; default: return .green } }
+    private func iconForOS(_ dt: String) -> String { let d = dt.lowercased(); if d.contains("mac") || d.contains("ios") { return "desktopcomputer" }; if d.contains("android") { return "smartphone" }; if d.contains("windows") { return "pc" }; return "laptopcomputer" }
+    private func colorForOS(_ dt: String) -> Color { let d = dt.lowercased(); if d.contains("mac") || d.contains("ios") { return .blue }; if d.contains("android") { return .green }; if d.contains("windows") { return .cyan }; return .purple }
+}
+
+// MARK: - 设置行组件
+private struct SettingsToggleRow: View {
+    let label: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            Text(label).font(.body).foregroundStyle(.primary)
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .tint(WgTheme.accent)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).padding(.leading, 16)
+        }
+    }
+}
+
+private struct SettingsButtonRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label).font(.body).foregroundStyle(.primary)
+            Spacer()
+            Text(value).font(.body).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).padding(.leading, 16)
+        }
+    }
+}
+
+private struct SettingsNavRow: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(label).font(.body).foregroundStyle(.primary)
+                Spacer()
+                Text("打开").font(.body).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).padding(.leading, 16)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Environment Key for DaemonClient
+
+private struct DaemonClientKey: EnvironmentKey {
+    @MainActor static let defaultValue = DaemonClient()
+}
+
+extension EnvironmentValues {
+    var daemonClient: DaemonClient {
+        get { self[DaemonClientKey.self] }
+        set { self[DaemonClientKey.self] = newValue }
+    }
+}
+
+// MARK: - Xcode Preview
+#Preview("概览页") {
+    MainView()
 }

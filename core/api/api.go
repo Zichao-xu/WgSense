@@ -10,17 +10,21 @@ import (
 
 	"github.com/wgsense/core/internal/config"
 	"github.com/wgsense/core/internal/policy"
+	"github.com/wgsense/core/internal/proxy"
+	"github.com/wgsense/core/internal/transfer"
 )
 
 // Server 是本地 HTTP API 服务。
 type Server struct {
-	eng  *policy.Engine
-	addr string
+	eng      *policy.Engine
+	addr     string
+	transSvc *transfer.Service
+	proxySvc *proxy.Service
 }
 
 // New 创建 API 服务。addr 如 "127.0.0.1:8765"。
-func New(addr string, eng *policy.Engine) *Server {
-	return &Server{eng: eng, addr: addr}
+func New(addr string, eng *policy.Engine, transSvc *transfer.Service, proxySvc *proxy.Service) *Server {
+	return &Server{eng: eng, addr: addr, transSvc: transSvc, proxySvc: proxySvc}
 }
 
 // Start 启动 HTTP server（阻塞）。
@@ -37,6 +41,30 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/profile/save", s.handleProfileSave)
 	mux.HandleFunc("/api/profile/delete", s.handleProfileDelete)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/traffic", s.handleTraffic)
+	mux.HandleFunc("/api/transfer/devices", s.handleTransferDevices)
+	mux.HandleFunc("/api/transfer/scan", s.handleTransferScan)
+	mux.HandleFunc("/api/transfer/add-device", s.handleTransferAddDevice)
+	mux.HandleFunc("/api/transfer/remove-device", s.handleTransferRemoveDevice)
+	mux.HandleFunc("/api/transfer/send", s.handleTransferSend)
+	mux.HandleFunc("/api/transfer/receive", s.handleTransferReceive)
+	mux.HandleFunc("/api/transfer/cancel", s.handleTransferCancel)
+
+	// 代理管理 (Mihomo 面板)
+	mux.HandleFunc("/api/proxy/status", proxy.ProxyStatusHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/version", proxy.VersionHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/proxies", proxy.ProxiesHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/select", proxy.SelectProxyHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/delay", proxy.DelayTestHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/providers", proxy.ProvidersHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/provider-update", proxy.UpdateProviderHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/connections", proxy.ConnectionsHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/connection-close", proxy.CloseConnectionHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/connections-close-all", proxy.CloseAllConnectionsHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/rules", proxy.RulesHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/configs", proxy.ConfigsHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/cache", proxy.CacheHandler(s.proxySvc))
 	srv := &http.Server{
 		Addr:    s.addr,
 		Handler: mux,
@@ -183,4 +211,191 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 func writeError(w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusInternalServerError)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// handleLogs 返回最近 N 行日志。
+// GET /api/logs?n=20
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	n := 20 // 默认 20 行
+	if v := r.URL.Query().Get("n"); v != "" {
+		fmt.Sscanf(v, "%d", &n)
+	}
+	if n <= 0 || n > 200 {
+		n = 20
+	}
+	lines := s.eng.Logs(n)
+	writeJSON(w, map[string]interface{}{"lines": lines, "count": len(lines)})
+}
+
+// handleTraffic 返回实时流量统计（bytes/sec）。
+// GET /api/traffic
+func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
+	// 先更新流量统计（读取接口字节数，计算速度）
+	s.eng.UpdateTraffic()
+	stats := s.eng.TrafficStats()
+	writeJSON(w, stats)
+}
+
+// --- Transfer 文件传输 API ---
+
+// handleTransferDevices 返回发现的设备列表（合并多播 + 手动）。
+// GET /api/transfer/devices?timeout=3
+func (s *Server) handleTransferDevices(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	timeout := 3
+	if v := r.URL.Query().Get("timeout"); v != "" {
+		fmt.Sscanf(v, "%d", &timeout)
+	}
+	if timeout <= 0 || timeout > 15 {
+		timeout = 3
+	}
+	multicastDevs := s.transSvc.DiscoverDevices(timeout)
+	allDevs := s.transSvc.GetAllDevices(multicastDevs)
+	writeJSON(w, map[string]interface{}{"devices": allDevs})
+}
+
+// handleTransferScan 单播扫描子网发现设备。
+// GET /api/transfer/scan?subnet=&timeout=10
+func (s *Server) handleTransferScan(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	subnet := r.URL.Query().Get("subnet")
+	timeoutSec := 10
+	if v := r.URL.Query().Get("timeout"); v != "" {
+		fmt.Sscanf(v, "%d", &timeoutSec)
+	}
+	if timeoutSec <= 0 || timeoutSec > 30 {
+		timeoutSec = 10
+	}
+	devices := s.transSvc.ScanSubnet(subnet, timeoutSec)
+	writeJSON(w, map[string]interface{}{
+		"devices": devices,
+		"subnet":  subnet,
+	})
+}
+
+// handleTransferAddDevice 手动添加设备。
+// POST /api/transfer/add-device  body: {"addr":"192.168.1.100:53317"}
+func (s *Server) handleTransferAddDevice(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	var req struct {
+		Addr string `json:"addr"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.Addr == "" {
+		writeError(w, fmt.Errorf("addr 不能为空"))
+		return
+	}
+	dev, err := s.transSvc.AddManualDevice(req.Addr)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, dev)
+}
+
+// handleTransferRemoveDevice 移除手动添加的设备。
+// POST /api/transfer/remove-device  body: {"id":"192.168.1.100:53318"}
+func (s *Server) handleTransferRemoveDevice(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	ok := s.transSvc.RemoveManualDevice(req.ID)
+	writeJSON(w, map[string]bool{"ok": ok})
+}
+
+// handleTransferSend 发送文件到目标设备。
+// POST /api/transfer/send  body: {"id":"IP:Port","paths":["/path/to/file"]}
+func (s *Server) handleTransferSend(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	var req struct {
+		ID    string   `json:"id"`
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ID == "" || len(req.Paths) == 0 {
+		writeError(w, fmt.Errorf("id 和 paths 不能为空"))
+		return
+	}
+
+	// 从所有已知设备中按 ID 查找目标（多播+手动合并）
+	multicastDevs := s.transSvc.DiscoverDevices(3)
+	allDevs := s.transSvc.GetAllDevices(multicastDevs)
+	var target transfer.DeviceInfo
+	found := false
+	for _, d := range allDevs {
+		if d.ID == req.ID {
+			target = d
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, fmt.Errorf("未找到设备: %s", req.ID))
+		return
+	}
+
+	err := s.transSvc.SendFiles(target, req.Paths)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleTransferReceive 返回接收状态和进度。
+// GET /api/transfer/receive
+func (s *Server) handleTransferReceive(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	state := s.transSvc.ReceiveState()
+	writeJSON(w, state)
+}
+
+// handleTransferCancel 取消传输任务。
+// POST /api/transfer/cancel  body: {"task_id":"xxx"}
+func (s *Server) handleTransferCancel(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	var req struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.transSvc.CancelTask(req.TaskID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }

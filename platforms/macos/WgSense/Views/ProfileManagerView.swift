@@ -22,7 +22,7 @@ struct ProfileName: Identifiable {
     var body: some View {
         VStack(alignment: .leading, spacing: WgTheme.spacing) {
             HStack {
-                Text("Profiles").font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
+                Text("配置").font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     showImport = true
@@ -110,14 +110,16 @@ struct ProfileName: Identifiable {
             }
             Button("取消", role: .cancel) {}
         }
+        .task { await client.fetchProfiles() }
     }
 
+    // MARK: - 空状态
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.badge.plus")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
-            Text("还没有 Profile")
+            Text("还没有配置")
                 .font(.subheadline)
             Text("导入 .conf 或手动填写")
                 .font(.caption)
@@ -187,6 +189,7 @@ struct ProfileName: Identifiable {
 // MARK: - 导入 .conf 文件
 
 struct ImportConfView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var fileName: String = ""
     @State private var fileContent: String = ""
     @State private var profileName: String = ""
@@ -276,7 +279,7 @@ struct ImportConfView: View {
 
             // 底部按钮
             HStack {
-                Button("取消") { /* 由 sheet 关闭 */ }
+                Button("取消") { dismiss() }
                     .buttonStyle(.bordered)
                 Spacer()
                 Button("导入") {

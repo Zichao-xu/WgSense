@@ -106,6 +106,9 @@ struct SettingsView: View {
                 settingInfo("日志文件", "/var/log/wgsense-daemon.log")
             }
 
+            // 传输（LocalSend 兼容）
+            transferSettingsSection
+
             // 应用按钮
             Button {
                 Task { await client.syncConfig() }
@@ -126,6 +129,33 @@ struct SettingsView: View {
     }
 
     // MARK: - 组件
+
+    @ViewBuilder
+    private var transferSettingsSection: some View {
+        settingsGroup("文件传输") {
+            HStack {
+                Text("接收服务").font(.body).foregroundStyle(.primary)
+                Spacer()
+                HStack(spacing: 8) {
+                    Button { Task { await restartTransferServer() } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 14)).foregroundStyle(.secondary) }.buttonStyle(.plain)
+                    Toggle("", isOn: Binding(
+                        get: { client.transferState?.running ?? false },
+                        set: { _ in }
+                    )).labelsHidden().disabled(true).opacity(0.7)
+                }
+            }
+            Divider().opacity(0.3)
+            settingInfo("设备别名", client.transferState?.alias ?? "WgSense-Mac")
+            Divider().opacity(0.3)
+            settingInfo("端口", "\(client.transferState?.port ?? 53318)")
+            Divider().opacity(0.3)
+            settingInfo("保存目录", client.transferState?.downloads ?? "~/Downloads/WgSense")
+        }
+    }
+
+    private func restartTransferServer() async {
+        // TODO: call daemon API to restart transfer service
+    }
 
     private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
