@@ -13,11 +13,32 @@ enum WgTheme {
     static let accent = Color(red: 0.2, green: 0.5, blue: 0.95)
     static let cardRadius: CGFloat = 10
     static let spacing: CGFloat = 12
+    static let pagePadding: CGFloat = 28
     /// 磁贴尺寸基准：小磁贴高=y, 宽=x; 中=高y宽2x; 大=2y×2x; 间距=y/10
     /// 设 y=80 → small: 80×(80/0.618)≈80×129, medium: 80×259, large: 160×259
     static let tileY: CGFloat = 80
     static let tileX: CGFloat = tileY / 0.618
     static let tileGap: CGFloat = tileY / 10
+}
+
+extension View {
+    func wgGlassSurface(
+        cornerRadius: CGFloat = 12,
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(shape.fill(WgTheme.cardBg))
+            .overlay {
+                shape.fill(tint?.opacity(interactive ? 0.18 : 0.12) ?? Color.clear)
+            }
+            .overlay(shape.stroke(WgTheme.cardBorder, lineWidth: 0.75))
+    }
+
+    func wgTimelineScroller() -> some View {
+        self
+    }
 }
 
 // MARK: - 主窗口
@@ -966,17 +987,17 @@ struct SidebarView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: tile.size == .large) {
                     VStack(alignment: .leading, spacing: tile.size == .large ? 3 : 2) {
-                        ForEach(Array(client.logLines.enumerated()), id: \.offset) { _, line in
+                        ForEach(client.logLines) { line in
                             HStack(spacing: 6) {
                                 Circle()
                                     .fill(Color.gray.opacity(0.25))
                                     .frame(width: 4, height: 4)
                                     .padding(.top, 5)
-                                Text(line)
+                                Text(line.text)
                                     .font(.system(size: tile.size == .medium ? 10 : 11))
                                     .foregroundColor(.white.opacity(0.55))
                                     .lineLimit(tile.size == .large ? 2 : 1)
-                                    .id(line)
+                                    .id(line.id)
                                 Spacer(minLength: 0)
                             }
                         }
@@ -987,7 +1008,7 @@ struct SidebarView: View {
                 .onChange(of: client.logLines.count) { _ in
                     if let last = client.logLines.last {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last, anchor: .bottom)
+                            proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
                 }
@@ -2194,8 +2215,42 @@ struct TransferSendView: View {
     private func refreshDevices() async { isScanning = true; await client.fetchTransferDevices(timeoutSec: 5); try? await Task.sleep(for: .seconds(1)); isScanning = false }
     private func scanSubnetDevices() async { isScanning = true; let found = await client.scanSubnet(timeoutSec: 10); try? await Task.sleep(for: .seconds(1)); isScanning = false; if found.isEmpty { lastSendResult = "扫描完成，未发现 LocalSend 设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } else { lastSendResult = "扫描发现 \(found.count) 个设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } }
     private func selectSendType(_ type: SendType) { withAnimation(.easeInOut(duration: 0.15)) { sendType = type }; switch type { case .file: showFilePicker = true; case .folder: showFolderPicker = true; default: break } }
-    private func triggerSend(target: DaemonClient.TransferDevice) { guard sendType != nil else { return }; if sendType == .file || sendType == .folder { if sendType == .file { showFilePicker = true } else { showFolderPicker = true } } else { sending = true; lastSendResult = nil; Task { let paths: [String]; switch sendType { case .text: paths = [""]; case .clipboard: paths = []; default: paths = [] }; let success = await client.sendFiles(to: target.id, paths: paths); await MainActor.run { sending = false; lastSendResult = success ? "发送完成" : "发送失败"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } } } }
-    private func handleFileSelection(_ result: Result<[URL], Error>) { guard case .success(let urls) = result else { lastSendResult = "选择文件失败"; return }; guard let target = selectedDevice else { return }; let paths = urls.compactMap { url in url.startAccessingSecurityScopedResource(); defer { url.stopAccessingSecurityScopedResource() }; return url.path }; guard !paths.isEmpty else { lastSendResult = "无法获取文件路径"; return }; sending = true; lastSendResult = nil; Task { let success = await client.sendFiles(to: target.id, paths: paths); await MainActor.run { sending = false; lastSendResult = success ? "发送完成 (\(paths.count) 个文件)" : "发送失败"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } } }
+    private func triggerSend(target: DaemonClient.TransferDevice) {
+        guard sendType != nil else { return }
+        if sendType == .file || sendType == .folder {
+            if sendType == .file { showFilePicker = true } else { showFolderPicker = true }
+            return
+        }
+        lastSendResult = "文本与剪贴板发送将在下一批恢复"
+    }
+
+    private func handleFileSelection(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else {
+            lastSendResult = "选择文件失败"
+            return
+        }
+        guard let target = selectedDevice else { return }
+        let paths = urls.compactMap { url in
+            url.startAccessingSecurityScopedResource()
+            defer { url.stopAccessingSecurityScopedResource() }
+            return url.path
+        }
+        guard !paths.isEmpty else {
+            lastSendResult = "无法获取文件路径"
+            return
+        }
+
+        sending = true
+        lastSendResult = nil
+        Task {
+            let success = await client.startFileSend(to: target.id, paths: paths) != nil
+            await MainActor.run {
+                sending = false
+                lastSendResult = success ? "发送任务已创建 (\(paths.count) 个文件)" : "发送失败"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil }
+            }
+        }
+    }
 
     // MARK: - 设备行
     private func sendDeviceRow(_ device: DaemonClient.TransferDevice) -> some View {

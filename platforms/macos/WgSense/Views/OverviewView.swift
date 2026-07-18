@@ -25,9 +25,9 @@ struct OverviewView: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: WgTheme.spacing) {
-                infoCard(title: "位置", value: client.status?.at_home == true ? "在家网段" : "在外", icon: "location.fill", color: client.status?.at_home == true ? .green : .blue)
-                infoCard(title: "守护", value: client.status?.paused == false ? "运行中" : "已暂停", icon: "shield.checkered", color: client.status?.paused == false ? .green : .gray)
-                infoCard(title: "状态", value: client.status?.state ?? "Unknown", icon: "network", color: statusColor)
+                infoCard(title: "网络", value: networkText, icon: "location.fill", color: networkColor)
+                infoCard(title: "守护", value: guardText, icon: "shield.checkered", color: guardColor)
+                infoCard(title: "状态", value: stateText, icon: "network", color: statusColor)
             }
 
             // 模块状态
@@ -35,6 +35,12 @@ struct OverviewView: View {
 
             Spacer()
         }
+        .task {
+            async let transfer: Void = client.fetchTransferState()
+            async let proxy: Void = client.fetchProxyStatus()
+            _ = await (transfer, proxy)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     // MARK: - 状态 Pill 标签
@@ -74,14 +80,19 @@ struct OverviewView: View {
                         )
                         .shadow(color: statusColor.opacity(0.4), radius: 4)
 
-                    Text(client.status?.state ?? "Unknown")
+                    Text(stateText)
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                 }
 
                 if let s = client.status {
                     VStack(alignment: .leading, spacing: 4) {
-                        detailLine("位置", s.at_home ? "在家网段" : "在外网段")
+                        detailLine("网络", s.isTrustedNetwork ? "受信任" : "非受信任")
                         detailLine("管理", s.paused ? "已暂停" : "自动管理")
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        detailLine("网络", "等待 daemon")
+                        detailLine("管理", "未连接")
                     }
                 }
             }
@@ -143,11 +154,23 @@ struct OverviewView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 0) {
-                moduleRow(icon: "shield.lefthalf.filled", name: "WireGuard", desc: client.status?.state ?? "Unknown", active: true, color: .blue)
+                moduleRow(icon: "shield.lefthalf.filled", name: "WireGuard", desc: wireGuardModuleText, active: client.status != nil, color: .blue)
                 Divider().opacity(0.3)
-                moduleRow(icon: "arrow.triangle.2.circlepath", name: "传输", desc: "未启用", active: false, color: .gray)
+                moduleRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    name: "传输",
+                    desc: client.transferState?.running == true ? "接收服务运行中" : "未运行",
+                    active: client.transferState?.running == true,
+                    color: .cyan
+                )
                 Divider().opacity(0.3)
-                moduleRow(icon: "globe.asia.australia", name: "代理", desc: "未启用", active: false, color: .gray)
+                moduleRow(
+                    icon: "globe.asia.australia",
+                    name: "代理",
+                    desc: client.proxyRunning ? "控制器已连接" : (client.proxyServiceRunning ? "等待认证" : "未连接"),
+                    active: client.proxyRunning,
+                    color: .purple
+                )
             }
             .background(WgTheme.cardBg)
             .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
@@ -188,12 +211,42 @@ struct OverviewView: View {
 
     // MARK: - 辅助属性
 
-    private var isConnected: Bool { client.status?.state == "Connected" }
+    private var isConnected: Bool { client.isVPNOn }
+
+    private var stateText: String {
+        client.status?.state ?? "daemon 离线"
+    }
+
+    private var networkText: String {
+        guard let status = client.status else { return "未知" }
+        return status.isTrustedNetwork ? "受信任" : "非受信任"
+    }
+
+    private var networkColor: Color {
+        guard let status = client.status else { return .secondary }
+        return status.isTrustedNetwork ? .green : .blue
+    }
+
+    private var guardText: String {
+        guard let status = client.status else { return "未连接" }
+        return status.paused ? "已暂停" : "运行中"
+    }
+
+    private var guardColor: Color {
+        guard let status = client.status else { return .secondary }
+        return status.paused ? .gray : .green
+    }
+
+    private var wireGuardModuleText: String {
+        guard let status = client.status else { return "daemon 未连接" }
+        return status.state
+    }
 
     private var statusColor: Color {
         switch client.status?.state {
         case "Connected": return .green
         case "Disconnected": return .gray
+        case nil: return .secondary
         default: return .orange
         }
     }

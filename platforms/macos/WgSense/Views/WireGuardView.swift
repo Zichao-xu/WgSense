@@ -53,21 +53,20 @@ struct WireGuardDetailView: View {
 
             Spacer()
 
-            if client.status?.state == "Connected" {
-                Button("断开") {
+            if client.isVPNOn {
+                Button(client.isAuthorizingDaemon ? "正在授权..." : "断开") {
                     Task { await client.post("disconnect") }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(client.isAuthorizingDaemon)
             } else {
-                Button("连接") {
-                    Task {
-                        await client.post("resume")
-                        await client.post("connect")
-                    }
+                Button(client.isAuthorizingDaemon ? "正在授权..." : "连接") {
+                    Task { await client.post("connect") }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .disabled(client.isAuthorizingDaemon)
             }
         }
         .padding(14)

@@ -22,7 +22,7 @@ struct ProfileName: Identifiable {
     var body: some View {
         VStack(alignment: .leading, spacing: WgTheme.spacing) {
             HStack {
-                Text("配置").font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
+                Text("配置").font(.title2).fontWeight(.semibold)
                 Spacer()
                 Button {
                     showImport = true
@@ -399,21 +399,6 @@ struct ExportConfView: View {
 }
 
 // MARK: - 手动填写向导
-
-struct WGProfile: Codable {
-    var name: String = ""
-    // Interface
-    var privateKey: String = ""
-    var address: String = ""
-    var dns: String = ""
-    var mtu: Int = 1420
-    // Peer
-    var publicKey: String = ""
-    var presharedKey: String = ""
-    var endpoint: String = ""
-    var allowedIPs: String = "0.0.0.0/0, ::/0"
-    var keepalive: Int = 25
-}
 
 struct ManualWizardView: View {
     @Environment(\.dismiss) private var dismiss

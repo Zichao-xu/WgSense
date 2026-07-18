@@ -1,27 +1,28 @@
 import SwiftUI
 
-struct DaemonStatus: Codable {
-    var at_home: Bool
-    var state: String
-    var paused: Bool
-    var service: String
-}
-
-struct TrafficStats: Codable {
-    var tx_speed: Double
-    var rx_speed: Double
-    var tx_bytes: UInt64
-    var rx_bytes: UInt64
-}
-
 @MainActor
 class DaemonClient: ObservableObject {
+    struct LogLine: Identifiable, Equatable {
+        let id: UUID
+        let text: String
+
+        init(id: UUID = UUID(), text: String) {
+            self.id = id
+            self.text = text
+        }
+    }
+
     @Published var status: DaemonStatus?
     @Published var profiles: [String] = []
     @Published var errorMsg: String?
     @Published var alertMsg: String?
-    @Published var logLines: [String] = []
+    @Published var logLines: [LogLine] = []
     @Published var traffic: TrafficStats?
+    @Published private(set) var isAuthorizingDaemon = false
+    @Published private(set) var pendingConnected: Bool?
+    @Published private(set) var pendingGuardRunning: Bool?
+    @Published private(set) var pendingPaused: Bool?
+    private var lastAuthorizationFailure: Date?
 
     /// 暂停时长（分钟），可在设置页修改，默认 5
     @AppStorage("pauseMinutes") var pauseMinutes: Int = 5
@@ -30,19 +31,51 @@ class DaemonClient: ObservableObject {
     @AppStorage("healthCheckTarget") var healthCheckTarget: String = "https://1.1.1.1"
     @AppStorage("intervalSeconds") var intervalSeconds: Int = 10
     @AppStorage("autoUpGraceSeconds") var autoUpGraceSeconds: Int = 20
-    @AppStorage("homeNetworkPrefixes") var homeNetworkPrefixes: String = "10.10.1."
+    @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = "10.10.1."
+    @AppStorage("autoConnectUntrusted") var autoConnectUntrusted: Bool = true
 
-    private let baseURL = URL(string: "http://127.0.0.1:8765")!
+    private let api = DaemonAPIClient()
+    private let controlAPI = DaemonControlAPIClient()
+    private let profileStore = ProfileFileStore()
+    private let transferAPI = TransferAPIClient()
+    private let proxyAPI = ProxyAPIClient()
+    private var baseURL: URL { api.baseURL }
     private var pollTimer: Timer?
 
-    /// Daemon 二进制路径（需 sudo 启动）
-    private static let daemonPath = "/Users/adams/Projects/wgsense/core/wgsense-daemon"
-
-    /// 是否已确认 daemon 不可达（避免重复检测）
-    private var daemonConfirmedDown = false
+    /// Daemon 二进制路径（需 sudo 启动）。Release/Debug 优先使用 App bundle 内嵌 helper。
+    private static var daemonPath: String {
+        if let bundled = Bundle.main.path(forResource: "wgsense-daemon", ofType: nil, inDirectory: "libexec") {
+            return bundled
+        }
+        return "/usr/local/libexec/wgsense-daemon"
+    }
 
     init() {
+        migrateTrustedNetworkPolicyIfNeeded()
         startPolling()
+    }
+
+    private func migrateTrustedNetworkPolicyIfNeeded() {
+        let defaults = UserDefaults.standard
+        let migrationKey = "trustedNetworkPolicyV2Migrated"
+        guard !defaults.bool(forKey: migrationKey) else { return }
+
+        // Earlier builds persisted `false` as a product default even though the
+        // guard tile implied full trusted/untrusted automation.
+        autoConnectUntrusted = true
+        defaults.set(true, forKey: migrationKey)
+    }
+
+    var isVPNOn: Bool {
+        pendingConnected ?? (status?.state == "Connected")
+    }
+
+    var isGuardOn: Bool {
+        pendingGuardRunning ?? (status.map { !$0.paused } ?? false)
+    }
+
+    var isPauseOn: Bool {
+        pendingPaused ?? (status?.paused ?? false)
     }
 
     // MARK: - 连通性检测（1s 超时，极速判定）
@@ -67,38 +100,99 @@ class DaemonClient: ObservableObject {
         return reachable
     }
 
-    /// 确保 daemon 在线：先快速检测，不可达则提示用户启动
-    func ensureDaemon() async -> Bool {
-        if daemonConfirmedDown { return false }
-
+    /// 确保 daemon 在线：先快速检测，不可达则自动弹出授权窗口启动 daemon（root）
+    func ensureDaemon(requireActive: Bool = false, authorizeIfNeeded: Bool = false) async -> Bool {
         // 异步快速检测（不阻塞 UI）
-        let reachable = await withCheckedContinuation { continuation in
-            var req = URLRequest(url: baseURL.appendingPathComponent("api/status"))
-            req.timeoutInterval = 1.0
-            Task {
+        let runningStatus = try? await controlAPI.status(timeout: 1.0)
+
+        if let runningStatus, !requireActive || runningStatus.passive != true {
+            await syncConfigSilently()
+            return true
+        }
+        if runningStatus?.passive == true {
+            alertMsg = "当前是被动服务，无法建立 WireGuard；请启动正式网络服务"
+            return false
+        }
+
+        guard authorizeIfNeeded else {
+            errorMsg = "daemon 未连接"
+            return false
+        }
+        if let lastAuthorizationFailure, Date().timeIntervalSince(lastAuthorizationFailure) < 8 {
+            errorMsg = "daemon 未启动；稍后再试"
+            return false
+        }
+        guard !isAuthorizingDaemon else {
+            errorMsg = "正在等待管理员授权..."
+            return false
+        }
+        isAuthorizingDaemon = true
+        defer { isAuthorizingDaemon = false }
+        errorMsg = "需要管理员授权以启动网络服务"
+
+        // Daemon 不可达 → 尝试通过 osascript + administrator privileges 启动（弹出 macOS 授权窗口）
+        let started = await startDaemonWithPrivileges()
+        if started {
+            // 等待 daemon 就绪
+            try? await Task.sleep(for: .seconds(2))
+            let retryReachable = (try? await controlAPI.status(timeout: 2.0)) != nil
+            if retryReachable {
+                await syncConfigSilently()
+                markDaemonUp()
+                return true
+            }
+        }
+
+        lastAuthorizationFailure = Date()
+        errorMsg = "Daemon 未启动；可再次点击 VPN 重试授权"
+        return false
+    }
+
+    /// 通过 osascript 弹出系统授权窗口，以 root 权限启动 daemon
+    private func startDaemonWithPrivileges() async -> Bool {
+        let daemonPath = Self.daemonPath
+        let runtimePath = NSHomeDirectory() + "/.local/share/wgsense"
+        let downloadPath = NSHomeDirectory() + "/.local/share/wgsense/incoming"
+        let autoConnect = autoConnectUntrusted ? "true" : "false"
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let daemon = daemonPath.replacingOccurrences(of: "'", with: "'\\''")
+                let runtime = runtimePath.replacingOccurrences(of: "'", with: "'\\''")
+                let downloads = downloadPath.replacingOccurrences(of: "'", with: "'\\''")
+                let shellCmd = "'\(daemon)' --api 127.0.0.1:8765 --runtime-dir '\(runtime)' --download-dir '\(downloads)' --auto-connect-untrusted=\(autoConnect) --app-owned=true </dev/null >>/var/log/wgsense-daemon.log 2>&1 &"
+                let escaped = shellCmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                let script = "do shell script \"\(escaped)\" with administrator privileges"
+
+                let task = Process()
+                task.launchPath = "/usr/bin/osascript"
+                task.arguments = ["-e", script]
+                let pipe = Pipe()
+                task.standardOutput = pipe
+                task.standardError = pipe
+
                 do {
-                    let (_, resp) = try await URLSession.shared.data(for: req)
-                    let ok = (resp as? HTTPURLResponse)?.statusCode == 200
-                    continuation.resume(returning: ok)
+                    try task.run()
+                    task.waitUntilExit()
+                    let success = (task.terminationStatus == 0)
+                    if !success {
+                        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        print("[DaemonClient] daemon 启动失败: \(output)")
+                    }
+                    continuation.resume(returning: success)
                 } catch {
+                    print("[DaemonClient] osascript 异常: \(error.localizedDescription)")
                     continuation.resume(returning: false)
                 }
             }
         }
+    }
 
-        if reachable {
-            daemonConfirmedDown = false
-            return true
-        }
-
-        daemonConfirmedDown = true
-        errorMsg = "⚠️ Daemon 未运行 — 请在终端执行：sudo \(Self.daemonPath) --api 127.0.0.1:8765"
-        return false
+    private func log(_ msg: String) {
+        print("[DaemonClient] \(msg)")
     }
 
     /// 重置可达状态（供轮询成功后调用）
     func markDaemonUp() {
-        daemonConfirmedDown = false
         errorMsg = nil
     }
 
@@ -135,8 +229,7 @@ class DaemonClient: ObservableObject {
 
     func fetchStatus() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/status"))
-            status = try JSONDecoder().decode(DaemonStatus.self, from: data)
+            status = try await controlAPI.status()
             markDaemonUp()
         } catch {
             status = nil
@@ -146,84 +239,160 @@ class DaemonClient: ObservableObject {
 
     func fetchProfiles() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/profiles"))
-            profiles = try JSONDecoder().decode([String].self, from: data)
+            profiles = try await controlAPI.profiles()
         } catch {
             // daemon 离线时从文件系统直读
-            profiles = loadProfilesFromDisk()
+            profiles = profileStore.listProfiles()
         }
     }
 
     /// 拉取最近 N 行日志（供小磁贴日志滚动用）
     func fetchLogs(n: Int = 15) async {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/logs"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "n", value: "\(n)")]
-        guard let url = components.url else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let result = try? JSONDecoder().decode(LogsResponse.self, from: data) {
-                logLines = result.lines
-            }
+            let incoming = try await controlAPI.logs(limit: n).lines
+            mergeLogLines(incoming, limit: max(n, 500))
         } catch { /* daemon 可能还没启动 */ }
+    }
+
+    private func mergeLogLines(_ incoming: [String], limit: Int) {
+        guard !incoming.isEmpty else { return }
+        let current = logLines.map(\.text)
+        if current.suffix(incoming.count).elementsEqual(incoming) { return }
+
+        let maxOverlap = min(current.count, incoming.count)
+        var overlap = 0
+        if maxOverlap > 0 {
+            for count in stride(from: maxOverlap, through: 1, by: -1) {
+                if current.suffix(count).elementsEqual(incoming.prefix(count)) {
+                    overlap = count
+                    break
+                }
+            }
+        }
+
+        if overlap == 0 && !current.isEmpty {
+            logLines = incoming.map { LogLine(text: $0) }
+        } else {
+            logLines.append(contentsOf: incoming.dropFirst(overlap).map { LogLine(text: $0) })
+        }
+        if logLines.count > limit {
+            logLines.removeFirst(logLines.count - limit)
+        }
     }
 
     /// 拉取实时流量统计
     func fetchTraffic() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/traffic"))
-            traffic = try JSONDecoder().decode(TrafficStats.self, from: data)
+            traffic = try await controlAPI.traffic()
         } catch { traffic = nil }
     }
 
-    struct LogsResponse: Codable {
-        let lines: [String]
-        let count: Int
+    func post(_ endpoint: String) async {
+        await dispatchDaemonCommand(endpoint)
     }
 
-    func post(_ endpoint: String) async {
-        guard await ensureDaemon() else { return }
+    /// 守护开关代表完整网络策略：受信任网络断开，非受信任网络自动连接。
+    func setGuardEnabled(_ enabled: Bool) async {
+        if enabled {
+            autoConnectUntrusted = true
+            guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else { return }
+            await syncConfigSilently()
+            await runDaemonCommand("resume")
+        } else {
+            await runDaemonCommand("pause")
+        }
+    }
 
-        let oldStatus = status
-        optimisticUpdate(endpoint)
-
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/\(endpoint)"))
+    static func shutdownAppOwnedDaemonSync() {
+        guard let url = URL(string: "http://127.0.0.1:8765/api/shutdown") else { return }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 3.0
+        req.timeoutInterval = 1.0
+        let sem = DispatchSemaphore(value: 0)
+        let task = URLSession.shared.dataTask(with: req) { _, _, _ in sem.signal() }
+        task.resume()
+        _ = sem.wait(timeout: .now() + 1.2)
+    }
 
-        Task {
-            do {
-                let (_, resp) = try await URLSession.shared.data(for: req)
-                if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                    markDaemonUp()
-                    await fetchStatus()
-                } else {
-                    await revertAndAlert(oldStatus, "操作失败：\(endpoint)")
-                }
-            } catch {
-                await revertAndAlert(oldStatus, "无法连接 daemon")
-            }
+    func shutdownAppOwnedDaemon() async -> Bool {
+        do {
+            try await controlAPI.shutdownAppOwnedDaemon()
+            status = nil
+            errorMsg = "daemon 已关闭"
+            return true
+        } catch {
+            alertMsg = "关闭 daemon 失败: \(error.localizedDescription)"
+            return false
         }
     }
 
     /// 发送 POST 并等待完成（用于需要严格顺序的操作）
     func postAndWait(_ endpoint: String) async {
-        guard await ensureDaemon() else { return }
+        await dispatchDaemonCommand(endpoint)
+    }
+
+    private func dispatchDaemonCommand(_ endpoint: String) async {
+        if endpoint == "connect" {
+            await connectVPN()
+            return
+        }
+        await runDaemonCommand(endpoint)
+    }
+
+    private func connectVPN() async {
+        setPending(connect: true, guardRunning: true, paused: false)
+        guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else {
+            clearPendingState()
+            return
+        }
+
+        let oldStatus = status
+        do {
+            let current = try await controlAPI.status(timeout: 2)
+            status = current
+            if current.paused {
+                try await controlAPI.command("resume", timeout: 5)
+                await fetchStatus()
+            }
+
+            optimisticUpdate("connect")
+            // Connect waits for endpoint resolution and WireGuard handshake. Keep this
+            // longer than the daemon's handshake window so the UI receives the real error.
+            try await controlAPI.command("connect", timeout: 30)
+            markDaemonUp()
+            await fetchStatus()
+            clearPendingState()
+        } catch {
+            let message = DaemonAPIClient.connectionMessage(error) == "daemon 未连接"
+                ? "无法连接 daemon"
+                : "连接失败：\(error.localizedDescription)"
+            revertAndAlert(oldStatus, message)
+            await fetchStatus()
+            clearPendingState()
+        }
+    }
+
+    private func runDaemonCommand(_ endpoint: String) async {
+        let shouldStartDaemon = endpoint == "connect" || endpoint == "resume"
+        setPending(for: endpoint)
+        guard await ensureDaemon(requireActive: endpoint == "connect", authorizeIfNeeded: shouldStartDaemon) else {
+            clearPendingState()
+            return
+        }
 
         let oldStatus = status
         optimisticUpdate(endpoint)
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/\(endpoint)"))
-        req.httpMethod = "POST"
-        req.timeoutInterval = 3.0
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                markDaemonUp()
-                await fetchStatus()
-            } else {
-                await revertAndAlert(oldStatus, "操作失败：\(endpoint)")
-            }
+            try await controlAPI.command(endpoint)
+            markDaemonUp()
+            await fetchStatus()
+            clearPendingState()
         } catch {
-            await revertAndAlert(oldStatus, "无法连接 daemon")
+            let message = DaemonAPIClient.connectionMessage(error) == "daemon 未连接"
+                ? "无法连接 daemon"
+                : "操作失败：\(error.localizedDescription)"
+            revertAndAlert(oldStatus, message)
+            clearPendingState()
         }
     }
 
@@ -239,40 +408,35 @@ class DaemonClient: ObservableObject {
         }
     }
 
-    // MARK: - Profile 文件系统直读（daemon 离线兜底）
-    private static let profileDirURL: URL = {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".local/share/wgsense/profiles")
-    }()
-
-    /// 从文件系统直接读取 profile 列表（不依赖 daemon）
-    private func loadProfilesFromDisk() -> [String] {
-        let fm = FileManager.default
-        var result: [String] = []
-        guard let files = try? fm.contentsOfDirectory(at: Self.profileDirURL,
-                                                       includingPropertiesForKeys: [.isRegularFileKey]) else {
-            return result
+    private func setPending(for endpoint: String) {
+        switch endpoint {
+        case "connect":
+            setPending(connect: true, guardRunning: true, paused: false)
+        case "disconnect":
+            setPending(connect: false, guardRunning: nil, paused: nil)
+        case "pause":
+            setPending(connect: nil, guardRunning: false, paused: true)
+        case "resume":
+            setPending(connect: nil, guardRunning: true, paused: false)
+        default:
+            break
         }
-        for url in files {
-            if url.pathExtension == "conf" {
-                result.append(url.deletingPathExtension().lastPathComponent)
-            }
-        }
-        return result.sorted()
     }
 
-    /// 直接写入 .conf 到文件系统（daemon 离线也能导入）
-    private func saveProfileToDisk(_ name: String, _ content: String) throws {
-        let dir = Self.profileDirURL
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let fileUrl = dir.appendingPathComponent(name + ".conf")
-        try? content.write(to: fileUrl, atomically: true, encoding: .utf8)
+    private func setPending(connect: Bool?, guardRunning: Bool?, paused: Bool?) {
+        withAnimation(.smooth(duration: 0.22, extraBounce: 0.08)) {
+            if let connect { pendingConnected = connect }
+            if let guardRunning { pendingGuardRunning = guardRunning }
+            if let paused { pendingPaused = paused }
+        }
     }
 
-    /// 直接从文件系统删除 profile
-    private func deleteProfileFromDisk(_ name: String) throws {
-        let fileUrl = Self.profileDirURL.appendingPathComponent(name + ".conf")
-        try FileManager.default.removeItem(at: fileUrl)
+    private func clearPendingState() {
+        withAnimation(.smooth(duration: 0.22, extraBounce: 0.05)) {
+            pendingConnected = nil
+            pendingGuardRunning = nil
+            pendingPaused = nil
+        }
     }
 
     /// 乐观更新：点击按钮后立即更新 UI 显示的状态
@@ -298,51 +462,44 @@ class DaemonClient: ObservableObject {
     func importProfile(name: String, content: String) async {
         // 1. 先直接写文件（保证即使 daemon 离线也能导入成功）
         do {
-            try saveProfileToDisk(name, content)
+            try profileStore.saveProfile(name, content: content)
         } catch { /* 继续尝试 daemon */ }
         // 2. 再通知 daemon（如果在线）
-        let body: [String: String] = ["name": name, "content": content]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/profile/import"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+        try? await controlAPI.importProfile(name: name, content: content)
     }
 
     /// 导出 profile 内容（先读磁盘，daemon 作为备选）
     func exportProfile(name: String) async -> String {
         // 优先从本地文件读取
-        let fileUrl = Self.profileDirURL.appendingPathComponent(name + ".conf")
-        if let content = try? String(contentsOf: fileUrl, encoding: .utf8) {
+        if let content = profileStore.readProfile(name) {
             return content
         }
         // daemon 备选
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/profile/export"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "name", value: name)]
-        guard let url = components.url else { return "" }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let result = try JSONDecoder().decode(ExportResponse.self, from: data)
-            return result.content
+            return try await controlAPI.exportProfile(name: name).content
         } catch { return "" }
     }
 
     /// 加载 profile 内容供编辑（直接读磁盘）
     func loadProfileContent(name: String) async -> String {
-        let fileUrl = Self.profileDirURL.appendingPathComponent(name + ".conf")
-        return (try? String(contentsOf: fileUrl, encoding: .utf8)) ?? ""
+        profileStore.readProfile(name) ?? ""
     }
 
     /// 切换当前使用的 profile（复制为 default.conf → 重连）
     func switchProfile(_ name: String) async {
         // 1. 读取目标 profile 内容
-        let srcUrl = Self.profileDirURL.appendingPathComponent(name + ".conf")
-        guard let content = try? String(contentsOf: srcUrl, encoding: .utf8) else { return }
+        guard let content = profileStore.readProfile(name) else {
+            alertMsg = "无法读取配置「\(name)」"
+            return
+        }
 
         // 2. 写到 default.conf（ daemon 的默认配置路径）
-        let defaultConfPath = "\(NSHomeDirectory())/.local/share/wgsense/profiles/default.conf"
-        let defaultUrl = URL(fileURLWithPath: defaultConfPath)
-        try? content.write(to: defaultUrl, atomically: true, encoding: .utf8)
+        do {
+            try profileStore.saveDefault(content: content)
+        } catch {
+            alertMsg = "切换配置失败：\(error.localizedDescription)"
+            return
+        }
 
         // 3. 断开再连接（让 daemon 用新配置）
         await postAndWait("disconnect")
@@ -353,77 +510,74 @@ class DaemonClient: ObservableObject {
 
     func saveProfile(_ profile: WGProfile) async {
         // 1. 先直接写 .conf 文件
-        let conf = """
-        [Interface]
-        PrivateKey = \(profile.privateKey)
-        Address = \(profile.address)
-        DNS = \(profile.dns)
-        MTU = \(profile.mtu)
-
-        [Peer]
-        PublicKey = \(profile.publicKey)
-        PresharedKey = \(profile.presharedKey)
-        Endpoint = \(profile.endpoint)
-        AllowedIPs = \(profile.allowedIPs)
-        PersistentKeepalive = \(profile.keepalive)
-        """
-        do { try saveProfileToDisk(profile.name, conf) } catch { /* continue */ }
+        do {
+            try profileStore.saveProfile(profile.name, content: profile.wireGuardConfig)
+        } catch {
+            alertMsg = "保存配置失败：\(error.localizedDescription)"
+            return
+        }
         // 2. 再通知 daemon
-        let body: [String: Any] = [
-            "Name": profile.name,
-            "Interface": [
-                "PrivateKey": profile.privateKey,
-                "Address": profile.address,
-                "DNS": profile.dns,
-                "MTU": profile.mtu
-            ],
-            "Peers": [[
-                "PublicKey": profile.publicKey,
-                "PresharedKey": profile.presharedKey,
-                "Endpoint": profile.endpoint,
-                "AllowedIPs": profile.allowedIPs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) },
-                "PersistentKeepaliveInterval": profile.keepalive
-            ]]
-        ]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/profile/save"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+        do {
+            try await controlAPI.saveProfile(profile)
+            await fetchProfiles()
+        } catch {
+            alertMsg = "配置已保存到本机，但同步 daemon 失败：\(error.localizedDescription)"
+        }
     }
 
     func deleteProfile(name: String) async {
         // 1. 先直接删文件
-        do { try deleteProfileFromDisk(name) } catch { /* continue */ }
+        do {
+            try profileStore.deleteProfile(name)
+        } catch {
+            alertMsg = "删除配置失败：\(error.localizedDescription)"
+            return
+        }
         // 2. 再通知 daemon
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/profile/delete"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "name", value: name)]
-        guard let url = components.url else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        _ = try? await URLSession.shared.data(for: req)
+        do {
+            try await controlAPI.deleteProfile(name: name)
+            await fetchProfiles()
+        } catch {
+            alertMsg = "配置已从本机删除，但同步 daemon 失败：\(error.localizedDescription)"
+        }
     }
 
     // MARK: - 配置同步
 
-    func syncConfig() async {
-        let prefixes = homeNetworkPrefixes
+    func syncConfig() async -> Bool {
+        let prefixes = trustedNetworkPrefixes
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        let body: [String: Any] = [
-            "home_network_prefixes": prefixes,
-            "interval_seconds": intervalSeconds,
-            "auto_up_grace_seconds": autoUpGraceSeconds,
-            "health_check_target": healthCheckTarget,
-            "health_check_interval_seconds": 30
-        ]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/config"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+        do {
+            try await controlAPI.syncConfig(
+                trustedNetworkPrefixes: prefixes,
+                autoConnectUntrusted: autoConnectUntrusted,
+                intervalSeconds: intervalSeconds,
+                autoUpGraceSeconds: autoUpGraceSeconds,
+                healthCheckTarget: healthCheckTarget
+            )
+            alertMsg = "配置已应用到 daemon"
+            return true
+        } catch {
+            alertMsg = "配置应用失败: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func syncConfigSilently() async {
+        let prefixes = trustedNetworkPrefixes
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        try? await controlAPI.syncConfig(
+            trustedNetworkPrefixes: prefixes,
+            autoConnectUntrusted: autoConnectUntrusted,
+            intervalSeconds: intervalSeconds,
+            autoUpGraceSeconds: autoUpGraceSeconds,
+            healthCheckTarget: healthCheckTarget
+        )
     }
 
     // MARK: - Profile 切换
@@ -431,92 +585,66 @@ class DaemonClient: ObservableObject {
     /// 更新 profile 内容（写磁盘 + 同步 default）
     func updateProfile(name: String, content: String) async {
         // 直接覆盖写入磁盘
-        let dir = Self.profileDirURL
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let fileUrl = dir.appendingPathComponent(name + ".conf")
-        try? content.write(to: fileUrl, atomically: true, encoding: .utf8)
+        do {
+            try profileStore.saveProfile(name, content: content)
+        } catch {
+            alertMsg = "更新配置失败：\(error.localizedDescription)"
+            return
+        }
         // 如果是当前使用的 profile，同步到 default 并重连
         if status?.service == name {
-            let defaultUrl = URL(fileURLWithPath: "\(NSHomeDirectory())/.local/share/wgsense/profiles/default.conf")
-            try? content.write(to: defaultUrl, atomically: true, encoding: .utf8)
+            do {
+                try profileStore.saveDefault(content: content)
+            } catch {
+                alertMsg = "配置已更新，但应用到当前连接失败：\(error.localizedDescription)"
+            }
         }
     }
     // MARK: - Transfer 文件传输
 
-    struct TransferDevice: Codable, Identifiable {
-        let id: String          // "IP:Port" 格式
-        let alias: String
-        let ip: String?
-        let port: Int?
-        let deviceModel: String?
-        let fingerprint: String?
-        let deviceType: String?
-        let version: String?
-        let download: Bool
-        let source: String?     // "multicast" | "scan" | "manual"
-    }
-
-    struct TransferReceiveState: Codable {
-        let alias: String
-        let downloads: String
-        let port: Int
-        let running: Bool
-        let pending: [String]
-    }
+    typealias TransferDevice = WgSense.TransferDevice
+    typealias TransferReceiveState = WgSense.TransferReceiveState
+    typealias TransferFileProgress = WgSense.TransferFileProgress
+    typealias TransferSendFileProgress = WgSense.TransferSendFileProgress
+    typealias TransferSendTask = WgSense.TransferSendTask
+    typealias TransferSendTasksState = WgSense.TransferSendTasksState
+    typealias TransferPendingFile = WgSense.TransferPendingFile
+    typealias TransferPendingRequest = WgSense.TransferPendingRequest
 
     @Published var transferDevices: [TransferDevice] = []
     @Published var transferState: TransferReceiveState?
+	@Published var transferSendTasks: TransferSendTasksState?
+	@Published var transferError: String?
 
     /// 发现局域网内设备（多播 + 手动合并）
     func fetchTransferDevices(timeoutSec: Int = 3) async {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/transfer/devices"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "timeout", value: "\(timeoutSec)")]
-        guard let url = components.url else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let result = try? JSONDecoder().decode(TransferDevicesResponse.self, from: data) {
-                transferDevices = result.devices
-            }
-        } catch { /* 网络错误或服务未启动 */ }
+            transferDevices = try await transferAPI.devices(timeoutSec: timeoutSec)
+            transferError = nil
+        } catch {
+            transferError = daemonConnectionMessage(error)
+        }
     }
 
     /// 单播扫描子网发现设备（用于 WG 隧道等无多播环境）
     func scanSubnet(timeoutSec: Int = 10, subnet: String? = nil) async -> [TransferDevice] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/transfer/scan"), resolvingAgainstBaseURL: false)!
-        var items = [URLQueryItem(name: "timeout", value: "\(timeoutSec)")]
-        if let subnet, !subnet.isEmpty {
-            items.append(URLQueryItem(name: "subnet", value: subnet))
-        }
-        components.queryItems = items
-        guard let url = components.url else { return [] }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let result = try? JSONDecoder().decode(TransferDevicesResponse.self, from: data) {
-                // 合并到现有列表（去重）
-                let existingIDs = Set(transferDevices.map { $0.id })
-                let newDevs = result.devices.filter { !existingIDs.contains($0.id) }
-                transferDevices += newDevs
-                return result.devices
-            }
-        } catch { /* 扫描失败 */ }
-        return []
+            let devices = try await transferAPI.scan(timeoutSec: timeoutSec, subnet: subnet)
+            let existingIDs = Set(transferDevices.map { $0.id })
+            transferDevices += devices.filter { !existingIDs.contains($0.id) }
+            return devices
+        } catch {
+            alertMsg = "扫描失败: \(error.localizedDescription)"
+            return []
+        }
     }
 
     /// 手动添加设备（IP 或 IP:Port）
     func addManualDevice(addr: String) async -> TransferDevice? {
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/transfer/add-device"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["addr": addr])
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-            let device = try? JSONDecoder().decode(TransferDevice.self, from: data)
-            if let device {
-                // 加入设备列表
-                if !transferDevices.contains(where: { $0.id == device.id }) {
-                    transferDevices.append(device)
-                }
+            let device = try await transferAPI.addManualDevice(addr: addr)
+            if !transferDevices.contains(where: { $0.id == device.id }) {
+                transferDevices.append(device)
             }
             return device
         } catch {
@@ -527,298 +655,405 @@ class DaemonClient: ObservableObject {
 
     /// 移除手动添加的设备
     func removeManualDevice(deviceID: String) async -> Bool {
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/transfer/remove-device"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["id": deviceID])
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+            let result = try await transferAPI.removeManualDevice(deviceID: deviceID)
+            if result {
                 transferDevices.removeAll { $0.id == deviceID }
-                return true
             }
+            return result
         } catch { /* 忽略 */ }
         return false
-    }
-
-    struct TransferDevicesResponse: Codable {
-        let devices: [TransferDevice]
     }
 
     /// 获取传输接收状态
     func fetchTransferState() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/transfer/receive"))
-            transferState = try? JSONDecoder().decode(TransferReceiveState.self, from: data)
-        } catch { /* 服务未启动 */ }
+            transferState = try await transferAPI.receiveState()
+            transferError = nil
+        } catch {
+            transferState = nil
+            transferError = daemonConnectionMessage(error)
+        }
     }
 
-    /// 发送文件到目标设备
-    func sendFiles(to deviceID: String, paths: [String]) async -> Bool {
-        let body: [String: Any] = ["id": deviceID, "paths": paths]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/transfer/send"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        req.timeoutInterval = 300
+    /// 启停传输接收服务
+    func setTransferReceiveEnabled(_ enabled: Bool) async -> Bool {
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
+            transferState = try await transferAPI.setReceiveEnabled(enabled)
+            return true
         } catch {
-            alertMsg = "发送失败: \(error.localizedDescription)"
+            alertMsg = "\(enabled ? "启动" : "停止")接收服务失败: \(error.localizedDescription)"
             return false
         }
     }
 
+    /// 接受或拒绝一个等待中的官方 LocalSend 上传请求。
+    func resolveTransferRequest(_ requestID: String, accepted: Bool) async -> Bool {
+        do {
+            try await transferAPI.resolveRequest(requestID, accepted: accepted)
+            await fetchTransferState()
+            return true
+        } catch {
+            alertMsg = "处理接收请求失败: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// 创建后台发送任务，后续进度从 /api/transfer/tasks 获取。
+    func startFileSend(to deviceID: String, paths: [String]) async -> TransferSendTask? {
+        do {
+            let task = try await transferAPI.startSend(to: deviceID, paths: paths)
+            await fetchTransferTasks()
+            return task
+        } catch {
+            alertMsg = "发送失败: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func fetchTransferTasks() async {
+        do {
+            transferSendTasks = try await transferAPI.tasks()
+            transferError = nil
+        } catch {
+            transferError = daemonConnectionMessage(error)
+        }
+    }
+
+	private func daemonConnectionMessage(_ error: Error) -> String {
+		DaemonAPIClient.connectionMessage(error)
+	}
+
     /// 取消传输任务
-    func cancelTransfer(taskID: String) async {
-        let body: [String: String] = ["task_id": taskID]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/transfer/cancel"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+    func cancelTransfer(taskID: String) async -> Bool {
+        do {
+            try await transferAPI.cancel(taskID: taskID)
+            await fetchTransferTasks()
+            return true
+        } catch {
+            alertMsg = "取消发送失败: \(error.localizedDescription)"
+            return false
+        }
     }
 
     // MARK: - 代理管理 (Mihomo)
 
-    struct ProxyStatus: Codable {
-        let running: Bool
-        let address: String?
-        let baseURL: String?
-    }
-
-    struct MihomoVersion: Codable {
-        let meta: Bool
-        let version: String
-        let premium: Bool
-        let foundation: Bool
-    }
-
-    struct ProxyInfo: Codable, Identifiable {
-        var id: String { name }
-        let name: String
-        let type: String           // Selector/Fallback/URLTest/LoadBalance/PassThrough/Reject
-        let all: [String]?         // 可选节点列表
-        let now: String?           // 当前选中
-        let alive: Bool?
-        let udp: Bool?
-        let xudp: Bool?
-        let provider: String?
-    }
-
-    struct ProxiesResponse: Codable {
-        let proxies: [String: ProxyInfo]
-    }
-
-    struct DelayResult: Codable {
-        let delay: Int64?
-        let message: String?
-        let error: String?
-    }
-
-    struct ConnectionInfo: Codable, Identifiable {
-        let id: String
-        let metadata: ConnectionMetadata
-        let upload: Int64
-        let download: Int64
-        let start: String?
-        let chains: [String]?
-        let rule: String?
-        let uploadSpeed: Int64?
-        let downloadSpeed: Int64?
-        let alive: Bool?
-    }
-
-    struct ConnectionMetadata: Codable {
-        let netWork: String?
-        let type: String?
-        let sourceIP: String?
-        let sourcePort: String?
-        let destinationIP: String?
-        let destinationPort: String?
-        let host: String?
-        let process: String?
-        let processPath: String?
-        let remoteDestination: String?
-    }
-
-    struct ConnectionsResponse: Codable {
-        let downloadTotal: Int64
-        let uploadTotal: Int64
-        let connections: [ConnectionInfo]
-    }
-
-    struct RuleInfo: Codable, Identifiable {
-        var id: String { payload ?? UUID().uuidString }
-        let type: String
-        let payload: String?
-        let proxy: String?
-        let chains: [String]?
-        let size: Int64?
-    }
-
-    struct RulesResponse: Codable {
-        let rules: [RuleInfo]
-    }
-
-    struct MihomoConfig: Codable {
-        let mode: String?
-        let logLevel: String?
-        let allowLan: Bool?
-        let tunEnable: Bool?
-        let mixedPort: Int?
-    }
+    typealias ProxyStatus = WgSense.ProxyStatus
+    typealias ProxySettings = WgSense.ProxySettings
+    typealias ProxySettingsResponse = WgSense.ProxySettingsResponse
+    typealias MihomoVersion = WgSense.MihomoVersion
+    typealias DelayHistory = WgSense.DelayHistory
+    typealias ProxyInfo = WgSense.ProxyInfo
+    typealias ProxiesResponse = WgSense.ProxiesResponse
+    typealias DelayResult = WgSense.DelayResult
+    typealias GroupDelayResult = WgSense.GroupDelayResult
+    typealias ConnectionInfo = WgSense.ConnectionInfo
+    typealias ConnectionMetadata = WgSense.ConnectionMetadata
+    typealias ConnectionsResponse = WgSense.ConnectionsResponse
+    typealias RuleInfo = WgSense.RuleInfo
+    typealias RulesResponse = WgSense.RulesResponse
+    typealias ProxyProviderInfo = WgSense.ProxyProviderInfo
+    typealias SubscriptionInfo = WgSense.SubscriptionInfo
+    typealias ProxyProvidersResponse = WgSense.ProxyProvidersResponse
+    typealias RuleProviderInfo = WgSense.RuleProviderInfo
+    typealias RuleProvidersResponse = WgSense.RuleProvidersResponse
+    typealias MihomoConfig = WgSense.MihomoConfig
+    typealias DNSQueryResponse = WgSense.DNSQueryResponse
+    typealias ProxyLogEntry = WgSense.ProxyLogEntry
+    typealias ProxyLogsResponse = WgSense.ProxyLogsResponse
 
     @Published var proxyRunning: Bool = false
+    @Published var proxyServiceRunning: Bool = false
     @Published var proxyAddress: String = ""
+    @Published var proxyStatus: ProxyStatus?
+    @Published var proxySettings: ProxySettings?
+    @Published var proxyError: String?
+    @Published var proxyNotice: String?
     @Published var mihomoVersion: MihomoVersion?
     @Published var proxies: [String: ProxyInfo] = [:]
     @Published var connections: ConnectionsResponse?
     @Published var rules: [RuleInfo] = []
+    @Published var proxyProviders: [String: ProxyProviderInfo] = [:]
+    @Published var ruleProviders: [String: RuleProviderInfo] = [:]
     @Published var mihomoConfig: MihomoConfig?
+    @Published var dnsQueryResult: DNSQueryResponse?
+    @Published var proxyLogs: [ProxyLogEntry] = []
 
-    /// 获取代理模块状态
+    private func proxyFailure(_ error: Error, prefix: String? = nil) {
+        let message = error.localizedDescription
+        proxyError = prefix.map { "\($0): \(message)" } ?? message
+        proxyNotice = nil
+    }
+
+    private func runProxyCommand(
+        _ command: () async throws -> Void,
+        success: String? = nil
+    ) async -> Bool {
+        do {
+            try await command()
+            proxyError = nil
+            proxyNotice = success
+            return true
+        } catch {
+            proxyFailure(error)
+            return false
+        }
+    }
+
     func fetchProxyStatus() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/status"))
-            if let result = try? JSONDecoder().decode(ProxyStatus.self, from: data) {
-                proxyRunning = result.running
-                proxyAddress = result.address ?? ""
-            }
-        } catch { proxyRunning = false }
+            let result = try await proxyAPI.status()
+            proxyStatus = result
+            proxyServiceRunning = result.running
+            proxyRunning = result.connected
+            proxyAddress = result.address
+            proxyError = result.connected ? nil : result.lastError
+        } catch {
+            proxyStatus = nil
+            proxyServiceRunning = false
+            proxyRunning = false
+            proxyFailure(error, prefix: "读取代理状态失败")
+        }
     }
 
-    /// 获取 Mihomo 版本
+    func startDaemonForProxy() async -> Bool {
+        let ok = await ensureDaemon(requireActive: false, authorizeIfNeeded: true)
+        await fetchProxySettings()
+        await fetchProxyStatus()
+        if ok {
+            proxyNotice = proxyRunning ? "后台服务已启动，控制器连接成功" : "后台服务已启动，请检查控制器地址与密钥"
+        } else {
+            proxyError = errorMsg ?? "后台服务启动失败"
+        }
+        return ok
+    }
+
+    func fetchProxySettings() async {
+        do {
+            let result = try await proxyAPI.settings()
+            proxySettings = result.settings
+            proxyStatus = result.status
+            proxyAddress = result.settings.address
+            proxyServiceRunning = result.status.running
+            proxyRunning = result.status.connected
+            proxyError = result.status.connected ? nil : result.status.lastError
+        } catch {
+            proxyFailure(error, prefix: "读取控制器设置失败")
+        }
+    }
+
+    func saveProxySettings(
+        address: String,
+        secret: String?,
+        latencyTestURL: String,
+        latencyTimeout: Int,
+        latencyLow: Int,
+        latencyMedium: Int
+    ) async -> Bool {
+        do {
+            let result = try await proxyAPI.saveSettings(
+                address: address,
+                secret: secret,
+                latencyTestURL: latencyTestURL,
+                latencyTimeout: latencyTimeout,
+                latencyLow: latencyLow,
+                latencyMedium: latencyMedium
+            )
+            proxySettings = result.settings
+            proxyStatus = result.status
+            proxyAddress = result.settings.address
+            proxyServiceRunning = result.status.running
+            proxyRunning = result.status.connected
+            proxyError = result.status.connected ? nil : result.status.lastError
+            proxyNotice = result.status.connected ? "控制器连接成功" : "设置已保存，连接测试失败"
+            return result.status.connected
+        } catch {
+            proxyFailure(error, prefix: "保存控制器设置失败")
+            return false
+        }
+    }
+
     func fetchProxyVersion() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/version"))
-            mihomoVersion = try? JSONDecoder().decode(MihomoVersion.self, from: data)
-        } catch { mihomoVersion = nil }
+            mihomoVersion = try await proxyAPI.version()
+        } catch {
+            mihomoVersion = nil
+            proxyFailure(error, prefix: "读取核心版本失败")
+        }
     }
 
-    /// 获取所有代理（策略组 + 节点）
     func fetchProxies() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/proxies"))
-            if let result = try? JSONDecoder().decode(ProxiesResponse.self, from: data) {
-                proxies = result.proxies
-            }
-        } catch { proxies = [:] }
+            let result = try await proxyAPI.proxies()
+            proxies = result.proxies
+            proxyError = nil
+        } catch {
+            proxyFailure(error, prefix: "读取代理节点失败")
+        }
     }
 
-    /// 切换策略组选中节点
     func selectProxy(group: String, name: String) async -> Bool {
-        let body: [String: String] = ["group": group, "name": name]
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/proxy/select"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        let ok = await runProxyCommand(
+            { try await proxyAPI.selectProxy(group: group, name: name) },
+            success: "已切换到 \(name)"
+        )
+        if ok { await fetchProxies() }
+        return ok
     }
 
-    /// 测试单个节点延迟
     func testDelay(name: String) async -> DelayResult? {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/proxy/delay"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "name", value: name)]
-        guard let url = components.url else { return nil }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            return try? JSONDecoder().decode(DelayResult.self, from: data)
-        } catch { return nil }
+            return try await proxyAPI.delay(name: name)
+        } catch {
+            proxyFailure(error, prefix: "延迟测试失败")
+            return nil
+        }
     }
 
-    /// 测试整个策略组延迟
-    func testGroupDelay(group: String) async -> DelayResult? {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/proxy/delay"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "group", value: group)]
-        guard let url = components.url else { return nil }
+    func testGroupDelay(group: String) async -> GroupDelayResult? {
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            return try? JSONDecoder().decode(DelayResult.self, from: data)
-        } catch { return nil }
+            return try await proxyAPI.groupDelay(group: group)
+        } catch {
+            proxyFailure(error, prefix: "策略组延迟测试失败")
+            return nil
+        }
     }
 
-    /// 获取活跃连接快照
     func fetchConnections() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/connections"))
-            connections = try? JSONDecoder().decode(ConnectionsResponse.self, from: data)
-        } catch { connections = nil }
+            connections = try await proxyAPI.connections()
+        } catch {
+            proxyFailure(error, prefix: "读取连接失败")
+        }
     }
 
-    /// 关闭指定连接
     func closeConnection(id: String) async -> Bool {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/proxy/connection-close"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "id", value: id)]
-        guard let url = components.url else { return false }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        let ok = await runProxyCommand { try await proxyAPI.closeConnection(id: id) }
+        if ok { await fetchConnections() }
+        return ok
     }
 
-    /// 关闭全部连接
     func closeAllConnections() async -> Bool {
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/proxy/connections-close-all"))
-        req.httpMethod = "POST"
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        let ok = await runProxyCommand(
+            { try await proxyAPI.closeAllConnections() },
+            success: "已关闭全部连接"
+        )
+        if ok { await fetchConnections() }
+        return ok
     }
 
-    /// 获取规则列表
     func fetchRules() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/rules"))
-            if let result = try? JSONDecoder().decode(RulesResponse.self, from: data) {
-                rules = result.rules
-            }
-        } catch { rules = [] }
+            let result = try await proxyAPI.rules()
+            rules = result.rules
+        } catch {
+            proxyFailure(error, prefix: "读取规则失败")
+        }
     }
 
-    /// 获取 Mihomo 运行配置
+    func fetchProxyProviders() async {
+        do {
+            let result = try await proxyAPI.proxyProviders()
+            proxyProviders = result.providers
+        } catch {
+            proxyFailure(error, prefix: "读取订阅失败")
+        }
+    }
+
+    func fetchRuleProviders() async {
+        do {
+            let result = try await proxyAPI.ruleProviders()
+            ruleProviders = result.providers
+        } catch {
+            proxyFailure(error, prefix: "读取规则集失败")
+        }
+    }
+
     func fetchProxyConfig() async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("api/proxy/configs"))
-            mihomoConfig = try? JSONDecoder().decode(MihomoConfig.self, from: data)
-        } catch { mihomoConfig = nil }
+            mihomoConfig = try await proxyAPI.config()
+        } catch {
+            proxyFailure(error, prefix: "读取运行配置失败")
+        }
     }
 
-    /// 更新订阅
     func updateProvider(name: String) async -> Bool {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/proxy/provider-update"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "name", value: name)]
-        guard let url = components.url else { return false }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        let ok = await runProxyCommand(
+            { try await proxyAPI.updateProvider(name: name) },
+            success: "订阅 \(name) 已更新"
+        )
+        if ok { await fetchProxyProviders(); await fetchProxies() }
+        return ok
     }
 
-    /// 清除 FakeIP 缓存
+    func healthCheckProvider(name: String) async -> Bool {
+        await runProxyCommand(
+            { try await proxyAPI.healthCheckProvider(name: name) },
+            success: "订阅 \(name) 延迟测试完成"
+        )
+    }
+
+    func updateRuleProvider(name: String) async -> Bool {
+        let ok = await runProxyCommand(
+            { try await proxyAPI.updateRuleProvider(name: name) },
+            success: "规则集 \(name) 已更新"
+        )
+        if ok { await fetchRuleProviders(); await fetchRules() }
+        return ok
+    }
+
+    func patchProxyConfig(_ values: [String: Any], success: String? = nil) async -> Bool {
+        let ok = await runProxyCommand(
+            { try await proxyAPI.patchConfig(values) },
+            success: success
+        )
+        if ok { await fetchProxyConfig() }
+        return ok
+    }
+
+    func updateProxyMode(_ mode: String) async -> Bool {
+        await patchProxyConfig(["mode": mode], success: "运行模式已切换为 \(mode.uppercased())")
+    }
+
+    func updateProxyTUN(_ enabled: Bool) async -> Bool {
+        await patchProxyConfig(["tun": ["enable": enabled]], success: enabled ? "TUN 已启用" : "TUN 已停用")
+    }
+
+    func updateProxyAllowLAN(_ enabled: Bool) async -> Bool {
+        await patchProxyConfig(["allow-lan": enabled], success: enabled ? "局域网访问已允许" : "局域网访问已关闭")
+    }
+
+    func performProxyAction(_ action: String, success: String) async -> Bool {
+        await runProxyCommand(
+            { try await proxyAPI.performAction(action) },
+            success: success
+        )
+    }
+
     func flushFakeIP() async -> Bool {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/proxy/cache"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "action", value: "fakeip")]
-        guard let url = components.url else { return false }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        await performProxyAction("flush-fakeip", success: "FakeIP 缓存已清除")
     }
-}
 
-struct ExportResponse: Codable {
-    let name: String
-    let content: String
+    func queryProxyDNS(name: String, type: String) async -> Bool {
+        do {
+            dnsQueryResult = try await proxyAPI.dnsQuery(name: name, type: type)
+            proxyError = nil
+            return true
+        } catch {
+            dnsQueryResult = nil
+            proxyFailure(error, prefix: "DNS 查询失败")
+            return false
+        }
+    }
+
+    func fetchProxyLogs(limit: Int = 200) async {
+        do {
+            let result = try await proxyAPI.logs(limit: limit)
+            if proxyLogs.map(\.id) != result.logs.map(\.id) {
+                proxyLogs = result.logs
+            }
+        } catch {
+            proxyFailure(error, prefix: "读取 Mihomo 日志失败")
+        }
+    }
 }

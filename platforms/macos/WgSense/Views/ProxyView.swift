@@ -1,1244 +1,3294 @@
+import AppKit
 import SwiftUI
 
-// MARK: - 代理管理主页面（复刻 AnGe-ClashBoard 全功能）
+// MARK: - Proxy workspace
+
 struct ProxyView: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var subTab: ProxySubTab = .proxyGroups
+    @EnvironmentObject private var client: DaemonClient
+    @State private var section: ProxySection = .overview
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerBar
-            proxyTabBar
-            Divider().opacity(0.15)
-
-            Group {
-                switch subTab {
-                case .proxyGroups: ProxyGroupsPage()
-                case .domainGroups: DomainGroupsPage()
-                case .nodes: NodesPage()
-                case .subscriptions: SubscriptionsPage()
-                case .rules: RulesPage()
+        VStack(spacing: 0) {
+            ProxyPageHeader(section: section)
+            ProxySectionTabs(selection: $section)
+            if let error = client.proxyError, !error.isEmpty {
+                ProxyFeedbackBar(message: error, color: .red) {
+                    client.proxyError = nil
+                }
+            } else if let notice = client.proxyNotice, !notice.isEmpty {
+                ProxyFeedbackBar(message: notice, color: .green) {
+                    client.proxyNotice = nil
                 }
             }
+            Divider().opacity(0.12)
+            page
         }
-        .task(id: subTab) { await refreshForTab(subTab) }
-    }
-
-    // MARK: 头部
-    private var headerBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "globe.asia.australia")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.purple)
-            Text("代理管理").font(.title2).fontWeight(.semibold)
-            Spacer()
-
-            if client.proxyRunning {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.green).frame(width: 7, height: 7)
-                    Text(client.mihomoVersion?.version ?? "Mihomo")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if !client.proxyAddress.isEmpty {
-                        Text("@\(client.proxyAddress)").font(.caption).foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Color.green.opacity(0.08)).clipShape(Capsule())
-            } else {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.red).frame(width: 7, height: 7)
-                    Text("离线").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Color.red.opacity(0.08)).clipShape(Capsule())
-            }
+        .onAppear {
+            client.stopPolling()
         }
-        .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 14)
+        .onDisappear {
+            client.startPolling()
+        }
+        .task(id: section) {
+            await refresh(section)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // MARK: 子 Tab 栏
-    private var proxyTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(ProxySubTab.allCases) { tab in
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { subTab = tab } } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: tab.icon).font(.system(size: 11, weight: .semibold))
-                            Text(tab.label).font(.subheadline)
-                                .fontWeight(subTab == tab ? .semibold : .regular)
-                        }
-                        .foregroundStyle(subTab == tab ? WgTheme.accent : .secondary)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(subTab == tab ? WgTheme.accent.opacity(0.1) : Color.clear))
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer()
-            }
-        }.padding(.horizontal, 28).padding(.vertical, 8)
-    }
-
-    private func refreshForTab(_ tab: ProxySubTab) async {
-        await client.fetchProxyStatus()
-        switch tab {
-        case .proxyGroups, .domainGroups, .nodes:
-            if client.proxyRunning { await client.fetchProxies() }
+    @ViewBuilder
+    private var page: some View {
+        switch section {
+        case .overview:
+            ProxyOverviewPage(section: $section)
+        case .proxies:
+            ProxyBrowserPage()
+        case .connections:
+            ProxyConnectionsPage()
         case .rules:
-            if client.proxyRunning { await client.fetchRules() }
-        case .subscriptions: break
+            ProxyRulesPage()
+        case .logs:
+            ProxyLogsPage()
+        case .settings:
+            ProxySettingsPage()
+        }
+    }
+
+    private func refresh(_ section: ProxySection) async {
+        await client.fetchProxyStatus()
+        if section == .settings {
+            await client.fetchProxySettings()
+        }
+        guard client.proxyRunning else { return }
+        switch section {
+        case .overview:
+            await client.fetchProxyVersion()
+            await client.fetchProxyConfig()
+            await client.fetchProxies()
+            await client.fetchConnections()
+            await client.fetchProxyProviders()
+        case .proxies:
+            await client.fetchProxies()
+            await client.fetchProxyProviders()
+        case .connections:
+            await client.fetchConnections()
+        case .rules:
+            await client.fetchRules()
+            await client.fetchRuleProviders()
+        case .logs:
+            await client.fetchProxyLogs()
+        case .settings:
+            await client.fetchProxyConfig()
         }
     }
 }
 
-// MARK: 子 Tab 枚举（5 个 tab：策略 | 域名 | 节点 | 订阅 | 规则）
-enum ProxySubTab: String, CaseIterable, Identifiable {
-    case proxyGroups, domainGroups, nodes, subscriptions, rules
+enum ProxySection: String, CaseIterable, Identifiable {
+    case overview, proxies, connections, rules, logs, settings
+
     var id: String { rawValue }
 
-    var label: String {
+    var title: LocalizedStringKey {
         switch self {
-        case .proxyGroups: return "策略"
-        case .domainGroups: return "域名"
-        case .nodes: return "节点"
-        case .subscriptions: return "订阅"
+        case .overview: return "概览"
+        case .proxies: return "代理"
+        case .connections: return "连接"
         case .rules: return "规则"
+        case .logs: return "日志"
+        case .settings: return "设置"
         }
     }
 
     var icon: String {
         switch self {
-        case .proxyGroups: return "square.grid.2x2"
-        case .domainGroups: return "globe"
-        case .nodes: return "circle.grid.3x3"
-        case .subscriptions: return "link"
-        case .rules: return "scroll.text.circles"
+        case .overview: return "gauge.with.dots.needle.50percent"
+        case .proxies: return "point.3.connected.trianglepath.dotted"
+        case .connections: return "arrow.up.arrow.down"
+        case .rules: return "list.bullet.rectangle"
+        case .logs: return "text.alignleft"
+        case .settings: return "gearshape"
         }
     }
 }
 
-// MARK: 策略组页面（节点选择型：手动/Smart/Fallback）
-struct ProxyGroupsPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var searchText = ""
-    @State private var delayResults: [String: Int64] = [:]
-    @State private var isTesting = false
-
-    // 只显示节点选择型策略组：名字含"手动"/地区名/Fallback/Smart，不含应用域名穿透
-    private var groupProxies: [(String, DaemonClient.ProxyInfo)] {
-        client.proxies.filter { isNodeGroup($0.0, $0.1) }
-            .sorted { priorityOrder($0.key) < priorityOrder($1.key) }
-    }
-
-    private var filteredGroups: [(String, DaemonClient.ProxyInfo)] {
-        if searchText.isEmpty { return groupProxies }
-        return groupProxies.filter { $0.0.localizedCaseInsensitiveContains(searchText) }
-    }
+private struct ProxySectionTabs: View {
+    @Binding var selection: ProxySection
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar(count: groupProxies.count, title: "策略")
-            Divider().opacity(0.1)
-
-            if filteredGroups.isEmpty {
-                emptyView("暂无策略组", icon: "square.grid.2x2")
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredGroups, id: \.0) { name, info in
-                            ProxyGroupCard(
-                                groupName: name, info: info,
-                                allProxies: client.proxies,
-                                delayResults: delayResults,
-                                onSelectNode: { node in
-                                    Task {
-                                        let ok = await client.selectProxy(group: name, name: node)
-                                        if ok { await client.fetchProxies() }
-                                    }
-                                },
-                                onTestDelay: { node in Task { await testNode(node) } },
-                                onTestGroup: { Task { await testGroup(name) } })
-                        }
-                    }.padding(.horizontal, 20).padding(.vertical, 12)
+        HStack(spacing: 4) {
+            ForEach(ProxySection.allCases) { item in
+                Button {
+                    selection = item
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(item.title)
+                            .font(.caption.weight(selection == item ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selection == item ? Color.primary : Color.secondary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(selection == item ? WgTheme.accent.opacity(0.16) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(item.title))
+                .accessibilityHint("切换代理页面")
             }
         }
-        .task {
-            if delayResults.isEmpty { await testAllNodes() }
-        }
+        .padding(4)
+        .wgGlassSurface(cornerRadius: 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, WgTheme.pagePadding)
+        .padding(.bottom, 10)
     }
+}
 
-    /// 判断是否为「策略」tab — 域名穿透型 Selector
-    /// 匹配：应用名/域名（人工智能/流媒体/谷歌/YouTube/X/微软/GitHub 等）
-    private func isNodeGroup(_ name: String, _ info: DaemonClient.ProxyInfo) -> Bool {
-        guard isGroupType(info.type) else { return false }
-        let lower = name.lowercased()
-        let systemGroups = ["global","direct","reject"]
-        for sg in systemGroups { if lower == sg { return false } }
-        // 排除地区型（归「域名」tab）
-        let regionKeywords = ["香港","日本","美国","新加坡","台湾","韩国","英国","德国",
-            "hk ","japan","us ","singapore","taiwan","korea"]
-        for kw in regionKeywords { if lower.contains(kw.lowercased()) { return false } }
-        if lower.hasPrefix("所有") { return false }
-        // 域名穿透关键词 → 策略 tab
-        let kwds = ["github","youtube","yt ","谷歌","google","微软","microsoft","apple",
-            "openai","chatgpt","netflix","流媒体","人工智能","人工","智能",
-            "英伟达","nvidia","加密货币","游戏","测试","颜色",
-            "dia","diabrowser","国内","国外","twitter","telegram","x ","微軟"]
-        for k in kwds { if lower.contains(k.lowercased()) { return true } }
-        // 排除：其他-xxx 归域名 tab
-        if lower.hasPrefix("其他") { return false }
-        return true // 兜底：其余 Selector 归策略
-    }
+private struct ProxyPageHeader: View {
+    @EnvironmentObject private var client: DaemonClient
+    let section: ProxySection
 
-    private func isGroupType(_ type: String) -> Bool {
-        ["Selector","Fallback","URLTest","LoadBalance","Smart"].contains(type)
-    }
-
-    private func priorityOrder(_ key: String) -> Int {
-        let order = ["GLOBAL","节点选择","\u{1F1ED}\u{1F1F0} 香港","\u{1F1EF}\u{1F1F5} 日本","\u{1F1FA}\u{1F1F8} 美国","\u{1F1F8}\u{1F1EC} 新加坡","\u{1F1F9}\u{1F1FC} 台湾"]
-        if let idx = order.firstIndex(of: key) { return idx }
-        return Int.max
-    }
-
-    /// 测试所有可见组的全部叶子节点延迟
-    private func testAllNodes() async {
-        guard !isTesting else { return }
-        isTesting = true
-        defer { isTesting = false }
-        // 收集所有叶子节点名
-        var allLeafNodes: Set<String> = []
-        for (_, info) in groupProxies {
-            if let nodes = info.all { allLeafNodes.formUnion(nodes) }
-        }
-        // 逐个测试（并发控制：每批8个）
-        let batch = Array(allLeafNodes)
-        for i in stride(from: 0, to: batch.count, by: 8) {
-            let slice = batch[i..<min(i+8, batch.count)]
-            await withTaskGroup(of: (String, Int64?).self) { group in
-                for name in slice {
-                    group.addTask {
-                        if let r = await self.client.testDelay(name: name) {
-                            return (name, r.delay)
-                        }
-                        return (name, nil)
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("代理")
+                    .font(.title2.weight(.semibold))
+                HStack(spacing: 5) {
+                    Text(section.title)
+                    if !client.proxyAddress.isEmpty {
+                        Text("·")
+                        Text(client.proxyAddress)
                     }
                 }
-                for await (name, delay) in group {
-                    if let d = delay { delayResults[name] = d }
-                }
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
             }
-        }
-    }
-
-    private func testNode(_ nodeName: String) async {
-        if let result = await client.testDelay(name: nodeName) { delayResults[nodeName] = result.delay }
-    }
-
-    private func testGroup(_ groupName: String) async {
-        _ = await client.testGroupDelay(group: groupName)
-        // 测试该组所有节点
-        if let nodes = client.proxies[groupName]?.all {
-            for n in nodes { if let r = await client.testDelay(name: n) { delayResults[n] = r.delay } }
-        }
-    }
-
-    private func updateAllProviders() async {
-        for (_, info) in groupProxies {
-            if let provider = info.provider, !provider.isEmpty {
-                _ = await client.updateProvider(name: provider)
-            }
-        }
-        await client.fetchProxies()
-    }
-
-    @ViewBuilder
-    private func toolbar(count: Int, title: String) -> some View {
-        HStack(spacing: 8) {
-            Text("\(title) (\(count))").font(.subheadline).fontWeight(.semibold).foregroundStyle(WgTheme.accent)
             Spacer()
-            HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.tertiary)
-                TextField("搜索 | 多个关键词用空格分隔", text: $searchText)
-                    .textFieldStyle(.plain).font(.caption)
-            }.padding(.horizontal, 8).padding(.vertical, 5)
-                .background(WgTheme.cardBg).clipShape(RoundedRectangle(cornerRadius: 6))
-                .frame(maxWidth: 240)
-            Button(action: { Task { await testAllNodes() } }) {
-                Image(systemName: isTesting ? "arrow.triangle.2.circlepath" : "stopwatch.fill")
-                    .font(.system(size: 13)).foregroundStyle(isTesting ? .orange : .secondary)
-            }.buttonStyle(.plain).disabled(isTesting)
-            Button(action: { Task { await updateAllProviders() } }) {
-                Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(.secondary)
-            }.buttonStyle(.plain)
-            Button(action: { Task { await client.fetchProxies() } }) {
-                Image(systemName: "arrow.up.arrow.down").font(.system(size: 13)).foregroundStyle(.secondary)
-            }.buttonStyle(.plain)
-        }.padding(.horizontal, 20).padding(.vertical, 10)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(client.proxyRunning ? Color.green : Color.orange)
+                    .frame(width: 7, height: 7)
+                statusLabel
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(client.proxyRunning ? Color.green : Color.orange)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill((client.proxyRunning ? Color.green : Color.orange).opacity(0.09))
+            )
+
+            Button {
+                Task { await client.fetchProxyStatus() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("刷新代理状态")
+            .help("刷新连接状态")
+        }
+        .padding(.horizontal, WgTheme.pagePadding)
+        .frame(height: 62)
     }
 
     @ViewBuilder
-    private func emptyView(_ msg: String, icon: String) -> some View {
-        Spacer()
-        VStack(spacing: 14) {
-            Image(systemName: icon).font(.system(size: 44))
-                .foregroundStyle(.secondary.opacity(0.3))
-            Text(client.proxyRunning ? msg : "代理服务未连接")
-                .font(.subheadline).foregroundStyle(.secondary)
-        }
-        Spacer()
-    }
-}
-
-// MARK: 域名策略组页面（域名穿透型）
-struct DomainGroupsPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var searchText = ""
-    @State private var expandedGroup: String? = nil
-
-    private var domainProxies: [(String, DaemonClient.ProxyInfo)] {
-        client.proxies.filter { isDomainGroup($0.0, $0.1) }
-            .sorted { $0.key < $1.key }
-    }
-
-    private var filtered: [(String, DaemonClient.ProxyInfo)] {
-        if searchText.isEmpty { return domainProxies }
-        return domainProxies.filter { $0.0.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("域名 (\(domainProxies.count))").font(.subheadline).fontWeight(.semibold).foregroundStyle(WgTheme.accent)
-                Spacer()
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.tertiary)
-                    TextField("搜索域名策略\u{2026}", text: $searchText)
-                        .textFieldStyle(.plain).font(.caption)
-                }.padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(WgTheme.cardBg).clipShape(RoundedRectangle(cornerRadius: 6))
-            }.padding(.horizontal, 20).padding(.vertical, 10)
-            Divider().opacity(0.1)
-
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(filtered, id: \.0) { name, info in
-                        DomainGroupRow(
-                            name: name, info: info,
-                            allProxies: client.proxies,
-                            isExpanded: expandedGroup == name,
-                            onSelect: { target in
-                                Task {
-                                    let ok = await client.selectProxy(group: name, name: target)
-                                    if ok { await client.fetchProxies(); expandedGroup = nil }
-                                }
-                            },
-                            onToggle: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    expandedGroup = (expandedGroup == name) ? nil : name
-                                }
-                            })
-                    }
-                }.padding(.horizontal, 16).padding(.vertical, 8)
+    private var statusLabel: some View {
+        if client.proxyRunning {
+            if let version = client.mihomoVersion?.version {
+                Text(version)
+            } else {
+                Text("已连接")
             }
-        }
-    }
-
-    /// 判断是否为「域名」tab — 地区节点选择型组
-    /// 匹配：地区名（香港/台湾/日本/美国/新加坡）+ 所有/手动 + Fallback/Smart
-    private func isDomainGroup(_ name: String, _ info: DaemonClient.ProxyInfo) -> Bool {
-        guard ["Selector","Fallback","URLTest","LoadBalance","Smart"].contains(info.type) else { return false }
-        let lower = name.lowercased()
-        let systemGroups = ["global","direct","reject"]
-        for sg in systemGroups { if lower == sg { return false } }
-        // 地区关键词 → 域名 tab
-        let regionKeywords = [
-            "香港","日本","美国","新加坡","台湾","韩国","英国","德国",
-            "hk ","japan","us ","singapore","taiwan","korea"
-        ]
-        for kw in regionKeywords { if lower.contains(kw.lowercased()) { return true } }
-        if lower.hasPrefix("所有") { return true }
-        // Fallback/Smart 也归域名 tab（如 香港-故转、所有-自动）
-        if info.type == "Fallback" || info.type == "Smart" || info.type == "URLTest" { return true }
-        // 其他-xxx 归域名 tab
-        if lower.hasPrefix("其他") { return true }
-        return false
-    }
-}
-
-// MARK: 域名策略行（点击展开子选项列表）
-struct DomainGroupRow: View {
-    let name: String
-    let info: DaemonClient.ProxyInfo
-    let allProxies: [String: DaemonClient.ProxyInfo]
-    let isExpanded: Bool
-    let onSelect: (String) -> Void
-    let onToggle: () -> Void
-
-    private var subOptions: [(String, DaemonClient.ProxyInfo?)] {
-        guard let all = info.all else { return [] }
-        return all.map { opt in (opt, allProxies[opt]) }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Button(action: onToggle) {
-                HStack(spacing: 10) {
-                    Text(domainIcon(name)).font(.title3)
-                        .frame(width: 28, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(name).font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                        HStack(spacing: 4) {
-                            Text("Selector").font(.system(size: 9)).foregroundStyle(.blue.opacity(0.7))
-                            Text(info.now ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isExpanded ? WgTheme.accent : .secondary)
-                        .frame(width: 14)
-                }
-                .padding(.vertical, 10).padding(.horizontal, 12)
-                .contentShape(Rectangle())
-            }.buttonStyle(.plain)
-
-            if isExpanded {
-                ForEach(subOptions, id: \.0) { optName, optInfo in
-                    Button(action: { onSelect(optName) }) {
-                        HStack(spacing: 8) {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill((info.now == optName) ? WgTheme.accent : Color.clear)
-                                .frame(width: 3, height: 16)
-                            Text(optName).font(.caption)
-                                .foregroundStyle((info.now == optName) ? .primary : .secondary)
-                                .lineLimit(1)
-                            Spacer()
-                            if let t = optInfo?.type, !t.isEmpty {
-                                Text(t).font(.system(size: 9)).foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(.vertical, 6).padding(.horizontal, 12).padding(.leading, 8)
-                        .background((info.now == optName) ? WgTheme.accent.opacity(0.06) : Color.clear)
-                        .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-        }
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder.opacity(0.3), lineWidth: 0.5))
-    }
-
-    private func domainIcon(_ name: String) -> String {
-        let lower = name.lowercased()
-        if lower.contains("youtube") || lower.contains("yt ") { return "\u{1F3AC}" }
-        if lower.contains("谷歌") || lower.contains("google") { return "\u{1F0E0}" }
-        if lower.contains("微软") || lower.contains("microsoft") { return "\u{1F3AF}" }
-        if lower.contains("苹果") || lower.contains("apple") { return "\u{1F34E}" }
-        if lower.contains("github") { return "\u{1F4BB}" }
-        if lower.contains("openai") || lower.contains("chatgpt") { return "\u{1F9E0}" }
-        if lower.contains("netflix") || lower.contains("流媒体") { return "\u{1F3AC}" }
-        if lower.contains("英伟达") || lower.contains("nvidia") { return "\u{1F3AF}" }
-        if lower.contains("游戏") { return "\u{1F3AE}" }
-        if lower.contains("telegram") { return "\u{1F4E8}" }
-        if lower.contains("twitter") || lower.contains("x ") { return "\u{1F426}" }
-        if lower.contains("国内") { return "\u{1F1E8}\u{1F1F3}" }
-        if lower.contains("人工") || lower.contains("智能") { return "\u{1F9E0}" }
-        return "\u{1F310}"
-    }
-}
-
-// MARK: 节点平铺页面（截图2风格）
-struct NodesPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var searchText = ""
-
-    private var allNodes: [(String, DaemonClient.ProxyInfo)] {
-        client.proxies.filter { !["Selector","Fallback","URLTest","LoadBalance","Smart"].contains($0.value.type) }
-            .sorted { $0.key < $1.key }
-    }
-
-    private var filtered: [(String, DaemonClient.ProxyInfo)] {
-        if searchText.isEmpty { return allNodes }
-        return allNodes.filter { $0.0.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("节点 (\(allNodes.count))").font(.subheadline).fontWeight(.semibold).foregroundStyle(WgTheme.accent)
-                Spacer()
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.tertiary)
-                    TextField("搜索节点\u{2026}", text: $searchText)
-                        .textFieldStyle(.plain).font(.caption)
-                }.padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(WgTheme.cardBg).clipShape(RoundedRectangle(cornerRadius: 6))
-            }.padding(.horizontal, 20).padding(.vertical, 10)
-
-            Divider().opacity(0.1)
-
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(filtered, id: \.0) { name, info in
-                        NodeTileRow(name: name, info: info)
-                    }
-                }.padding(.horizontal, 20).padding(.vertical, 12)
-            }
+        } else if client.proxyServiceRunning {
+            Text("控制器未连接")
+        } else {
+            Text("daemon 离线")
         }
     }
 }
 
-// MARK: 策略组磁贴卡片（复刻 Clash Verge 风格）
-struct ProxyGroupCard: View {
-    let groupName: String
-    let info: DaemonClient.ProxyInfo
-    let allProxies: [String: DaemonClient.ProxyInfo]
-    let delayResults: [String: Int64]
-    let onSelectNode: (String) -> Void
-    let onTestDelay: (String) -> Void
-    let onTestGroup: () -> Void
-    @State private var isExpanded = false
-
-    private var nodes: [(String, DaemonClient.ProxyInfo?)] {
-        guard let all = info.all else { return [] }
-        return all.map { n in (n, allProxies[n]) }
-    }
+private struct ProxyFeedbackBar: View {
+    let message: String
+    let color: Color
+    let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 卡片头部：图标 + 组名 + 类型标签 + 延迟 + 速度
-            HStack(spacing: 10) {
-                // 图标/emoji
-                Group {
-                    if groupName.contains("\u{1F1ED}\u{1F1F0}") || groupName.contains("香港") { Text("\u{1F1ED}\u{1F1F0}").font(.title2) }
-                    else if groupName.contains("\u{1F1EF}\u{1F1F5}") || groupName.contains("日本") { Text("\u{1F1EF}\u{1F1F5}").font(.title2) }
-                    else if groupName.contains("\u{1F1FA}\u{1F1F8}") || groupName.contains("美国") { Text("\u{1F1FA}\u{1F1F8}").font(.title2) }
-                    else if groupName.contains("\u{1F1F8}\u{1F1EC}") || groupName.contains("新加坡") { Text("\u{1F1F8}\u{1F1EC}").font(.title2) }
-                    else if groupName.contains("\u{1F1F9}\u{1F1FC}") || groupName.contains("台湾") { Text("\u{1F1F9}\u{1F1FC}").font(.title2) }
-                    else if groupName.contains("人工") || groupName.contains("AI") { Text("\u{1F9E0}").font(.title2) }
-                    else if groupName.contains("流媒体") || groupName.contains("Netflix") { Text("\u{1F3AC}").font(.title2) }
-                    else if groupName.contains("谷歌") || groupName.contains("Google") { Text("\u{1F0E0}").font(.title2) }
-                    else { Text("\u{1F310}").font(.title2) } // 地球默认
-                }.frame(width: 32)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(groupName).font(.subheadline).fontWeight(.semibold)
-                        typeLabel(info.type)
-                    }
-                    HStack(spacing: 4) {
-                        subTypeLabel(info.type)
-                        Text(info.now ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        if let allCount = info.all?.count, allCount > 0 {
-                            Text("\(allCount) 节点").font(.caption2).foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    if let d = delayResults[groupName] {
-                        DelayDot(delay: d)
-                    } else {
-                        Text("--").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-                    }
-                }
+        HStack(spacing: 8) {
+            Image(systemName: color == .red ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(color)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .frame(width: 24, height: 24)
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭提示")
+            .help("关闭")
+        }
+        .padding(.horizontal, WgTheme.pagePadding)
+        .frame(minHeight: 36)
+        .background(color.opacity(0.07))
+    }
+}
 
-            // 节点磁贴网格布局（LazyVGrid 高性能 + 默认折叠）
-            NodeGridSection(
-                nodes: nodes,
-                currentSelection: info.now,
-                delayResults: delayResults,
-                maxVisible: 12,
-                onSelectNode: onSelectNode,
-                onTestDelay: onTestDelay
+private struct ProxyUnavailableView: View {
+    @EnvironmentObject private var client: DaemonClient
+    var onRetry: (() -> Void)?
+    var openSettings: (() -> Void)?
+    var startDaemon: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                client.proxyServiceRunning ? "控制器未连接" : "后台服务未启动",
+                systemImage: client.proxyServiceRunning ? "network.slash" : "gearshape.2",
+                description: Text(client.proxyServiceRunning ? "请在设置中检查 Mihomo 地址与密钥" : "先启动 WgSense 后台服务，再连接 Mihomo 控制器")
             )
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            HStack(spacing: 10) {
+                if let startDaemon, !client.proxyServiceRunning {
+                    Button(action: startDaemon) {
+                        Label(client.isAuthorizingDaemon ? "等待授权" : "启动后台服务", systemImage: "play.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(client.isAuthorizingDaemon)
+                    .accessibilityHint("弹出 macOS 管理员授权并启动 WgSense 后台服务")
+                }
+                if let onRetry {
+                    Button(action: onRetry) {
+                        Label("重试连接", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("重新读取 daemon 与 Mihomo 控制器状态")
+                }
+                if let openSettings {
+                    Button(action: openSettings) {
+                        Label("打开设置", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("切换到代理设置页面")
+                }
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Overview
+
+private struct ProxyOverviewPage: View {
+    @EnvironmentObject private var client: DaemonClient
+	@AppStorage("proxyEmojiEnabled") private var emojiEnabled = true
+    @Binding var section: ProxySection
+    @State private var samples: [ProxyOverviewSample] = []
+
+    private var groups: [(String, DaemonClient.ProxyInfo)] {
+        client.proxies
+            .filter { !($0.value.all ?? []).isEmpty }
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+    }
+
+    private var nodesCount: Int {
+        client.proxies.values.filter { ($0.all ?? []).isEmpty && !proxySystemTypes.contains($0.type) }.count
+    }
+
+	private var sortedProviders: [DaemonClient.ProxyProviderInfo] {
+		client.proxyProviders.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+	}
+
+    private var current: ProxyOverviewSample {
+        samples.last ?? ProxyOverviewSample(
+            time: Date(),
+            uploadTotal: client.connections?.uploadTotal ?? 0,
+            downloadTotal: client.connections?.downloadTotal ?? 0,
+            uploadSpeed: 0,
+            downloadSpeed: 0,
+            connectionCount: client.connections?.connections.count ?? 0,
+            memoryBytes: nil
+        )
+    }
+
+    private var sourceStats: [ProxySourceStat] {
+        Dictionary(grouping: client.connections?.connections ?? []) { connection in
+            connection.metadata.sourceIP?.isEmpty == false ? connection.metadata.sourceIP! : "unknown"
+        }
+        .map { source, values in
+            ProxySourceStat(
+                source: source,
+                download: values.reduce(0) { $0 + $1.download },
+                upload: values.reduce(0) { $0 + $1.upload },
+                connections: values.count
+            )
+        }
+        .sorted { $0.total > $1.total }
+    }
+
+    private var ruleHitStats: [ProxyBarDatum] {
+        Dictionary(grouping: client.connections?.connections ?? []) { connection in
+            connection.rule?.isEmpty == false ? connection.rule! : "Match"
+        }
+        .map { ProxyBarDatum(label: $0.key, value: Double($0.value.count)) }
+        .sorted { $0.value > $1.value }
+    }
+
+    private var ruleUnhitStats: [ProxyBarDatum] {
+        let hit = Set(ruleHitStats.map(\.label))
+        return client.rules
+            .filter { !hit.contains($0.proxy ?? $0.payload ?? $0.type) }
+            .prefix(18)
+            .enumerated()
+            .map { index, rule in
+                ProxyBarDatum(
+                    label: rule.payload ?? rule.proxy ?? rule.type,
+                    value: Double(max((rule.size ?? 0) / 1000, Int64(client.rules.count - index)))
+                )
+            }
+    }
+
+    var body: some View {
+        if !client.proxyRunning {
+            ProxyUnavailableView(
+                onRetry: { Task { await client.fetchProxyStatus() } },
+                openSettings: { section = .settings },
+                startDaemon: { Task { await client.startDaemonForProxy() } }
+            )
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    Text("概览").font(.title2.weight(.semibold))
+
+                    ProxyOverviewMetricStrip(sample: current)
+
+                    ProxyPanel {
+                        HStack(spacing: 18) {
+                            ProxyLineChart(
+                                title: "实时速度",
+                                series: [
+                                    ProxyChartSeries(name: "上传速度", color: .cyan, points: samples.map { ProxyChartPoint(time: $0.time, value: $0.uploadSpeed) }),
+                                    ProxyChartSeries(name: "下载速度", color: .indigo, points: samples.map { ProxyChartPoint(time: $0.time, value: $0.downloadSpeed) })
+                                ],
+                                formatter: proxyFormatBytesPerSecond
+                            )
+                            ProxyLineChart(
+                                title: "内存使用",
+                                series: [
+                                    ProxyChartSeries(name: "内存使用", color: .indigo, points: samples.compactMap { sample in
+                                        sample.memoryBytes.map { ProxyChartPoint(time: sample.time, value: Double($0)) }
+                                    })
+                                ],
+                                formatter: { proxyFormatBytes(Int64($0)) },
+                                emptyText: "Mihomo API 未暴露内存"
+                            )
+                            ProxyLineChart(
+                                title: "连接",
+                                series: [
+                                    ProxyChartSeries(name: "连接", color: .indigo, points: samples.map { ProxyChartPoint(time: $0.time, value: Double($0.connectionCount)) })
+                                ],
+                                formatter: { String(format: "%.0f", $0) }
+                            )
+                        }
+                        .frame(height: 230)
+                    }
+
+                    ProxyPanel(title: "网络信息") {
+                        ProxyNetworkInformationView(
+                            latencyLow: client.proxySettings?.latencyLow ?? 200,
+                            latencyMedium: client.proxySettings?.latencyMedium ?? 500
+                        )
+                    }
+
+                    ProxyPanel(title: "连接拓扑") {
+                        ProxyTopologyView(connections: client.connections?.connections ?? [])
+                    }
+
+                    ProxyPanel(title: "连接统计") {
+                        ProxySourceStatsTable(stats: sourceStats)
+                    }
+
+                    ProxyPanel(title: "规则命中统计") {
+                        HStack(spacing: 18) {
+                            ProxyBarChart(title: "命中统计", data: Array(ruleHitStats.prefix(18)), color: .indigo)
+                            ProxyBarChart(title: "未命中统计", data: Array(ruleUnhitStats.prefix(18)), color: .cyan)
+                        }
+                        .frame(height: 300)
+                    }
+                }
+                .padding(WgTheme.pagePadding)
+            }
+            .wgTimelineScroller()
+            .task {
+                await refreshOverview(checkStatus: true)
+                var refreshCount = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    refreshCount += 1
+                    await refreshOverview(checkStatus: refreshCount.isMultiple(of: 10))
+                }
+            }
+        }
+    }
+
+    private var availableModes: [String] {
+        let modes = client.mihomoConfig?.modes ?? client.mihomoConfig?.modeList ?? []
+        return modes.isEmpty ? ["rule", "global", "direct"] : modes
+    }
+
+    private var modeBinding: Binding<String> {
+        Binding(
+            get: { client.mihomoConfig?.mode ?? "rule" },
+            set: { mode in Task { _ = await client.updateProxyMode(mode) } }
+        )
+    }
+
+    private func refreshOverview(checkStatus: Bool = false) async {
+        let before = samples.last
+        if checkStatus {
+            await client.fetchProxyStatus()
+        }
+        guard client.proxyRunning else { return }
+        await client.fetchConnections()
+        if client.mihomoConfig == nil { await client.fetchProxyConfig() }
+        if client.proxies.isEmpty { await client.fetchProxies() }
+        if client.rules.isEmpty { await client.fetchRules() }
+        if client.proxyProviders.isEmpty { await client.fetchProxyProviders() }
+
+        let now = Date()
+        let uploadTotal = client.connections?.uploadTotal ?? 0
+        let downloadTotal = client.connections?.downloadTotal ?? 0
+        let interval = max(now.timeIntervalSince(before?.time ?? now), 1)
+        let uploadSpeed = before.map { max(0, Double(uploadTotal - $0.uploadTotal) / interval) } ?? 0
+        let downloadSpeed = before.map { max(0, Double(downloadTotal - $0.downloadTotal) / interval) } ?? 0
+        samples.append(
+            ProxyOverviewSample(
+                time: now,
+                uploadTotal: uploadTotal,
+                downloadTotal: downloadTotal,
+                uploadSpeed: uploadSpeed,
+                downloadSpeed: downloadSpeed,
+                connectionCount: client.connections?.connections.count ?? 0,
+                memoryBytes: nil
+            )
+        )
+        if samples.count > 120 {
+            samples.removeFirst(samples.count - 120)
+        }
+    }
+}
+
+private struct ProxyOverviewSample: Identifiable {
+    let id = UUID()
+    let time: Date
+    let uploadTotal: Int64
+    let downloadTotal: Int64
+    let uploadSpeed: Double
+    let downloadSpeed: Double
+    let connectionCount: Int
+    let memoryBytes: Int64?
+}
+
+private struct ProxySourceStat: Identifiable {
+    var id: String { source }
+    let source: String
+    let download: Int64
+    let upload: Int64
+    let connections: Int
+    var total: Int64 { download + upload }
+}
+
+private struct ProxyBarDatum: Identifiable {
+    var id: String { label }
+    let label: String
+    let value: Double
+}
+
+private struct ProxyChartPoint: Hashable {
+    let time: Date
+    let value: Double
+}
+
+private struct ProxyChartSeries: Identifiable {
+    var id: String { name }
+    let name: String
+    let color: Color
+    let points: [ProxyChartPoint]
+
+    var values: [Double] { points.map(\.value) }
+}
+
+private struct ProxyPanel<Content: View>: View {
+    var title: String?
+    let content: Content
+
+    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let title {
+                Text(title).font(.headline)
+            }
+            content
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(WgTheme.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(WgTheme.cardBorder.opacity(0.3), lineWidth: 0.5))
-    }
-
-    private func typeLabel(_ type: String) -> some View {
-        let (text, color): (String, Color) = {
-            switch type {
-            case "Selector":   return ("Selector", .blue)
-            case "Fallback":   return ("Fallback", .orange)
-            case "URLTest":    return ("URLTest", .green)
-            case "LoadBalance": return ("LoadBalance", .purple)
-            case "Smart":      return ("Smart", .pink)
-            default:           return (type, .gray)
-            }
-        }()
-        return Text(text).font(.system(size: 9)).fontWeight(.medium)
-            .foregroundStyle(color).opacity(0.7)
-    }
-
-    private func subTypeLabel(_ type: String) -> some View {
-        let text: String = {
-            switch type {
-            case "Selector": return "selector"
-            case "Fallback": return "fallback"
-            case "URLTest": return "smart"
-            case "LoadBalance": return "load-balance"
-            case "Smart": return "smart"
-            default: return type.lowercased()
-            }
-        }()
-        return Text(text).font(.system(size: 9)).foregroundStyle(.tertiary)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(WgTheme.cardBorder))
     }
 }
 
-// MARK: 节点磁贴（大尺寸固定大小 - Clash Verge 风格）
-struct NodeChip: View {
-    let name: String
-    let isSelected: Bool
-    let delay: Int64?
-    let type: String
-    let onTap: () -> Void
-    let onLongPress: () -> Void
-
-    // 固定宽高比 1:0.618 (黄金比例横向) - 大尺寸
-    private let chipWidth: CGFloat = 200
-    private let chipHeight: CGFloat = 124
+private struct ProxyOverviewMetricStrip: View {
+    let sample: ProxyOverviewSample
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 8) {
-                // 第一行：国旗 emoji（大）+ 延迟
-                HStack(alignment: .top) {
-                    Text(flagEmoji(for: name)).font(.system(size: 44))
+        ProxyPanel {
+            HStack(spacing: 0) {
+                metric("连接", "\(sample.connectionCount)")
+                metric("内存使用", sample.memoryBytes.map { proxyFormatBytes($0) } ?? "—")
+                metric("下载", proxyFormatBytes(sample.downloadTotal))
+                metric("下载速度", proxyFormatBytesPerSecond(sample.downloadSpeed))
+                metric("上传", proxyFormatBytes(sample.uploadTotal))
+                metric("上传速度", proxyFormatBytesPerSecond(sample.uploadSpeed))
+            }
+        }
+    }
+
+    private func metric(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ProxyLineChart: View {
+    let title: String
+    let series: [ProxyChartSeries]
+    let formatter: (Double) -> String
+    var emptyText: String = "暂无数据"
+
+    private let timeWindow: TimeInterval = 60
+    private var allValues: [Double] { series.flatMap(\.values) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            GeometryReader { geometry in
+                if allValues.isEmpty {
+                    Text(emptyText)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    ProxyCoreAnimationChart(series: series, timeWindow: timeWindow)
+                    .overlay(alignment: .topLeading) {
+                        Text(formatter(allValues.last ?? allValues.max() ?? 0))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .contentTransition(.numericText())
+                    }
+                }
+            }
+            legend
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: 12) {
+            ForEach(series) { item in
+                HStack(spacing: 5) {
+                    Circle().fill(item.color).frame(width: 8, height: 8)
+                    Text(item.name).font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "pause.circle").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+}
+
+private struct ProxyCoreAnimationChart: NSViewRepresentable {
+    let series: [ProxyChartSeries]
+    let timeWindow: TimeInterval
+
+    func makeNSView(context: Context) -> ProxyChartLayerView {
+        ProxyChartLayerView()
+    }
+
+    func updateNSView(_ nsView: ProxyChartLayerView, context: Context) {
+        nsView.update(series: series, timeWindow: timeWindow)
+    }
+}
+
+private final class ProxyChartLayerView: NSView {
+    private let gridLayer = CAShapeLayer()
+    private var lineLayers: [CAShapeLayer] = []
+    private var fillLayers: [CAShapeLayer] = []
+    private var chartSeries: [ProxyChartSeries] = []
+    private var timeWindow: TimeInterval = 60
+    private var dataSignature = ""
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.addSublayer(gridLayer)
+        gridLayer.fillColor = nil
+        gridLayer.strokeColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        gridLayer.lineWidth = 0.6
+        gridLayer.lineDashPattern = [4, 4]
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(series: [ProxyChartSeries], timeWindow: TimeInterval) {
+        chartSeries = series
+        self.timeWindow = timeWindow
+        ensureLayerCount(series.count)
+        let signature = series.map { item in
+            let last = item.points.last
+            return "\(item.name):\(last?.time.timeIntervalSinceReferenceDate ?? 0):\(last?.value ?? 0):\(item.points.count)"
+        }.joined(separator: "|")
+        let shouldAnimate = !dataSignature.isEmpty && signature != dataSignature
+        dataSignature = signature
+        updatePaths(animated: shouldAnimate)
+    }
+
+    override func layout() {
+        super.layout()
+        gridLayer.frame = bounds
+        updateGrid()
+        updatePaths(animated: false)
+    }
+
+    private func ensureLayerCount(_ count: Int) {
+        while lineLayers.count < count {
+            let fill = CAShapeLayer()
+            fill.fillRule = .nonZero
+            layer?.addSublayer(fill)
+            fillLayers.append(fill)
+
+            let line = CAShapeLayer()
+            line.fillColor = nil
+            line.lineWidth = 2
+            line.lineCap = .round
+            line.lineJoin = .round
+            layer?.addSublayer(line)
+            lineLayers.append(line)
+        }
+        while lineLayers.count > count {
+            lineLayers.removeLast().removeFromSuperlayer()
+            fillLayers.removeLast().removeFromSuperlayer()
+        }
+    }
+
+    private func updateGrid() {
+        let rect = bounds.insetBy(dx: 4, dy: 4)
+        let path = CGMutablePath()
+        for index in 0...3 {
+            let y = rect.minY + rect.height * CGFloat(index) / 3
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        gridLayer.path = path
+    }
+
+    private func updatePaths(animated: Bool) {
+        guard bounds.width > 8, bounds.height > 8 else { return }
+        let rect = bounds.insetBy(dx: 4, dy: 4)
+        let latestTime = chartSeries.compactMap { $0.points.last?.time }.max() ?? Date()
+        let visibleValues = chartSeries.flatMap { item in
+            item.points.filter { latestTime.timeIntervalSince($0.time) <= timeWindow + 1 }.map(\.value)
+        }
+        let maxValue = max(visibleValues.max() ?? 1, 1)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (index, item) in chartSeries.enumerated() {
+            let points = screenPoints(item.points, latestTime: latestTime, maxValue: maxValue, rect: rect)
+            let linePath = curvePath(points, rect: rect)
+            let fillPath = linePath.mutableCopy() ?? CGMutablePath()
+            if let first = points.first, let last = points.last {
+                fillPath.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+                fillPath.addLine(to: CGPoint(x: first.x, y: rect.maxY))
+                fillPath.closeSubpath()
+            }
+
+            let nsColor = NSColor(item.color)
+            let line = lineLayers[index]
+            let fill = fillLayers[index]
+            let oldLinePath = line.presentation()?.path ?? line.path
+            line.strokeColor = nsColor.withAlphaComponent(0.92).cgColor
+            fill.fillColor = nsColor.withAlphaComponent(0.14).cgColor
+            line.path = linePath
+            fill.path = fillPath
+
+            if animated, let oldLinePath {
+                line.add(pathAnimation(from: oldLinePath, to: linePath), forKey: "path")
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0.78
+                fade.toValue = 1
+                fade.duration = 0.28
+                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                fill.add(fade, forKey: "opacity")
+            }
+        }
+        CATransaction.commit()
+    }
+
+    private func pathAnimation(from: CGPath, to: CGPath) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "path")
+        animation.fromValue = from
+        animation.toValue = to
+        animation.duration = 0.52
+        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.78, 0.24, 1)
+        return animation
+    }
+
+    private func screenPoints(
+        _ points: [ProxyChartPoint],
+        latestTime: Date,
+        maxValue: Double,
+        rect: CGRect
+    ) -> [CGPoint] {
+        points.sorted { $0.time < $1.time }.compactMap { point in
+            let age = max(0, latestTime.timeIntervalSince(point.time))
+            let x = rect.maxX - rect.width * CGFloat(age / timeWindow)
+            guard x >= rect.minX - 2, x <= rect.maxX + 2 else { return nil }
+            let normalized = min(max(point.value / maxValue, 0), 1)
+            return CGPoint(x: x, y: rect.maxY - rect.height * CGFloat(normalized))
+        }
+    }
+
+    private func curvePath(_ points: [CGPoint], rect: CGRect) -> CGMutablePath {
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count > 1 else {
+            path.addLine(to: CGPoint(x: min(first.x + 1, rect.maxX), y: first.y))
+            return path
+        }
+        for index in 0..<(points.count - 1) {
+            let p0 = points[max(index - 1, 0)]
+            let p1 = points[index]
+            let p2 = points[index + 1]
+            let p3 = points[min(index + 2, points.count - 1)]
+            let tension: CGFloat = 0.82
+            let c1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) * tension / 6,
+                y: min(max(p1.y + (p2.y - p0.y) * tension / 6, rect.minY), rect.maxY)
+            )
+            let c2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) * tension / 6,
+                y: min(max(p2.y - (p3.y - p1.y) * tension / 6, rect.minY), rect.maxY)
+            )
+            path.addCurve(to: p2, control1: c1, control2: c2)
+        }
+        return path
+    }
+}
+
+private struct ProxyInfoBox: View {
+    let lines: [(String, String)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(lines, id: \.0) { key, value in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(key)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 72, alignment: .leading)
+                    Text(value)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
                     Spacer()
-                    if let d = delay {
-                        DelayDot(delay: d)
-                    } else {
-                        Text("--").font(.system(size: 18, weight: .medium).monospacedDigit()).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .font(.system(.callout, design: .monospaced))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ProxyNetworkIdentity: Identifiable, Sendable {
+    let id: String
+    let source: String
+    let ip: String?
+    let description: String
+    let error: String?
+}
+
+private struct ProxyNetworkLatency: Identifiable, Sendable {
+    let id: String
+    let name: String
+    let milliseconds: Int?
+}
+
+private struct ProxyIPSBResponse: Decodable {
+    let ip: String?
+    let country: String?
+    let region: String?
+    let city: String?
+    let isp: String?
+    let organization: String?
+    let asnOrganization: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ip, country, region, city, isp, organization
+        case asnOrganization = "asn_organization"
+    }
+}
+
+private enum ProxyNetworkProbe {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 6
+        configuration.timeoutIntervalForResource = 7
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: configuration)
+    }()
+
+    private static let latencyTargets: [(String, String)] = [
+        ("Baidu", "https://www.baidu.com/favicon.ico"),
+        ("Cloudflare", "https://www.cloudflare.com/cdn-cgi/trace"),
+        ("GitHub", "https://github.com/favicon.ico"),
+        ("YouTube", "https://www.youtube.com/generate_204")
+    ]
+
+    static func identities() async -> [ProxyNetworkIdentity] {
+        async let ipip = loadIPIP()
+        async let ipSB = loadIPSB()
+        return await [ipip, ipSB]
+    }
+
+    static func latencies() async -> [ProxyNetworkLatency] {
+        await withTaskGroup(of: ProxyNetworkLatency.self) { group in
+            for (name, address) in latencyTargets {
+                group.addTask {
+                    await measure(name: name, address: address)
+                }
+            }
+
+            var values: [String: ProxyNetworkLatency] = [:]
+            for await result in group {
+                values[result.id] = result
+            }
+            return latencyTargets.map { target in
+                values[target.0] ?? ProxyNetworkLatency(id: target.0, name: target.0, milliseconds: nil)
+            }
+        }
+    }
+
+    private static func loadIPIP() async -> ProxyNetworkIdentity {
+        do {
+            let (data, _) = try await request("https://myip.ipip.net")
+            let text = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let pattern = #"当前 IP：([^\s]+)\s+来自于：(.+)"#
+            let regex = try NSRegularExpression(pattern: pattern)
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = regex.firstMatch(in: text, range: range),
+                  let ipRange = Range(match.range(at: 1), in: text),
+                  let descriptionRange = Range(match.range(at: 2), in: text) else {
+                throw URLError(.cannotParseResponse)
+            }
+            return ProxyNetworkIdentity(
+                id: "ipip.net",
+                source: "ipip.net",
+                ip: String(text[ipRange]),
+                description: String(text[descriptionRange]),
+                error: nil
+            )
+        } catch {
+            return ProxyNetworkIdentity(
+                id: "ipip.net",
+                source: "ipip.net",
+                ip: nil,
+                description: "",
+                error: proxyNetworkErrorText(error)
+            )
+        }
+    }
+
+    private static func loadIPSB() async -> ProxyNetworkIdentity {
+        do {
+            let (data, _) = try await request("https://api.ip.sb/geoip")
+            let response = try JSONDecoder().decode(ProxyIPSBResponse.self, from: data)
+            let location: [String] = [response.country, response.region, response.city]
+                .compactMap { (value: String?) -> String? in
+                    guard let value, !value.isEmpty else { return nil }
+                    return value
+                }
+            let provider = response.isp ?? response.organization ?? response.asnOrganization
+            let description = (location + [provider].compactMap { $0 }).joined(separator: " ")
+            return ProxyNetworkIdentity(
+                id: "ip.sb",
+                source: "ip.sb",
+                ip: response.ip,
+                description: description.isEmpty ? "未知出口" : description,
+                error: nil
+            )
+        } catch {
+            return ProxyNetworkIdentity(
+                id: "ip.sb",
+                source: "ip.sb",
+                ip: nil,
+                description: "",
+                error: proxyNetworkErrorText(error)
+            )
+        }
+    }
+
+    private static func measure(name: String, address: String) async -> ProxyNetworkLatency {
+        let startedAt = Date()
+        do {
+            _ = try await request(address)
+            let milliseconds = max(1, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            return ProxyNetworkLatency(id: name, name: name, milliseconds: milliseconds)
+        } catch {
+            return ProxyNetworkLatency(id: name, name: name, milliseconds: nil)
+        }
+    }
+
+    private static func request(_ address: String) async throws -> (Data, HTTPURLResponse) {
+        guard let url = URL(string: address) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("WgSense/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse,
+              (200..<500).contains(response.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return (data, response)
+    }
+
+    private static func proxyNetworkErrorText(_ error: Error) -> String {
+        if let urlError = error as? URLError, urlError.code == .timedOut {
+            return "检测超时"
+        }
+        return "检测失败"
+    }
+}
+
+private struct ProxyNetworkInformationView: View {
+    let latencyLow: Int
+    let latencyMedium: Int
+    @State private var identities: [ProxyNetworkIdentity] = []
+    @State private var latencies: [ProxyNetworkLatency] = []
+    @State private var revealsIPAddress = false
+    @State private var isRefreshing = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 24) {
+            identityColumn
+                .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+
+            Divider().opacity(0.18)
+
+            latencyColumn
+                .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        }
+        .padding(.vertical, 4)
+        .task {
+            await refresh()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                await refresh()
+            }
+        }
+    }
+
+    private var identityColumn: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 10) {
+                if identities.isEmpty {
+                    ProgressView("正在检测公网出口")
+                        .controlSize(.small)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(identities) { identity in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(identity.source)
+                                .frame(width: 70, alignment: .leading)
+                            Text(":").foregroundStyle(.secondary)
+                            if let error = identity.error {
+                                Text(error).foregroundStyle(.red)
+                            } else {
+                                Text(identityLine(identity))
+                                    .textSelection(.enabled)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            }
+            .font(.system(.callout, design: .rounded))
+            .padding(.trailing, 82)
+
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.smooth(duration: 0.2)) {
+                        revealsIPAddress.toggle()
+                    }
+                } label: {
+                    Image(systemName: revealsIPAddress ? "eye" : "eye.slash")
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .wgGlassSurface(cornerRadius: 15, interactive: true)
+                .help(revealsIPAddress ? "隐藏 IP 地址" : "显示 IP 地址")
+
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    Group {
+                        if isRefreshing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "bolt")
+                        }
+                    }
+                    .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .wgGlassSurface(cornerRadius: 15, interactive: true)
+                .disabled(isRefreshing)
+                .help("立即重新检测")
+            }
+        }
+    }
+
+    private var latencyColumn: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(latencies.isEmpty ? placeholderLatencies : latencies) { latency in
+                HStack(spacing: 8) {
+                    Text(latency.name)
+                        .frame(width: 104, alignment: .leading)
+                    Text(":").foregroundStyle(.secondary)
+                    Text(latency.milliseconds.map { "\($0) ms" } ?? (isRefreshing ? "检测中" : "超时"))
+                        .foregroundStyle(latencyColor(latency.milliseconds))
+                        .contentTransition(.numericText())
+                    Spacer()
+                }
+            }
+        }
+        .font(.system(.callout, design: .rounded))
+    }
+
+    private var placeholderLatencies: [ProxyNetworkLatency] {
+        ["Baidu", "Cloudflare", "GitHub", "YouTube"].map {
+            ProxyNetworkLatency(id: $0, name: $0, milliseconds: nil)
+        }
+    }
+
+    private func identityLine(_ identity: ProxyNetworkIdentity) -> String {
+        guard let ip = identity.ip else { return identity.description }
+        let shownIP = revealsIPAddress ? ip : maskedIPAddress(ip)
+        return "\(identity.description) (\(shownIP))"
+    }
+
+    private func maskedIPAddress(_ ip: String) -> String {
+        if ip.contains(":") { return "****:****:****:****" }
+        return "***.***.***.***"
+    }
+
+    private func latencyColor(_ milliseconds: Int?) -> Color {
+        guard let milliseconds else { return .secondary }
+        if milliseconds < latencyLow { return .green }
+        if milliseconds < latencyMedium { return .orange }
+        return .red
+    }
+
+    @MainActor
+    private func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        async let loadedIdentities = ProxyNetworkProbe.identities()
+        async let loadedLatencies = ProxyNetworkProbe.latencies()
+        let result = await (loadedIdentities, loadedLatencies)
+        withAnimation(.smooth(duration: 0.28)) {
+            identities = result.0
+            latencies = result.1
+            isRefreshing = false
+        }
+    }
+}
+
+private struct ProxyTopologyView: View {
+    let connections: [DaemonClient.ConnectionInfo]
+    private let graph: ProxyTopologyGraph
+    private let totalBytes: Int64
+    @State private var selectedNodeID: String?
+    @State private var hoveredNodeID: String?
+
+    init(connections: [DaemonClient.ConnectionInfo]) {
+        self.connections = connections
+        self.graph = ProxyTopologyGraph(connections: connections)
+        self.totalBytes = connections.reduce(0) { $0 + $1.upload + $1.download }
+    }
+
+    private var activeNodeID: String? { hoveredNodeID ?? selectedNodeID }
+
+    private var selectedNode: ProxyTopologyNode? {
+        guard let selectedNodeID else { return nil }
+        return graph.nodes.first { $0.id == selectedNodeID }
+    }
+
+    private var activeNode: ProxyTopologyNode? {
+        guard let activeNodeID else { return nil }
+        return graph.nodes.first { $0.id == activeNodeID }
+    }
+
+    private var canvasHeight: CGFloat { graph.recommendedHeight }
+    private var canvasMinWidth: CGFloat { graph.recommendedWidth }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: canvasMinWidth > 900) {
+                topologyCanvas
+                    .frame(minWidth: canvasMinWidth, maxWidth: .infinity, minHeight: canvasHeight)
+            }
+            .frame(minHeight: canvasHeight)
+
+            ProxyTopologySelectionBar(
+                selected: selectedNode,
+                connectionCount: connections.count,
+                totalBytes: totalBytes
+            ) {
+                withAnimation(.smooth(duration: 0.2, extraBounce: 0.06)) {
+                    selectedNodeID = nil
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var topologyCanvas: some View {
+        GeometryReader { geometry in
+            let layout = graph.layout(in: CGSize(width: max(geometry.size.width, canvasMinWidth), height: canvasHeight))
+            let activeNodeIDs = activeNodeID.map { graph.connectedNodeIDs(to: $0) } ?? Set(graph.nodes.map(\.id))
+            let activeLinkIDs = activeNodeID.map { graph.connectedLinkIDs(to: $0) } ?? Set(graph.links.map(\.id))
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.black.opacity(0.10))
+                Canvas(opaque: false, colorMode: .linear, rendersAsynchronously: true) { context, size in
+                    for link in graph.links {
+                        guard
+                            let from = layout.nodeRects[link.from],
+                            let to = layout.nodeRects[link.to]
+                        else { continue }
+                        let isActive = activeNodeID == nil || activeLinkIDs.contains(link.id)
+                        let lineWidth = layout.width(for: link)
+                        let path = topologyPath(from: from, to: to)
+                        let start = CGPoint(x: from.maxX, y: from.midY)
+                        let end = CGPoint(x: to.minX, y: to.midY)
+
+                        context.stroke(
+                            path,
+                            with: .linearGradient(
+                                Gradient(colors: [
+                                    link.color.opacity(isActive ? 0.48 : 0.035),
+                                    link.color.opacity(isActive ? 0.20 : 0.018)
+                                ]),
+                                startPoint: start,
+                                endPoint: end
+                            ),
+                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+                        )
+
                     }
                 }
 
-                // 第二行：节点名
-                Text(shortName(name))
-                    .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? WgTheme.accent : .primary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ProxyTopologyFlowView(
+                    segments: graph.links.compactMap { link in
+                        guard let from = layout.nodeRects[link.from], let to = layout.nodeRects[link.to] else { return nil }
+                        return ProxyTopologyFlowSegment(
+                            id: link.id,
+                            from: from,
+                            to: to,
+                            color: NSColor(link.color),
+                            lineWidth: max(1.2, min(4.5, layout.width(for: link) * 0.28)),
+                            duration: layout.flowDuration(for: link),
+                            isActive: activeNodeID == nil || activeLinkIDs.contains(link.id)
+                        )
+                    }
+                )
+                .allowsHitTesting(false)
 
-                // 第三行：类型标签
-                Text(displayType(type))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(graph.nodes) { node in
+                    if let rect = layout.nodeRects[node.id] {
+                        ProxyTopologyNodeButton(
+                            node: node,
+                            isSelected: selectedNodeID == node.id,
+                            isHovered: hoveredNodeID == node.id,
+                            isDimmed: activeNodeID.map { _ in !activeNodeIDs.contains(node.id) } ?? false
+                        ) {
+                            withAnimation(.smooth(duration: 0.32, extraBounce: 0.18)) {
+                                selectedNodeID = selectedNodeID == node.id ? nil : node.id
+                            }
+                        }
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .onHover { hovering in
+                            withAnimation(.smooth(duration: 0.24, extraBounce: 0.08)) {
+                                if hovering {
+                                    hoveredNodeID = node.id
+                                } else if hoveredNodeID == node.id {
+                                    hoveredNodeID = nil
+                                }
+                            }
+                        }
+                        .help("\(node.label) · \(node.count) 个连接 · \(proxyFormatBytes(node.bytes))")
+                        .accessibilityLabel("\(node.label)，\(node.count) 个连接，\(proxyFormatBytes(node.bytes))")
+                        .accessibilityHint("点击后锁定或取消锁定此拓扑节点")
+                    }
+                }
+
+                if let activeNode, let rect = layout.nodeRects[activeNode.id] {
+                    ProxyTopologyTooltip(node: activeNode)
+                        .position(
+                            x: min(max(rect.midX, 130), max(130, geometry.size.width - 130)),
+                            y: max(34, rect.minY - 18)
+                        )
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(width: chipWidth, height: chipHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 10).fill(isSelected ?
-                    WgTheme.accent.opacity(0.12) :
-                    Color(nsColor: .controlColor).opacity(0.8))
+            .animation(.smooth(duration: 0.24, extraBounce: 0.08), value: activeNodeID)
+        }
+    }
+
+    private func topologyPath(from: CGRect, to: CGRect) -> Path {
+        var path = Path()
+        let start = CGPoint(x: from.maxX, y: from.midY)
+        let end = CGPoint(x: to.minX, y: to.midY)
+        let controlOffset = max((end.x - start.x) * 0.46, 36)
+        path.move(to: start)
+        path.addCurve(
+            to: end,
+            control1: CGPoint(x: start.x + controlOffset, y: start.y),
+            control2: CGPoint(x: end.x - controlOffset, y: end.y)
+        )
+        return path
+    }
+}
+
+private struct ProxyTopologyFlowSegment {
+    let id: String
+    let from: CGRect
+    let to: CGRect
+    let color: NSColor
+    let lineWidth: CGFloat
+    let duration: TimeInterval
+    let isActive: Bool
+}
+
+private struct ProxyTopologyFlowView: NSViewRepresentable {
+    let segments: [ProxyTopologyFlowSegment]
+
+    func makeNSView(context: Context) -> ProxyTopologyFlowLayerView {
+        ProxyTopologyFlowLayerView()
+    }
+
+    func updateNSView(_ nsView: ProxyTopologyFlowLayerView, context: Context) {
+        nsView.update(segments)
+    }
+}
+
+private final class ProxyTopologyFlowLayerView: NSView {
+    private var signature = ""
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.isGeometryFlipped = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(_ segments: [ProxyTopologyFlowSegment]) {
+        let nextSignature = segments.map {
+            "\($0.id):\(Int($0.from.maxX)):\(Int($0.from.midY)):\(Int($0.to.minX)):\(Int($0.to.midY)):\(String(format: "%.2f", $0.lineWidth)):\(String(format: "%.2f", $0.duration)):\($0.isActive)"
+        }.joined(separator: "|")
+        guard nextSignature != signature else { return }
+        signature = nextSignature
+        layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+
+        for segment in segments where segment.isActive {
+            let shape = CAShapeLayer()
+            let path = CGMutablePath()
+            let start = CGPoint(x: segment.from.maxX, y: segment.from.midY)
+            let end = CGPoint(x: segment.to.minX, y: segment.to.midY)
+            let controlOffset = max((end.x - start.x) * 0.46, 36)
+            path.move(to: start)
+            path.addCurve(
+                to: end,
+                control1: CGPoint(x: start.x + controlOffset, y: start.y),
+                control2: CGPoint(x: end.x - controlOffset, y: end.y)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? WgTheme.accent.opacity(0.5) : Color.white.opacity(0.08), lineWidth: isSelected ? 1.2 : 0.5)
-            )
-            .shadow(color: isSelected ? WgTheme.accent.opacity(0.15) : .clear, radius: isSelected ? 4 : 0, y: 2)
+            shape.path = path
+            shape.fillColor = nil
+            shape.strokeColor = segment.color.withAlphaComponent(0.34).cgColor
+            shape.lineWidth = segment.lineWidth
+            shape.lineCap = .round
+            shape.lineJoin = .round
+            shape.lineDashPattern = [10, 22]
+            layer?.addSublayer(shape)
+
+            let flow = CABasicAnimation(keyPath: "lineDashPhase")
+            flow.fromValue = 0
+            flow.toValue = -32
+            flow.duration = segment.duration
+            flow.repeatCount = .infinity
+            flow.timingFunction = CAMediaTimingFunction(name: .linear)
+            shape.add(flow, forKey: "traffic-flow")
+        }
+    }
+}
+
+private struct ProxyTopologyNode: Identifiable, Hashable {
+    let id: String
+    let layer: Int
+    let label: String
+    let count: Int
+    let bytes: Int64
+    let color: Color
+}
+
+private struct ProxyTopologyLink: Identifiable, Hashable {
+    let from: String
+    let to: String
+    let count: Int
+    let bytes: Int64
+    let color: Color
+
+    var id: String { "\(from)->\(to)" }
+}
+
+private struct ProxyTopologyGraph {
+    let layers: [[ProxyTopologyNode]]
+    let links: [ProxyTopologyLink]
+    private let paths: [[String]]
+
+    var nodes: [ProxyTopologyNode] { layers.flatMap { $0 } }
+    var recommendedHeight: CGFloat {
+        let maxLayerCount = CGFloat(max(layers.map(\.count).max() ?? 1, 1))
+        let base = 72 + maxLayerCount * 38
+        return min(max(base, 320), 760)
+    }
+    var recommendedWidth: CGFloat {
+        let maxLabelLength = nodes.map { CGFloat(min($0.label.count, 26)) }.max() ?? 12
+        let nodeWidth = max(150, min(230, 96 + maxLabelLength * 5))
+        return max(900, nodeWidth * 4 + 280)
+    }
+    var animationKey: String {
+        let nodeKey = nodes.map { "\($0.id):\($0.count):\($0.bytes)" }.joined(separator: "|")
+        let linkKey = links.map { "\($0.id):\($0.count):\($0.bytes)" }.joined(separator: "|")
+        return nodeKey + "#" + linkKey
+    }
+
+    init(connections: [DaemonClient.ConnectionInfo]) {
+        let palettes: [Color] = [.indigo, .mint, .yellow, .pink]
+        let layerValues = ProxyTopologyGraph.layerValues(for: connections)
+        var builtLayers: [[ProxyTopologyNode]] = []
+
+        for layer in 0..<4 {
+            let values = layerValues[layer]
+            let nodes = values.map { value -> ProxyTopologyNode in
+                let matched = connections.filter { connection in
+                    ProxyTopologyGraph.value(for: connection, layer: layer, allowed: values) == value
+                }
+                return ProxyTopologyNode(
+                    id: "\(layer)|\(value)",
+                    layer: layer,
+                    label: value,
+                    count: matched.count,
+                    bytes: matched.reduce(0) { $0 + $1.upload + $1.download },
+                    color: palettes[layer]
+                )
+            }
+            builtLayers.append(nodes.isEmpty ? [
+                ProxyTopologyNode(id: "\(layer)|暂无", layer: layer, label: "暂无", count: 0, bytes: 0, color: palettes[layer])
+            ] : nodes)
+        }
+
+        self.layers = builtLayers
+
+        var linkBuckets: [String: (from: String, to: String, count: Int, bytes: Int64, color: Color)] = [:]
+        var builtPaths: [[String]] = []
+        for connection in connections {
+            let pathNodes = (0..<4).map { layer -> String in
+                let name = ProxyTopologyGraph.value(for: connection, layer: layer, allowed: layerValues[layer])
+                return "\(layer)|\(name)"
+            }
+            builtPaths.append(pathNodes)
+            for layer in 0..<3 {
+                let from = pathNodes[layer]
+                let to = pathNodes[layer + 1]
+                let key = "\(from)->\(to)"
+                let bytes = connection.upload + connection.download
+                if var bucket = linkBuckets[key] {
+                    bucket.count += 1
+                    bucket.bytes += bytes
+                    linkBuckets[key] = bucket
+                } else {
+                    linkBuckets[key] = (from, to, 1, bytes, palettes[layer + 1])
+                }
+            }
+        }
+
+        self.links = linkBuckets.values
+            .map { ProxyTopologyLink(from: $0.from, to: $0.to, count: $0.count, bytes: $0.bytes, color: $0.color) }
+            .sorted { lhs, rhs in
+                if lhs.bytes == rhs.bytes { return lhs.count > rhs.count }
+                return lhs.bytes > rhs.bytes
+            }
+        self.paths = builtPaths
+    }
+
+    func layout(in size: CGSize) -> ProxyTopologyLayout {
+        ProxyTopologyLayout(graph: self, size: size)
+    }
+
+    func isNode(_ nodeID: String, connectedTo activeID: String) -> Bool {
+        connectedNodeIDs(to: activeID).contains(nodeID)
+    }
+
+    func isLink(_ link: ProxyTopologyLink, connectedTo nodeIDs: Set<String>) -> Bool {
+        nodeIDs.contains(link.from) && nodeIDs.contains(link.to)
+    }
+
+    func connectedNodeIDs(to activeID: String) -> Set<String> {
+        guard nodes.contains(where: { $0.id == activeID }) else { return [] }
+        let matchingPaths = paths.filter { $0.contains(activeID) }
+        let ids = matchingPaths.flatMap { $0 }
+        return ids.isEmpty ? [activeID] : Set(ids)
+    }
+
+    func connectedLinkIDs(to activeID: String) -> Set<String> {
+        let matchingPaths = paths.filter { $0.contains(activeID) }
+        let ids = matchingPaths.flatMap { path in
+            zip(path, path.dropFirst()).map { "\($0)->\($1)" }
+        }
+        return Set(ids)
+    }
+
+    private static func layerValues(for connections: [DaemonClient.ConnectionInfo]) -> [[String]] {
+        let rawLayers = [
+            values(connections, layer: 0),
+            values(connections, layer: 1),
+            values(connections, layer: 2),
+            values(connections, layer: 3)
+        ]
+        let limits = [7, 9, 8, 6]
+        return rawLayers.enumerated().map { index, values in
+            let top = topValues(values, limit: limits[index])
+            if top.isEmpty { return ["暂无"] }
+            return Set(values).subtracting(top).isEmpty ? top : top + ["其他"]
+        }
+    }
+
+    private static func values(_ connections: [DaemonClient.ConnectionInfo], layer: Int) -> [String] {
+        connections.map { value(for: $0, layer: layer, allowed: nil) }
+    }
+
+    private static func value(for connection: DaemonClient.ConnectionInfo, layer: Int, allowed: [String]?) -> String {
+        let raw: String
+        switch layer {
+        case 0:
+            raw = connection.metadata.sourceIP?.isEmpty == false ? connection.metadata.sourceIP! : "unknown"
+        case 1:
+            raw = connection.rule?.isEmpty == false ? connection.rule! : "Match"
+        case 2:
+            raw = connection.chains?.first?.isEmpty == false ? connection.chains!.first! : "策略"
+        default:
+            raw = connection.chains?.last?.isEmpty == false ? connection.chains!.last! : "DIRECT"
+        }
+        guard let allowed, !allowed.contains(raw), allowed.contains("其他") else { return raw }
+        return "其他"
+    }
+}
+
+private struct ProxyTopologyLayout {
+    let nodeRects: [String: CGRect]
+    private let maxLinkBytes: Int64
+
+    init(graph: ProxyTopologyGraph, size: CGSize) {
+        let horizontalPadding: CGFloat = 28
+        let verticalPadding: CGFloat = 22
+        let nodeWidth = max(132, min(210, size.width * 0.14))
+        let availableWidth = max(1, size.width - horizontalPadding * 2 - nodeWidth)
+        let maxLayerIndex = max(graph.layers.count - 1, 1)
+        var rects: [String: CGRect] = [:]
+
+        for (layerIndex, layer) in graph.layers.enumerated() {
+            let x = horizontalPadding + availableWidth * CGFloat(layerIndex) / CGFloat(maxLayerIndex)
+            let totalWeight = max(layer.reduce(0) { $0 + max($1.count, 1) }, 1)
+            let gap = max(6, min(14, (size.height - verticalPadding * 2) / CGFloat(max(layer.count, 1)) * 0.12))
+            let availableHeight = max(1, size.height - verticalPadding * 2 - gap * CGFloat(max(layer.count - 1, 0)))
+            let baseHeight = min(30, max(18, availableHeight / CGFloat(max(layer.count, 1)) * 0.56))
+            let weightedHeightPool = max(0, availableHeight - baseHeight * CGFloat(layer.count))
+            var y = verticalPadding
+            for node in layer {
+                let weight = CGFloat(max(node.count, 1)) / CGFloat(totalWeight)
+                let height = min(98, baseHeight + weightedHeightPool * weight)
+                rects[node.id] = CGRect(x: x, y: y, width: nodeWidth, height: height)
+                y += height + gap
+            }
+        }
+
+        self.nodeRects = rects
+        self.maxLinkBytes = max(graph.links.map(\.bytes).max() ?? 1, 1)
+    }
+
+    func width(for link: ProxyTopologyLink) -> CGFloat {
+        let normalized = CGFloat(max(Double(link.bytes) / Double(maxLinkBytes), 0.06))
+        return max(2, min(26, 2 + normalized.squareRoot() * 24))
+    }
+
+    func flowDuration(for link: ProxyTopologyLink) -> TimeInterval {
+        let normalized = min(max(Double(link.bytes) / Double(maxLinkBytes), 0), 1)
+        return 2.6 - normalized.squareRoot() * 2.15
+    }
+}
+
+private struct ProxyTopologyNodeButton: View {
+    let node: ProxyTopologyNode
+    let isSelected: Bool
+    let isHovered: Bool
+    let isDimmed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .center, spacing: 3) {
+                    Text(shortLabel(node.label, maxLength: 24))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isSelected || isHovered ? node.color : (isDimmed ? Color.secondary : Color.primary))
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text("\(node.count)")
+                        Text(proxyFormatBytes(node.bytes))
+                    }
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(isSelected || isHovered ? node.color.opacity(0.72) : Color.secondary.opacity(0.55))
+            }
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button("测速延迟", systemImage: "stopwatch") { onLongPress() }
-        }
-    }
-
-    private func shortName(_ full: String) -> String {
-        if full.contains(" ") {
-            return full.split(separator: " ").first.map(String.init) ?? full
-        }
-        return String(full.prefix(24))
-    }
-
-    private func displayType(_ type: String) -> String {
-        switch type {
-        case "ss", "ssr": return "Shadowsocks"
-        case "vmess": return "VMESS"
-        case "trojan": return "Trojan"
-        case "vless": return "VLESS"
-        case "hysteria", "hysteria2": return "Hysteria2"
-        case "tuic": return "TUIC"
-        case "wireguard": return "WireGuard"
-        default: return type.isEmpty ? "Unknown" : type.uppercased()
-        }
-    }
-
-    private func flagEmoji(for name: String) -> String {
-        let lower = name.lowercased()
-        if lower.contains("香港") || lower.contains("hongkong") || lower.contains("hk") { return "\u{1F1ED}\u{1F1F0}" }
-        if lower.contains("日本") || lower.contains("japan") || lower.contains("jp") || lower.contains("东京") { return "\u{1F1EF}\u{1F1F5}" }
-        if lower.contains("美国") || lower.contains("us") || lower.contains("洛杉矶") || lower.contains("硅谷") || lower.contains("达拉斯") || lower.contains("凤凰城") || lower.contains("西雅图") || lower.contains("纽约") { return "\u{1F1FA}\u{1F1F8}" }
-        if lower.contains("新加坡") || lower.contains("singapore") || lower.contains("sg") { return "\u{1F1F8}\u{1F1EC}" }
-        if lower.contains("台湾") || lower.contains("taiwan") || lower.contains("tw") { return "\u{1F1F9}\u{1F1FC}" }
-        if lower.contains("韩国") || lower.contains("korea") || lower.contains("kr") { return "\u{1F1F0}\u{1F1F7}" }
-        if lower.contains("英国") || lower.contains("uk") || lower.contains("伦敦") { return "\u{1F1EC}\u{1F1E7}" }
-        if lower.contains("德国") || lower.contains("germany") || lower.contains("de") { return "\u{1F1E9}\u{1F1EA}" }
-        if lower.contains("印度") || lower.contains("india") { return "\u{1F1EE}\u{1F1F3}" }
-        if lower.contains("土耳其") || lower.contains("turkey") { return "\u{1F1F9}\u{1F1F7}" }
-        if lower.contains("墨西哥") || lower.contains("mexico") { return "\u{1F1F2}\u{1F1FD}" }
-        if lower.contains("阿根廷") || lower.contains("argentina") { return "\u{1F1E6}\u{1F1F7}" }
-        if lower.contains("直连") || lower.contains("direct") { return "\u{1F3AF}" }
-        if lower.contains("拒绝") || lower.contains("reject") || lower.contains("block") { return "\u{274C}" }
-        if lower.contains("自动") || lower.contains("auto") { return "\u{1F30D}" }
-        return "\u{1F30D}"
+        .scaleEffect(isSelected || isHovered ? 1.025 : 1)
+        .opacity(isDimmed ? 0.30 : 1)
     }
 }
 
-// MARK: 节点行（NodesPage 平铺用）
-struct NodeTileRow: View {
+private struct ProxyTopologyTooltip: View {
+    let node: ProxyTopologyNode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(node.label)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            Text("\(node.count) 个连接 · \(proxyFormatBytes(node.bytes))")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(node.color.opacity(0.32), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 8)
+    }
+}
+
+private struct ProxyTopologySelectionBar: View {
+    let selected: ProxyTopologyNode?
+    let connectionCount: Int
+    let totalBytes: Int64
+    let clearSelection: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let selected {
+                Circle().fill(selected.color).frame(width: 8, height: 8)
+                Text(selected.label)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(selected.count) 个连接")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text(proxyFormatBytes(selected.bytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(action: clearSelection) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("取消选择拓扑节点")
+                .help("取消选择")
+            } else {
+                Text("\(connectionCount) 个活动连接")
+                    .font(.caption.weight(.semibold))
+                Text("总流量 \(proxyFormatBytes(totalBytes))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("悬停高亮，点击节点锁定")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ProxySourceStatsTable: View {
+    let stats: [ProxySourceStat]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            row(["源IP", "下载", "上传", "总流量", "连接数"], header: true)
+            ForEach(stats.prefix(10)) { stat in
+                row([
+                    stat.source,
+                    proxyFormatBytes(stat.download),
+                    proxyFormatBytes(stat.upload),
+                    proxyFormatBytes(stat.total),
+                    "\(stat.connections)"
+                ])
+            }
+            if stats.isEmpty {
+                Text("暂无活动连接")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func row(_ values: [String], header: Bool = false) -> some View {
+        HStack {
+            ForEach(Array(values.enumerated()), id: \.offset) { index, value in
+                Text(value)
+                    .font(header ? .caption.weight(.semibold) : .callout)
+                    .foregroundStyle(header ? .secondary : .primary)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: header ? 36 : 42)
+        .background(header ? Color.black.opacity(0.14) : Color.white.opacity(0.025))
+    }
+}
+
+private struct ProxyBarChart: View {
+    let title: String
+    let data: [ProxyBarDatum]
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold))
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    let rect = CGRect(x: 34, y: 8, width: max(1, size.width - 42), height: max(1, size.height - 42))
+                    let maxValue = max(data.map(\.value).max() ?? 1, 1)
+                    drawGrid(rect, context: &context)
+                    let barWidth = rect.width / CGFloat(max(data.count, 1)) * 0.64
+                    for (index, item) in data.enumerated() {
+                        let x = rect.minX + rect.width * (CGFloat(index) + 0.5) / CGFloat(max(data.count, 1))
+                        let h = rect.height * CGFloat(item.value / maxValue)
+                        let bar = CGRect(x: x - barWidth / 2, y: rect.maxY - h, width: barWidth, height: h)
+                        context.fill(Path(roundedRect: bar, cornerRadius: 4), with: .color(color.opacity(0.82)))
+                        context.draw(Text("\(Int(item.value))").font(.caption2).foregroundStyle(.primary), at: CGPoint(x: x, y: max(rect.minY, bar.minY - 9)), anchor: .center)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    HStack {
+                        ForEach(data.prefix(3)) { item in
+                            Text(shortLabel(item.label))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.leading, 34)
+                }
+            }
+        }
+    }
+
+    private func drawGrid(_ rect: CGRect, context: inout GraphicsContext) {
+        var grid = Path()
+        for i in 0...4 {
+            let y = rect.minY + rect.height * CGFloat(i) / 4
+            grid.move(to: CGPoint(x: rect.minX, y: y))
+            grid.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        context.stroke(grid, with: .color(.white.opacity(0.08)), style: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
+    }
+}
+
+private struct ProxyMetric: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(color)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+                Text(title).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(minHeight: 64)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+    }
+}
+
+private struct ProviderUsageRow: View {
+    let provider: DaemonClient.ProxyProviderInfo
+	let emojiEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(proxyDisplayName(provider.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.medium))
+                Text("\(provider.proxyCount) 个节点")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if let info = provider.subscriptionInfo, let total = info.total, total > 0 {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(proxyFormatBytes((info.download ?? 0) + (info.upload ?? 0))) / \(proxyFormatBytes(total))")
+                        .font(.caption.monospacedDigit())
+                    ProgressView(value: min(Double((info.download ?? 0) + (info.upload ?? 0)) / Double(total), 1))
+                        .frame(width: 160)
+                }
+            } else {
+                Text(proxyFormatDate(provider.updatedAt))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Proxies
+
+private enum ProxyBrowserMode: String, CaseIterable, Identifiable {
+    case groups, providers, nodes
+    var id: String { rawValue }
+    var title: LocalizedStringKey {
+        switch self {
+        case .groups: return "策略组"
+        case .providers: return "订阅"
+        case .nodes: return "全部节点"
+        }
+    }
+}
+
+private struct ProxyBrowserPage: View {
+    @EnvironmentObject private var client: DaemonClient
+	@AppStorage("proxyEmojiEnabled") private var emojiEnabled = true
+    @State private var mode: ProxyBrowserMode = .groups
+    @State private var search = ""
+    @State private var delays: [String: Int64] = [:]
+    @State private var testingAll = false
+
+    private var groups: [(String, DaemonClient.ProxyInfo)] {
+        client.proxies
+            .filter { !($0.value.all ?? []).isEmpty }
+            .filter { search.isEmpty || $0.key.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+    }
+
+    private var nodes: [DaemonClient.ProxyInfo] {
+        client.proxies.values
+            .filter { ($0.all ?? []).isEmpty && !proxySystemTypes.contains($0.type) }
+            .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        if !client.proxyRunning {
+            ProxyUnavailableView()
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Picker("视图", selection: $mode) {
+                        ForEach(ProxyBrowserMode.allCases) { item in
+                            Text(item.title).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 280)
+
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                        TextField("搜索", text: $search).textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(width: 230, height: 30)
+                    .background(WgTheme.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    if mode == .groups {
+                        Button {
+                            Task { await testVisibleGroups() }
+                        } label: {
+                            Image(systemName: testingAll ? "hourglass" : "stopwatch")
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(testingAll)
+                        .help("测试可见策略组")
+                    }
+
+                    Button {
+                        Task { await refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help("刷新")
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+                Divider().opacity(0.12)
+
+                switch mode {
+                case .groups: groupsContent
+                case .providers: providersContent
+                case .nodes: nodesContent
+                }
+            }
+        }
+    }
+
+    private var groupsContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                ForEach(groups, id: \.0) { name, info in
+                    ProxyGroupRow(
+                        name: name,
+                        info: info,
+                        proxies: client.proxies,
+                        delays: delays,
+						emojiEnabled: emojiEnabled,
+                        select: { node in
+                            Task { _ = await client.selectProxy(group: name, name: node) }
+                        },
+                        testNode: { node in
+                            Task {
+                                if let result = await client.testDelay(name: node), let delay = result.delay {
+                                    delays[node] = delay
+                                }
+                            }
+                        },
+                        testGroup: {
+                            Task {
+                                if let result = await client.testGroupDelay(group: name) {
+                                    delays.merge(result.delays) { _, new in new }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(20)
+        }
+        .wgTimelineScroller()
+        .overlay {
+            if groups.isEmpty {
+                ContentUnavailableView.search(text: search)
+            }
+        }
+    }
+
+    private var providersContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                ForEach(client.proxyProviders.values.sorted(by: { $0.name < $1.name })) { provider in
+                    ProxyProviderRow(provider: provider, emojiEnabled: emojiEnabled)
+                }
+            }
+            .padding(20)
+        }
+        .wgTimelineScroller()
+        .overlay {
+            if client.proxyProviders.isEmpty {
+                ContentUnavailableView("暂无订阅", systemImage: "tray")
+            }
+        }
+    }
+
+    private var nodesContent: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                ForEach(nodes) { node in
+                    ProxyNodeCell(node: node, delay: delays[node.name] ?? node.history?.last?.delay, emojiEnabled: emojiEnabled) {
+                        Task {
+                            if let result = await client.testDelay(name: node.name), let delay = result.delay {
+                                delays[node.name] = delay
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .wgTimelineScroller()
+        .overlay {
+            if nodes.isEmpty {
+                ContentUnavailableView.search(text: search)
+            }
+        }
+    }
+
+    private func refresh() async {
+        await client.fetchProxies()
+        await client.fetchProxyProviders()
+    }
+
+    private func testVisibleGroups() async {
+        guard !testingAll else { return }
+        testingAll = true
+        defer { testingAll = false }
+        for (name, _) in groups {
+            if let result = await client.testGroupDelay(group: name) {
+                delays.merge(result.delays) { _, new in new }
+            }
+        }
+    }
+}
+
+private struct ProxyGroupRow: View {
     let name: String
     let info: DaemonClient.ProxyInfo
+    let proxies: [String: DaemonClient.ProxyInfo]
+    let delays: [String: Int64]
+	let emojiEnabled: Bool
+    let select: (String) -> Void
+    let testNode: (String) -> Void
+    let testGroup: () -> Void
+    @State private var expanded = false
+
+    private var options: [String] { info.all ?? [] }
+    private var visibleOptions: [String] { expanded ? options : Array(options.prefix(8)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(proxyDisplayName(name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Text(info.type)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Text(proxyStrategyPath(from: name, proxies: proxies).joined(separator: "  ›  "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button(action: testGroup) {
+                    Image(systemName: "stopwatch").frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("测试策略组")
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 7)], spacing: 7) {
+                ForEach(visibleOptions, id: \.self) { node in
+                    ProxyChoiceButton(
+                        name: node,
+                        selected: info.now == node,
+                        nestedSelection: proxies[node]?.now,
+                        delay: delays[node] ?? proxies[node]?.history?.last?.delay,
+						emojiEnabled: emojiEnabled,
+                        select: { select(node) },
+                        test: { testNode(node) }
+                    )
+                }
+            }
+
+            if options.count > 8 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+                } label: {
+                    Label(expanded ? "收起" : "显示全部 \(options.count) 项", systemImage: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(13)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+    }
+}
+
+private struct ProxyChoiceButton: View {
+    let name: String
+    let selected: Bool
+    let nestedSelection: String?
+    let delay: Int64?
+	let emojiEnabled: Bool
+    let select: () -> Void
+    let test: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Button(action: select) {
+                HStack(spacing: 7) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected ? WgTheme.accent : Color.secondary.opacity(0.45))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(proxyDisplayName(name, emojiEnabled: emojiEnabled)).font(.caption.weight(selected ? .semibold : .regular)).lineLimit(1)
+                        if let nestedSelection, !nestedSelection.isEmpty {
+                            Text(proxyDisplayName(nestedSelection, emojiEnabled: emojiEnabled)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button(action: test) {
+                Text(proxyDelayText(delay))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(proxyDelayColor(delay))
+                    .frame(minWidth: 34, minHeight: 24)
+            }
+            .buttonStyle(.plain)
+            .help("测试延迟")
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: nestedSelection == nil ? 34 : 42)
+        .background(selected ? WgTheme.accent.opacity(0.12) : Color.white.opacity(0.025))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? WgTheme.accent.opacity(0.35) : WgTheme.cardBorder))
+    }
+}
+
+private struct ProxyNodeCell: View {
+    let node: DaemonClient.ProxyInfo
+    let delay: Int64?
+	let emojiEnabled: Bool
+    let test: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(flagEmoji(for: name)).font(.title3)
+            Circle()
+                .fill(node.alive == false ? Color.red : Color.green)
+                .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.subheadline).lineLimit(1)
-                HStack(spacing: 4) {
-                    Text(info.type).font(.caption2).foregroundStyle(.secondary)
-                    if let sub = info.now, !sub.isEmpty {
-                        Text(sub).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
-                    }
-                }
+                Text(proxyDisplayName(node.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.medium)).lineLimit(1)
+                Text(node.type + (node.sourceProvider.map { " · \($0)" } ?? ""))
+                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer()
-        }.padding(.vertical, 7).padding(.horizontal, 4)
-    }
-
-    private func flagEmoji(for name: String) -> String {
-        let lower = name.lowercased()
-        if lower.contains("香港") || lower.contains("hongkong") || lower.contains("hk") { return "\u{1F1ED}\u{1F1F0}" }
-        if lower.contains("日本") || lower.contains("japan") || lower.contains("jp") || lower.contains("东京") { return "\u{1F1EF}\u{1F1F5}" }
-        if lower.contains("美国") || lower.contains("洛杉矶") || lower.contains("硅谷") || lower.contains("达拉斯") || lower.contains("凤凰城") || lower.contains("西雅图") || lower.contains("纽约") { return "\u{1F1FA}\u{1F1F8}" }
-        if lower.contains("新加坡") || lower.contains("singapore") || lower.contains("sg") { return "\u{1F1F8}\u{1F1EC}" }
-        if lower.contains("台湾") || lower.contains("taiwan") || lower.contains("tw") { return "\u{1F1F9}\u{1F1FC}" }
-        if lower.contains("韩国") || lower.contains("korea") || lower.contains("kr") { return "\u{1F1F0}\u{1F1F7}" }
-        if lower.contains("英国") || lower.contains("uk") || lower.contains("伦敦") { return "\u{1F1EC}\u{1F1E7}" }
-        if lower.contains("德国") || lower.contains("germany") { return "\u{1F1E9}\u{1F1EA}" }
-        if lower.contains("土耳其") || lower.contains("turkey") { return "\u{1F1F9}\u{1F1F7}" }
-        if lower.contains("墨西哥") || lower.contains("mexico") { return "\u{1F1F2}\u{1F1FD}" }
-        if lower.contains("阿根廷") || lower.contains("argentina") { return "\u{1F1E6}\u{1F1F7}" }
-        if lower.contains("直连") || lower.contains("direct") { return "\u{1F3AF}" }
-        if lower.contains("拒绝") || lower.contains("reject") { return "\u{274C}" }
-        return "\u{1F30D}"
+            Button(action: test) {
+                Text(proxyDelayText(delay))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(proxyDelayColor(delay))
+                    .frame(minWidth: 44, minHeight: 28)
+            }
+            .buttonStyle(.plain)
+            .help("测试延迟")
+        }
+        .padding(11)
+        .frame(height: 58)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
     }
 }
 
-// MARK: 延迟圆点（复刻截图风格）
-struct DelayDot: View {
-    enum Size { case normal, small }
-    var size: Size = .normal
-    let delay: Int64
+private struct ProxyProviderRow: View {
+    @EnvironmentObject private var client: DaemonClient
+    let provider: DaemonClient.ProxyProviderInfo
+	let emojiEnabled: Bool
+    @State private var busyAction: String?
 
     var body: some View {
-        let (text, color): (String, Color) = {
-            if delay <= 0 { return ("\u{2715}", .red) }
-            if delay < 200 { return ("\(delay)", .green) }
-            if delay < 500 { return ("\(delay)", .yellow) }
-            return ("\(delay)", .red)
-        }()
-        let fsize: CGFloat = size == .normal ? 10 : 9
-
-        if delay <= 0 {
-            // 叉号
-            Text(text).font(.system(size: fsize)).foregroundStyle(color)
-        } else {
-            // 圆形背景 + 数字
-            Text(text)
-                .font(.system(size: fsize, weight: .medium).monospacedDigit())
-                .foregroundStyle(color)
-                .padding(.horizontal, size == .normal ? 6 : 4)
-                .padding(.vertical, 1)
-                .background(Capsule().fill(color.opacity(0.15)))
-        }
-    }
-}
-
-// MARK: 节点网格区域（可展开/折叠 + LazyVGrid 高性能）
-struct NodeGridSection: View {
-    let nodes: [(String, DaemonClient.ProxyInfo?)]
-    let currentSelection: String?
-    let delayResults: [String: Int64]
-    let maxVisible: Int
-    let onSelectNode: (String) -> Void
-    let onTestDelay: (String) -> Void
-    @State private var showAll = false
-
-    // 根据宽度自适应列数（4列配合大磁贴）
-    private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
-    }
-
-    private var displayNodes: [(String, DaemonClient.ProxyInfo?)] {
-        showAll ? nodes : Array(nodes.prefix(maxVisible))
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // 网格
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(displayNodes, id: \.0) { nodeName, nodeInfo in
-                    NodeChip(
-                        name: nodeName,
-                        isSelected: currentSelection == nodeName,
-                        delay: delayResults[nodeName],
-                        type: nodeInfo?.type ?? "",
-                        onTap: { onSelectNode(nodeName) },
-                        onLongPress: { onTestDelay(nodeName) })
-                }
-            }
-
-            // 展开/收起按钮
-            if nodes.count > maxVisible {
-                Button(action: { withAnimation(.easeInOut(duration: 0.25)) { showAll.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: showAll ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(showAll ? "收起" : "展开全部 (\(nodes.count))")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity)
-                }.buttonStyle(.plain)
-            }
-        }
-    }
-}
-
-// MARK: 订阅页面（YAML 订阅链接列表）
-struct SubscriptionsPage: View {
-    @EnvironmentObject var client: DaemonClient
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("订阅 (0)").font(.subheadline).fontWeight(.semibold).foregroundStyle(WgTheme.accent)
-                Spacer()
-                Button(action: {}) {
-                    Image(systemName: "plus.circle.fill").font(.system(size: 16)).foregroundStyle(.secondary)
-                }.buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 10)
-
-            Divider().opacity(0.1)
-
-            Spacer()
-            VStack(spacing: 14) {
-                Image(systemName: "link").font(.system(size: 44))
-                    .foregroundStyle(.secondary.opacity(0.3))
-                Text("暂无订阅").font(.subheadline).foregroundStyle(.secondary)
-                Text("添加 YAML 订阅链接以自动更新节点").font(.caption).foregroundStyle(.tertiary)
-            }
-            Spacer()
-        }
-    }
-}
-
-// MARK: - 连接页面
-struct ConnectionsPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var searchText = ""
-    @State private var autoRefresh = true
-
-    private func connStat(_ prefix: String, total: Int64, color: Color) -> some View {
-        HStack(spacing: 3) {
-            Text(prefix).font(.caption).fontWeight(.bold).foregroundStyle(color)
-            Text(formatBytes(total)).font(.caption).monospacedDigit().foregroundStyle(color)
-        }
-    }
-
-    private func formatBytes(_ bytes: Int64) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        if bytes < 1048576 { return "\(bytes / 1024) KB" }
-        if bytes < 1073741824 { return String(format: "%.1f MB", Double(bytes) / 1024.0 / 1024.0) }
-        return String(format: "%.2f GB", Double(bytes) / 1024.0 / 1024.0 / 1024.0)
-    }
-
-    private var filteredConnections: [DaemonClient.ConnectionInfo] {
-        guard let conns = client.connections?.connections else { return [] }
-        if searchText.isEmpty { return conns }
-        return conns.filter {
-            $0.metadata.host?.localizedCaseInsensitiveContains(searchText) ?? false ||
-            $0.metadata.process?.localizedCaseInsensitiveContains(searchText) ?? false ||
-            $0.metadata.destinationIP?.localizedCaseInsensitiveContains(searchText) ?? false ||
-            $0.rule?.localizedCaseInsensitiveContains(searchText) ?? false
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                TextField("搜索连接…", text: $searchText).textFieldStyle(.plain).font(.subheadline)
-                Spacer()
-            }.padding(.horizontal, 16).padding(.vertical, 8)
-
-            Divider().opacity(0.1)
-
-            if let conns = client.connections {
-                HStack(spacing: 12) {
-                    connStat("↑", total: conns.uploadTotal, color: .blue)
-                    connStat("↓", total: conns.downloadTotal, color: .green)
-                    Text("\(conns.connections.count) 条活跃").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(role: .destructive, action: {
-                        Task { _ = await client.closeAllConnections() }
-                    }, label: { Label("全部关闭", systemImage: "trash") }).controlSize(.small)
-                }.padding(.horizontal, 16).padding(.vertical, 6)
-            }
-
-            if filteredConnections.isEmpty {
-                Spacer(); VStack(spacing: 12) {
-                    Image(systemName: "arrow.up.arrow.down.circle").font(.system(size: 40)).foregroundStyle(.secondary.opacity(0.25))
-                    Text("暂无活跃连接").font(.subheadline).foregroundStyle(.secondary)
-                }; Spacer()
-            } else {
-                List {
-                    ForEach(filteredConnections) { conn in ConnectionRow(conn: conn)
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive, action: { Task { _ = await client.closeConnection(id: conn.id) } }, label: { Label("关闭", systemImage: "xmark.circle.fill") })
-                        }.listRowBackground(Color.clear)
-                    }
-                }.scrollContentBackground(.hidden).listStyle(.plain)
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                await client.fetchConnections()
-            }
-        }
-    }
-}
-
-struct ConnectionRow: View {
-    let conn: DaemonClient.ConnectionInfo
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                if let proc = conn.metadata.process, !proc.isEmpty {
-                    Text(proc).font(.caption).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                if let rule = conn.rule, !rule.isEmpty {
-                    Text(rule).font(.caption2).foregroundStyle(.secondary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.06)).clipShape(Capsule())
-                }
-            }
-            HStack(spacing: 8) {
-                HStack(spacing: 3) {
-                    Image(systemName: conn.metadata.netWork == "udp" ? "wifi.exclamationmark" : "arrow.right.circle")
-                        .font(.caption2).foregroundStyle(conn.metadata.netWork == "udp" ? .orange : .blue)
-                    if let host = conn.metadata.host, !host.isEmpty {
-                        Text(host).font(.caption).lineLimit(1)
-                    } else if let ip = conn.metadata.destinationIP, let port = conn.metadata.destinationPort {
-                        Text("\(ip):\(port)").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
+        HStack(spacing: 14) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 18))
+                .foregroundStyle(.blue)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    speedLabel("↑", conn.uploadSpeed, .blue)
-                    speedLabel("↓", conn.downloadSpeed, .green)
+                    Text(proxyDisplayName(provider.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.semibold))
+                    Text(provider.vehicleType ?? provider.type ?? "Provider")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                HStack(spacing: 10) {
+                    Text("\(provider.proxyCount) 个节点").font(.caption).foregroundStyle(.secondary)
+                    Text(proxyFormatDate(provider.updatedAt)).font(.caption).foregroundStyle(.tertiary)
+                    if let info = provider.subscriptionInfo, let total = info.total, total > 0 {
+                        Text("已用 \(proxyFormatBytes((info.download ?? 0) + (info.upload ?? 0))) / \(proxyFormatBytes(total))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
-        }.padding(.vertical, 6).padding(.horizontal, 4)
-    }
-
-    private func speedLabel(_ prefix: String, _ bps: Int64?, _ color: Color) -> some View {
-        guard let s = bps, s > 0 else {
-            return AnyView(Text(prefix + "--").font(.caption2).monospacedDigit().foregroundStyle(.tertiary))
+            Spacer()
+            Button {
+                run("health") { await client.healthCheckProvider(name: provider.name) }
+            } label: {
+                Image(systemName: busyAction == "health" ? "hourglass" : "stopwatch")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .disabled(busyAction != nil)
+            .help("测试订阅节点")
+            Button {
+                run("update") { await client.updateProvider(name: provider.name) }
+            } label: {
+                Image(systemName: busyAction == "update" ? "hourglass" : "arrow.down.circle")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .disabled(busyAction != nil)
+            .help("更新订阅")
         }
-        return AnyView(Text(prefix + fmtBps(s)).font(.caption2).monospacedDigit().foregroundStyle(color))
+        .padding(13)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
     }
 
-    private func fmtBps(_ bps: Int64) -> String {
-        if bps < 1024 { return "\(bps)" }
-        if bps < 1048576 { return "\(bps / 1024)K" }
-        return String(format: "%.1fM", Double(bps) / 1048576.0)
+    private func run(_ action: String, operation: @escaping () async -> Bool) {
+        busyAction = action
+        Task {
+            _ = await operation()
+            busyAction = nil
+        }
     }
 }
 
-// MARK: 规则页面
-struct RulesPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var searchText = ""
+// MARK: - Connections
+
+private struct ProxyConnectionsPage: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var search = ""
+    @State private var confirmCloseAll = false
+
+    private var filtered: [DaemonClient.ConnectionInfo] {
+        let values = client.connections?.connections ?? []
+        guard !search.isEmpty else { return values }
+        return values.filter { connection in
+            [connection.metadata.host, connection.metadata.destinationIP, connection.metadata.process, connection.rule]
+                .compactMap { $0 }
+                .contains { $0.localizedCaseInsensitiveContains(search) }
+        }
+    }
+
+    var body: some View {
+        if !client.proxyRunning {
+            ProxyUnavailableView()
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("\(filtered.count) 个连接")
+                        .font(.subheadline.weight(.semibold))
+                    Text("↓ \(proxyFormatBytes(client.connections?.downloadTotal))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.green)
+                    Text("↑ \(proxyFormatBytes(client.connections?.uploadTotal))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.blue)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                        TextField("域名、IP、进程或规则", text: $search).textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(width: 260, height: 30)
+                    .background(WgTheme.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Button {
+                        confirmCloseAll = true
+                    } label: {
+                        Image(systemName: "xmark.circle").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(filtered.isEmpty)
+                    .help("关闭全部连接")
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+                Divider().opacity(0.12)
+
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { connection in
+                            ProxyConnectionRow(connection: connection)
+                            Divider().opacity(0.1)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .wgTimelineScroller()
+                .overlay {
+                    if filtered.isEmpty {
+                        ContentUnavailableView("暂无活动连接", systemImage: "link.badge.plus")
+                    }
+                }
+            }
+            .confirmationDialog("关闭全部活动连接？", isPresented: $confirmCloseAll) {
+                Button("关闭全部", role: .destructive) {
+                    Task { _ = await client.closeAllConnections() }
+                }
+            }
+            .task {
+                while !Task.isCancelled {
+                    await client.fetchConnections()
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+        }
+    }
+}
+
+private struct ProxyConnectionRow: View {
+    @EnvironmentObject private var client: DaemonClient
+    let connection: DaemonClient.ConnectionInfo
+    @State private var closing = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: connection.metadata.netWork?.lowercased() == "udp" ? "wave.3.right" : "arrow.left.arrow.right")
+                .foregroundStyle(connection.metadata.netWork?.lowercased() == "udp" ? Color.orange : Color.blue)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(primaryDestination).font(.subheadline.weight(.medium)).lineLimit(1)
+                HStack(spacing: 7) {
+                    Text(connection.metadata.process ?? "未知进程")
+                    Text(connection.metadata.netWork?.uppercased() ?? "")
+                    if let rule = connection.rule { Text(rule) }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("↓ \(proxyFormatBytes(connection.download))  ↑ \(proxyFormatBytes(connection.upload))")
+                    .font(.caption.monospacedDigit())
+                Text((connection.chains ?? []).joined(separator: " › "))
+                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            .frame(width: 230, alignment: .trailing)
+            Button {
+                closing = true
+                Task {
+                    _ = await client.closeConnection(id: connection.id)
+                    closing = false
+                }
+            } label: {
+                Image(systemName: closing ? "hourglass" : "xmark")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(closing)
+            .help("关闭连接")
+        }
+        .frame(minHeight: 56)
+    }
+
+    private var primaryDestination: String {
+        if let host = connection.metadata.host, !host.isEmpty { return host }
+        let ip = connection.metadata.destinationIP ?? "未知目标"
+        let port = connection.metadata.destinationPort ?? ""
+        return port.isEmpty ? ip : "\(ip):\(port)"
+    }
+}
+
+// MARK: - Rules
+
+private enum ProxyRulesMode: String, CaseIterable, Identifiable {
+    case rules, providers
+    var id: String { rawValue }
+    var title: LocalizedStringKey { self == .rules ? "生效规则" : "规则集" }
+}
+
+private struct ProxyRulesPage: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var mode: ProxyRulesMode = .rules
+    @State private var search = ""
 
     private var filteredRules: [DaemonClient.RuleInfo] {
-        if searchText.isEmpty { return client.rules }
+        guard !search.isEmpty else { return client.rules }
         return client.rules.filter {
-            $0.payload?.localizedCaseInsensitiveContains(searchText) ?? false ||
-            $0.type.localizedCaseInsensitiveContains(searchText) ||
-            $0.proxy?.localizedCaseInsensitiveContains(searchText) ?? false
+            [$0.type, $0.payload, $0.proxy].compactMap { $0 }.contains { $0.localizedCaseInsensitiveContains(search) }
         }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                TextField("搜索规则…", text: $searchText).textFieldStyle(.plain).font(.subheadline)
-                Spacer()
-                Text("\(filteredRules.count) 条").font(.caption).foregroundStyle(.tertiary)
-            }.padding(.horizontal, 16).padding(.vertical, 10)
-
-            Divider().opacity(0.1)
-
-            if client.rules.isEmpty {
-                Spacer(); VStack(spacing: 12) {
-                    Image(systemName: "scroll.text.circles").font(.system(size: 40)).foregroundStyle(.secondary.opacity(0.25))
-                    Text("无规则数据").font(.subheadline).foregroundStyle(.secondary)
-                }; Spacer()
-            } else {
-                List {
-                    ForEach(filteredRules) { rule in RuleRow(rule: rule).listRowBackground(Color.clear) }
-                }.scrollContentBackground(.hidden).listStyle(.plain)
-            }
-        }
+    private var filteredProviders: [DaemonClient.RuleProviderInfo] {
+        client.ruleProviders.values
+            .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.name < $1.name }
     }
-}
-
-struct RuleRow: View {
-    let rule: DaemonClient.RuleInfo
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(ruleColor(rule.type)).frame(width: 8, height: 8)
-            Text(rule.payload ?? "").font(.caption).lineLimit(2).textSelection(.enabled)
-            Spacer()
-            if let proxy = rule.proxy, !proxy.isEmpty {
-                Text(proxy).font(.caption2).fontWeight(.medium).foregroundStyle(proxyColor(proxy))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(proxyColor(proxy).opacity(0.08)).clipShape(Capsule())
-            }
-            if let size = rule.size, size > 0 {
-                Text(fmtSize(size)).font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
-            }
-        }.padding(.vertical, 5).padding(.horizontal, 4)
-    }
-
-    private func ruleColor(_ type: String) -> Color {
-        switch type {
-        case "DOMAIN-SUFFIX","DOMAIN-KEYWORD","DOMAIN": return .blue
-        case "IP-CIDR","IP-CIDR6","GEOIP": return .green
-        case "GEOSITE": return .purple
-        case "MATCH": return .orange
-        case "PROCESS-NAME": return .cyan
-        default: return .gray
-        }
-    }
-
-    private func proxyColor(_ proxy: String) -> Color {
-        let p = proxy.lowercased()
-        if p.contains("direct") || p.contains("直连") { return .green }
-        if p.contains("reject") || p.contains("拒绝") { return .red }
-        if p.contains("proxy") || p.contains("代理") { return .blue }
-        return .secondary
-    }
-
-    private func fmtSize(_ bytes: Int64) -> String {
-        if bytes < 1024 { return "\(bytes)B" }
-        if bytes < 1048576 { return "\(bytes / 1024)KB" }
-        return String(format: "%.1fMB", Double(bytes) / 1024.0 / 1024.0)
-    }
-}
-
-// MARK: 日志页面（代理）
-struct ProxyLogsPage: View {
-    @EnvironmentObject var client: DaemonClient
-    @State private var logLines: [String] = []
-    @State private var autoScroll = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("实时日志").font(.subheadline).fontWeight(.medium)
-                Spacer()
-                Toggle("自动滚动", isOn: $autoScroll).toggleStyle(.switch).controlSize(.mini)
-                Button("清除") { logLines.removeAll() }.font(.caption).buttonStyle(.borderless)
-            }.padding(.horizontal, 16).padding(.vertical, 8)
+        if !client.proxyRunning {
+            ProxyUnavailableView()
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Picker("规则视图", selection: $mode) {
+                        ForEach(ProxyRulesMode.allCases) { item in Text(item.title).tag(item) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                        TextField("搜索规则", text: $search).textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(width: 240, height: 30)
+                    .background(WgTheme.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Button {
+                        Task { await refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help("刷新规则")
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+                Divider().opacity(0.12)
 
-            Divider().opacity(0.1)
-
-            ScrollViewReader { scroll in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(logLines.enumerated()), id: \.offset) { i, line in
-                            Text(line).font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(logColor(line)).textSelection(.enabled)
-                                .padding(.horizontal, 8).padding(.vertical, 2).id(i)
+                if mode == .rules {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filteredRules) { rule in
+                                ProxyRuleRow(rule: rule)
+                                Divider().opacity(0.1)
+                            }
                         }
-                    }.padding(8)
+                        .padding(.horizontal, 20)
+                    }
+                    .wgTimelineScroller()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(filteredProviders) { provider in
+                                ProxyRuleProviderRow(provider: provider)
+                            }
+                        }
+                        .padding(20)
+                    }
+                    .wgTimelineScroller()
                 }
-                .onChange(of: logLines.count) { _, newCount in
-                    if autoScroll && newCount > 0 { withAnimation { scroll.scrollTo(newCount - 1, anchor: .bottom) } }
-                }
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                await client.fetchLogs(n: 30)
-                if !client.logLines.isEmpty { logLines = Array(client.logLines.suffix(50)) }
-                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
 
-    private func logColor(_ line: String) -> Color {
-        let l = line.lowercased()
-        if l.contains("error") || l.contains("failed") { return .red }
-        if l.contains("warn") { return .yellow }
-        if l.contains("debug") { return .secondary }
-        return .primary
+    private func refresh() async {
+        await client.fetchRules()
+        await client.fetchRuleProviders()
     }
 }
 
-// MARK: 代理概览 Dashboard
-struct ProxyDashboardPage: View {
-    @EnvironmentObject var client: DaemonClient
+private struct ProxyRuleRow: View {
+    let rule: DaemonClient.RuleInfo
 
-    private var stats: (groups: Int, nodes: Int) {
-        var g = 0; var n = Set<String>()
-        for (_, p) in client.proxies {
-            if ["Selector","URLTest","Fallback","LoadBalance","Smart"].contains(p.type) { g += 1; if let a = p.all { n.formUnion(a) } }
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(rule.type)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(proxyRuleColor(rule.type))
+                .frame(width: 84, alignment: .leading)
+            Text(rule.payload?.isEmpty == false ? rule.payload! : "MATCH")
+                .font(.caption.monospaced())
+                .lineLimit(1)
+            Spacer()
+            if let size = rule.size, size > 0 {
+                Text("\(size)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+            }
+            Text(rule.proxy ?? "")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(WgTheme.accent)
+                .frame(width: 150, alignment: .trailing)
+                .lineLimit(1)
         }
-        return (g, n.count)
+        .frame(minHeight: 42)
+        .opacity(rule.disabled == true ? 0.45 : 1)
     }
+}
+
+private struct ProxyRuleProviderRow: View {
+    @EnvironmentObject private var client: DaemonClient
+    let provider: DaemonClient.RuleProviderInfo
+    @State private var updating = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .foregroundStyle(.orange)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(provider.name).font(.subheadline.weight(.semibold))
+                    Text(provider.behavior ?? "rule-set").font(.caption2).foregroundStyle(.tertiary)
+                }
+                Text("\(provider.ruleCount ?? 0) 条 · \(provider.format ?? provider.vehicleType ?? "") · \(proxyFormatDate(provider.updatedAt))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                updating = true
+                Task {
+                    _ = await client.updateRuleProvider(name: provider.name)
+                    updating = false
+                }
+            } label: {
+                Image(systemName: updating ? "hourglass" : "arrow.down.circle")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .disabled(updating)
+            .help("更新规则集")
+        }
+        .padding(13)
+        .background(WgTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+    }
+}
+
+// MARK: - Logs
+
+private enum ProxyLogFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case debug = "Debug"
+    case info = "Info"
+    case warning = "Warning"
+    case error = "Error"
+    var id: String { rawValue }
+}
+
+private struct ProxyLogsPage: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var filter: ProxyLogFilter = .all
+    @State private var autoRefresh = true
+    @State private var search = ""
+
+    private var filtered: [DaemonClient.ProxyLogEntry] {
+        client.proxyLogs.filter { entry in
+            let levelMatches = filter == .all || entry.level.localizedCaseInsensitiveContains(filter.rawValue)
+            let searchMatches = search.isEmpty || entry.payload.localizedCaseInsensitiveContains(search)
+            return levelMatches && searchMatches
+        }
+    }
+
+    var body: some View {
+        if !client.proxyRunning {
+            ProxyUnavailableView()
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Picker("级别", selection: $filter) {
+                        ForEach(ProxyLogFilter.allCases) { item in Text(item.rawValue).tag(item) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 360)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                        TextField("筛选日志", text: $search).textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(width: 220, height: 30)
+                    .background(WgTheme.cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Toggle("自动刷新", isOn: $autoRefresh)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    Button {
+                        client.proxyLogs.removeAll()
+                    } label: {
+                        Image(systemName: "trash").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help("清空本地日志视图")
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+                Divider().opacity(0.12)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(filtered) { entry in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(proxyLogTime(entry.time))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 68, alignment: .leading)
+                                Text(entry.level.uppercased())
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(proxyLogColor(entry.level))
+                                    .frame(width: 58, alignment: .leading)
+                                Text(entry.payload)
+                                    .font(.caption.monospaced())
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.vertical, 6)
+                            Divider().opacity(0.07)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .wgTimelineScroller()
+                .overlay {
+                    if filtered.isEmpty {
+                        ContentUnavailableView("暂无日志", systemImage: "text.alignleft")
+                    }
+                }
+            }
+            .task(id: autoRefresh) {
+                guard autoRefresh else { return }
+                while !Task.isCancelled {
+                    await client.fetchProxyLogs()
+                    try? await Task.sleep(for: .seconds(1.5))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Settings
+
+private struct ProxySettingsPage: View {
+    @EnvironmentObject private var client: DaemonClient
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: WgTheme.spacing) {
+            VStack(alignment: .leading, spacing: 28) {
+				ProxyAppearanceSettings()
+                ProxyControllerSettingsEditor()
+                ProxyRuntimeSettingsEditor()
+                ProxyMaintenanceSettings()
+                ProxyDNSQuerySettings()
+            }
+            .padding(WgTheme.pagePadding)
+            .frame(maxWidth: 920, alignment: .leading)
+        }
+        .wgTimelineScroller()
+        .task {
+            await client.fetchProxySettings()
+            if client.proxyRunning { await client.fetchProxyConfig() }
+        }
+    }
+}
 
-                // 运行模式卡片
-                HStack(spacing: 14) {
-                    Image(systemName: modeIcon(client.mihomoConfig?.mode)).font(.system(size: 28))
-                        .foregroundStyle(modeColor(client.mihomoConfig?.mode))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("运行模式").font(.caption).foregroundStyle(.secondary)
-                        Text(client.mihomoConfig?.mode?.uppercased() ?? "未知")
-                            .font(.title3).fontWeight(.bold)
+private struct ProxyAppearanceSettings: View {
+	@AppStorage("proxyEmojiEnabled") private var emojiEnabled = true
+
+	var body: some View {
+		ProxySectionBlock(title: "显示", icon: "textformat") {
+			ProxySettingRow(label: "Emoji") {
+				HStack {
+					Toggle("显示 Emoji 标识", isOn: $emojiEnabled)
+						.toggleStyle(.switch)
+						.controlSize(.small)
+					Spacer()
+					Text("Apple Color Emoji")
+						.font(.caption)
+						.foregroundStyle(.tertiary)
+				}
+			}
+		}
+	}
+}
+
+private struct ProxyControllerSettingsEditor: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var address = ""
+    @State private var secret = ""
+    @State private var testURL = ""
+    @State private var timeout = 5000
+    @State private var low = 200
+    @State private var medium = 500
+    @State private var loaded = false
+    @State private var saving = false
+    @State private var confirmClearSecret = false
+    @State private var startingDaemon = false
+
+    var body: some View {
+        ProxySectionBlock(title: "控制器", icon: "network") {
+            VStack(spacing: 12) {
+                controllerStatusRow
+                ProxySettingRow(label: "地址") {
+                    TextField("http://10.10.1.1:9090", text: $address)
+                        .textFieldStyle(.roundedBorder)
+                }
+                ProxySettingRow(label: "密钥") {
+                    HStack(spacing: 8) {
+                        SecureField(client.proxySettings?.secretSet == true ? "已保存，留空保持不变" : "可选", text: $secret)
+                            .textFieldStyle(.roundedBorder)
+                        if client.proxySettings?.secretSet == true {
+                            Button {
+                                confirmClearSecret = true
+                            } label: {
+                                Image(systemName: "key.slash").frame(width: 28, height: 28)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("清除已保存密钥")
+                            .help("清除已保存密钥")
+                        }
+                    }
+                }
+                ProxySettingRow(label: "延迟测试 URL") {
+                    TextField("https://www.gstatic.com/generate_204", text: $testURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+                ProxySettingRow(label: "超时") {
+                    HStack {
+                        TextField("5000", value: $timeout, format: .number)
+                            .textFieldStyle(.roundedBorder).frame(width: 110)
+                        Text("毫秒").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                ProxySettingRow(label: "延迟阈值") {
+                    HStack(spacing: 8) {
+                        TextField("200", value: $low, format: .number)
+                            .textFieldStyle(.roundedBorder).frame(width: 90)
+                        Text("/ ").foregroundStyle(.tertiary)
+                        TextField("500", value: $medium, format: .number)
+                            .textFieldStyle(.roundedBorder).frame(width: 90)
+                        Text("毫秒").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                HStack {
+                    if saveDisabledReason != nil {
+                        Text(saveDisabledReason ?? "")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    HStack(spacing: 4) {
-                        modeBtn("Global", "globe.americas", client.mihomoConfig?.mode == "global")
-                        modeBtn("Rule", "list.bullet.clipboard", client.mihomoConfig?.mode == "rule")
-                        modeBtn("Direct", "arrow.forward.to.line", client.mihomoConfig?.mode == "direct")
+                    Button {
+                        save(secretOverride: secret.isEmpty ? nil : secret)
+                    } label: {
+                        Label(saving ? "正在测试" : "保存并测试", systemImage: saving ? "hourglass" : "checkmark.circle")
                     }
-                }.padding(18).background(WgTheme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: WgTheme.spacing) {
-                    dashCard(title: "策略组", value: "\(stats.groups)", icon: "list.bullet", color: .purple)
-                    dashCard(title: "可用节点", value: "\(stats.nodes)", icon: "circle.grid.2x2", color: .blue)
-                    dashCard(title: "活跃连接", value: "\(client.connections?.connections.count ?? 0)", icon: "arrow.up.arrow.down", color: .orange)
+                    .disabled(saving || address.isEmpty || testURL.isEmpty)
                 }
+            }
+        }
+        .task {
+            if client.proxySettings == nil { await client.fetchProxySettings() }
+            loadValues()
+        }
+        .onChange(of: client.proxySettings?.address) { _, _ in loadValues() }
+        .confirmationDialog("清除控制器密钥？", isPresented: $confirmClearSecret) {
+            Button("清除密钥", role: .destructive) { save(secretOverride: "") }
+        }
+    }
 
-                // 流量卡片
-                if let conns = client.connections {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("实时流量").font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
-                        HStack(spacing: 20) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("上传").font(.caption2).foregroundStyle(.blue)
-                                Text(fmtBytes(conns.uploadTotal)).font(.title3.bold()).foregroundStyle(.blue)
+    private var controllerStatusRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: client.proxyServiceRunning ? (client.proxyRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill") : "powerplug")
+                .foregroundStyle(client.proxyServiceRunning ? (client.proxyRunning ? .green : .orange) : .orange)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(client.proxyServiceRunning ? (client.proxyRunning ? "控制器已连接" : "后台服务已启动，控制器未连接") : "后台服务未启动")
+                    .font(.callout.weight(.medium))
+                Text(client.proxyServiceRunning ? "地址或密钥错误时会连接失败。" : "点击启动后台服务，系统会要求管理员授权。不会自动连接 VPN。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !client.proxyServiceRunning {
+                Button {
+                    startDaemon()
+                } label: {
+                    Label(startingDaemon || client.isAuthorizingDaemon ? "等待授权" : "启动后台服务", systemImage: "play.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(startingDaemon || client.isAuthorizingDaemon)
+                .accessibilityHint("只启动后台服务，不连接 VPN")
+            } else {
+                Button {
+                    Task {
+                        await client.fetchProxySettings()
+                        await client.fetchProxyStatus()
+                    }
+                } label: {
+                    Label("重新检测", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var saveDisabledReason: String? {
+        if saving { return "正在保存并测试..." }
+        if address.isEmpty { return "请输入控制器地址" }
+        if testURL.isEmpty { return "请输入延迟测试 URL" }
+        if !client.proxyServiceRunning { return "请先启动后台服务" }
+        return nil
+    }
+
+    private func loadValues() {
+        guard !loaded, let settings = client.proxySettings else { return }
+        address = settings.address
+        testURL = settings.latencyTestURL
+        timeout = settings.latencyTimeout
+        low = settings.latencyLow
+        medium = settings.latencyMedium
+        loaded = true
+    }
+
+    private func save(secretOverride: String?) {
+        guard client.proxyServiceRunning else {
+            startDaemon()
+            return
+        }
+        saving = true
+        Task {
+            let connected = await client.saveProxySettings(
+                address: address,
+                secret: secretOverride,
+                latencyTestURL: testURL,
+                latencyTimeout: timeout,
+                latencyLow: low,
+                latencyMedium: medium
+            )
+            if connected { secret = "" }
+            saving = false
+        }
+    }
+
+    private func startDaemon() {
+        startingDaemon = true
+        Task {
+            _ = await client.startDaemonForProxy()
+            startingDaemon = false
+        }
+    }
+}
+
+private struct ProxyRuntimeSettingsEditor: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var mode = "rule"
+    @State private var logLevel = "info"
+    @State private var allowLAN = false
+    @State private var tun = false
+    @State private var ipv6 = false
+    @State private var bindAddress = "*"
+    @State private var port = 0
+    @State private var socksPort = 0
+    @State private var redirPort = 0
+    @State private var tproxyPort = 0
+    @State private var mixedPort = 0
+    @State private var loaded = false
+    @State private var applying = false
+    @State private var confirmSensitiveApply = false
+
+    var body: some View {
+        ProxySectionBlock(title: "运行配置", icon: "slider.horizontal.3") {
+            if let config = client.mihomoConfig {
+                VStack(spacing: 12) {
+                    ProxySettingRow(label: "模式") {
+                        Picker("模式", selection: $mode) {
+                            ForEach(availableModes(config), id: \.self) { value in
+                                Text(value.uppercased()).tag(value)
                             }
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("下载").font(.caption2).foregroundStyle(.green)
-                                Text(fmtBytes(conns.downloadTotal)).font(.title3.bold()).foregroundStyle(.green)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 420)
+                    }
+                    ProxySettingRow(label: "日志级别") {
+                        Picker("日志级别", selection: $logLevel) {
+                            ForEach(["silent", "error", "warning", "info", "debug"], id: \.self) {
+                                Text($0.capitalized).tag($0)
                             }
+                        }
+                        .frame(width: 180)
+                    }
+                    ProxySettingRow(label: "网络") {
+                        HStack(spacing: 22) {
+                            Toggle("TUN", isOn: $tun)
+                            Toggle("允许局域网", isOn: $allowLAN)
+                            Toggle("IPv6", isOn: $ipv6)
                             Spacer()
                         }
-                    }.padding(18).background(WgTheme.cardBg)
-                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-                }
-
-                // 版本信息
-                HStack(spacing: 14) {
-                    Image(systemName: "info.circle").font(.system(size: 22)).foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Mihomo 核心").font(.caption).foregroundStyle(.secondary)
-                        Text(client.mihomoVersion?.version ?? "未知版本").font(.body).fontWeight(.medium)
-                        if let v = client.mihomoVersion {
-                            HStack(spacing: 8) {
-                                tag(v.meta ? "Meta" : nil, .purple)
-                                tag(v.premium ? "Premium" : nil, .orange)
-                                tag(!v.meta && !v.premium ? "Core" : nil, .blue)
-                            }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
+                    ProxySettingRow(label: "绑定地址") {
+                        TextField("*", text: $bindAddress).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
+                    }
+                    ProxySettingRow(label: "端口") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
+                            ProxyPortField(label: "HTTP", value: $port)
+                            ProxyPortField(label: "SOCKS", value: $socksPort)
+                            ProxyPortField(label: "Mixed", value: $mixedPort)
+                            ProxyPortField(label: "Redir", value: $redirPort)
+                            ProxyPortField(label: "TProxy", value: $tproxyPort)
                         }
                     }
-                    Spacer()
-                    Text(client.proxyAddress).font(.caption).foregroundStyle(.tertiary)
-                }.padding(18).background(WgTheme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-
-                Spacer(minLength: 0)
-            }.padding(28)
+                    HStack {
+                        Spacer()
+                        Button {
+                            if tun != (config.tun?.enable ?? false) || allowLAN != (config.allowLan ?? false) {
+                                confirmSensitiveApply = true
+                            } else {
+                                apply()
+                            }
+                        } label: {
+                            Label(applying ? "正在应用" : "应用运行配置", systemImage: applying ? "hourglass" : "checkmark")
+                        }
+                        .disabled(applying || !client.proxyRunning)
+                    }
+                }
+                .onAppear { load(config) }
+            } else {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text(client.proxyRunning ? "读取运行配置" : "控制器未连接")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(height: 42)
+            }
+        }
+        .task {
+            if client.proxyRunning && client.mihomoConfig == nil { await client.fetchProxyConfig() }
+            if let config = client.mihomoConfig { load(config) }
+        }
+        .confirmationDialog("应用网络配置？", isPresented: $confirmSensitiveApply) {
+            Button("应用配置") { apply() }
+            Button("取消", role: .cancel) {}
         }
     }
 
-    private func modeIcon(_ mode: String?) -> String {
-        switch mode { case "global": return "globe.americas"; case "rule": return "list.bullet.clipboard"; case "direct": return "arrow.forward.to.line"; default: return "questionmark.circle" }
+    private func availableModes(_ config: DaemonClient.MihomoConfig) -> [String] {
+        let values = config.modes ?? config.modeList ?? []
+        return values.isEmpty ? ["rule", "global", "direct"] : values
     }
 
-    private func modeColor(_ mode: String?) -> Color {
-        switch mode { case "global": return .red; case "rule": return .blue; case "direct": return .green; default: return .gray }
+    private func load(_ config: DaemonClient.MihomoConfig) {
+        guard !loaded else { return }
+        mode = config.mode ?? "rule"
+        logLevel = config.logLevel ?? "info"
+        allowLAN = config.allowLan ?? false
+        tun = config.tun?.enable ?? false
+        ipv6 = config.ipv6 ?? false
+        bindAddress = config.bindAddress ?? "*"
+        port = config.port ?? 0
+        socksPort = config.socksPort ?? 0
+        redirPort = config.redirPort ?? 0
+        tproxyPort = config.tproxyPort ?? 0
+        mixedPort = config.mixedPort ?? 0
+        loaded = true
     }
 
-    private func modeBtn(_ label: String, _ icon: String, _ active: Bool) -> some View {
-        Button {} label: {
-            HStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 9))
-                Text(label).font(.caption2).fontWeight(active ? .semibold : .regular)
-            }.foregroundStyle(active ? .white : .secondary)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(active ? modeColor(client.mihomoConfig?.mode) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-        }.buttonStyle(.plain)
+    private func apply() {
+        applying = true
+        let values: [String: Any] = [
+            "mode": mode,
+            "log-level": logLevel,
+            "allow-lan": allowLAN,
+            "bind-address": bindAddress,
+            "ipv6": ipv6,
+            "tun": ["enable": tun],
+            "port": port,
+            "socks-port": socksPort,
+            "redir-port": redirPort,
+            "tproxy-port": tproxyPort,
+            "mixed-port": mixedPort
+        ]
+        Task {
+            _ = await client.patchProxyConfig(values, success: "运行配置已应用")
+            applying = false
+        }
     }
+}
 
-    private func dashCard(title: String, value: String, icon: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(color)
-                Text(title).font(.caption).foregroundStyle(.secondary)
+private struct ProxyMaintenanceSettings: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var busyAction: String?
+    @State private var confirmRestart = false
+
+    var body: some View {
+        ProxySectionBlock(title: "维护", icon: "wrench.and.screwdriver") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 9)], spacing: 9) {
+                ProxyActionButton(title: "清除 DNS 缓存", icon: "network.badge.shield.half.filled", busy: busyAction == "flush-dns") {
+                    run("flush-dns", success: "DNS 缓存已清除")
+                }
+                ProxyActionButton(title: "清除 FakeIP", icon: "eraser", busy: busyAction == "flush-fakeip") {
+                    run("flush-fakeip", success: "FakeIP 缓存已清除")
+                }
+                ProxyActionButton(title: "重载配置", icon: "arrow.triangle.2.circlepath", busy: busyAction == "reload-configs") {
+                    run("reload-configs", success: "配置已重载")
+                }
+                ProxyActionButton(title: "更新 Geo 数据", icon: "globe", busy: busyAction == "update-geo") {
+                    run("update-geo", success: "Geo 数据已更新")
+                }
+                ProxyActionButton(title: "重启核心", icon: "power", roleColor: .red, busy: busyAction == "restart-core") {
+                    confirmRestart = true
+                }
             }
-            Text(value).font(.system(size: 26, weight: .bold, design: .rounded)).foregroundStyle(color)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-    }
-
-    private func tag(_ text: String?, _ color: Color) -> some View {
-        Group {
-            if let t = text {
-                Text(t).font(.caption2).fontWeight(.medium).foregroundStyle(color)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(color.opacity(0.1)).clipShape(Capsule())
+        }
+        .disabled(!client.proxyRunning || busyAction != nil)
+        .confirmationDialog("重启 Mihomo 核心？", isPresented: $confirmRestart) {
+            Button("重启核心", role: .destructive) {
+                run("restart-core", success: "核心重启请求已发送")
             }
         }
     }
 
-    private func fmtBytes(_ bytes: Int64) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        if bytes < 1048576 { return "\(bytes / 1024) KB" }
-        if bytes < 1073741824 { return String(format: "%.1f MB", Double(bytes) / 1024.0 / 1024.0) }
-        return String(format: "%.2f GB", Double(bytes) / 1024.0 / 1024.0 / 1024.0)
+    private func run(_ action: String, success: String) {
+        busyAction = action
+        Task {
+            _ = await client.performProxyAction(action, success: success)
+            busyAction = nil
+            await client.fetchProxyStatus()
+        }
     }
+}
+
+private struct ProxyActionButton: View {
+    let title: String
+    let icon: String
+    var roleColor: Color = .primary
+    let busy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: busy ? "hourglass" : icon)
+                    .foregroundStyle(roleColor)
+                    .frame(width: 20)
+                Text(title).font(.subheadline)
+                Spacer()
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 38)
+            .background(WgTheme.cardBg)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(WgTheme.cardBorder))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ProxyDNSQuerySettings: View {
+    @EnvironmentObject private var client: DaemonClient
+    @State private var name = ""
+    @State private var type = "A"
+    @State private var querying = false
+
+    var body: some View {
+        ProxySectionBlock(title: "DNS 查询", icon: "magnifyingglass") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    TextField("example.com", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("类型", selection: $type) {
+                        ForEach(["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR"], id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                    .frame(width: 110)
+                    Button {
+                        querying = true
+                        Task {
+                            _ = await client.queryProxyDNS(name: name, type: type)
+                            querying = false
+                        }
+                    } label: {
+                        Label(querying ? "查询中" : "查询", systemImage: querying ? "hourglass" : "magnifyingglass")
+                    }
+                    .disabled(querying || name.isEmpty || !client.proxyRunning)
+                }
+                if let answer = client.dnsQueryResult?.answer, !answer.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(answer) { record in
+                            HStack {
+                                Text(record.name ?? name).font(.caption.monospaced()).lineLimit(1)
+                                Spacer()
+                                Text(record.data ?? "").font(.caption.monospaced()).textSelection(.enabled)
+                                Text(record.ttl.map { "\($0)s" } ?? "")
+                                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                            }
+                            .frame(minHeight: 34)
+                            Divider().opacity(0.1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ProxySectionBlock<Content: View>: View {
+    let title: String
+    let icon: String
+    let content: Content
+
+    init(title: String, icon: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).foregroundStyle(WgTheme.accent).frame(width: 20)
+                Text(title).font(.headline)
+            }
+            Divider().opacity(0.14)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ProxySettingRow<Content: View>: View {
+    let label: String
+    let content: Content
+
+    init(label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 120, alignment: .leading)
+            content
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 32)
+    }
+}
+
+private struct ProxyPortField: View {
+    let label: String
+    @Binding var value: Int
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
+            TextField("0", value: $value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 68)
+        }
+    }
+}
+
+// MARK: - Shared formatting
+
+private let proxySystemTypes: Set<String> = ["Direct", "Reject", "PassThrough", "Compatible", "Unknown"]
+
+private func proxyDisplayName(_ rawName: String, emojiEnabled: Bool) -> String {
+	let plainName = proxyNameWithoutLeadingEmoji(rawName)
+	guard emojiEnabled else { return plainName }
+	if plainName != rawName { return rawName }
+
+	let lower = plainName.lowercased()
+	let markers: [(String, String)] = [
+		("香港", "🇭🇰"), ("hong kong", "🇭🇰"),
+		("台湾", "🇹🇼"), ("taiwan", "🇹🇼"),
+		("日本", "🇯🇵"), ("japan", "🇯🇵"),
+		("新加坡", "🇸🇬"), ("singapore", "🇸🇬"),
+		("美国", "🇺🇸"), ("united states", "🇺🇸"),
+		("英国", "🇬🇧"), ("united kingdom", "🇬🇧"),
+		("德国", "🇩🇪"), ("germany", "🇩🇪"),
+		("法国", "🇫🇷"), ("france", "🇫🇷"),
+		("加拿大", "🇨🇦"), ("canada", "🇨🇦"),
+		("澳大利亚", "🇦🇺"), ("australia", "🇦🇺"),
+		("人工智能", "🧠"), ("ai", "🧠"),
+		("github", "💻"), ("youtube", "▶️"), ("苹果", "🍎"),
+		("google", "🔎"), ("谷歌", "🔎"), ("微软", "🪟"),
+		("游戏", "🎮"), ("流媒体", "🎬"), ("测试", "🧪"),
+		("加密货币", "🪙"), ("默认", "🌐"), ("default", "🌐"),
+		("其他", "🧩")
+	]
+	for (keyword, marker) in markers where lower.contains(keyword) {
+		return "\(marker) \(plainName)"
+	}
+	return plainName
+}
+
+private func proxyNameWithoutLeadingEmoji(_ rawName: String) -> String {
+	var name = rawName[...]
+	while let first = name.first {
+		let text = String(first)
+		let isWhitespace = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+		let isEmoji = first.unicodeScalars.contains { $0.properties.isEmojiPresentation || $0.value == 0xFE0F }
+		guard isWhitespace || isEmoji else { break }
+		name.removeFirst()
+	}
+	return String(name)
+}
+
+private func proxyStrategyPath(
+    from group: String,
+    proxies: [String: DaemonClient.ProxyInfo]
+) -> [String] {
+    var result: [String] = []
+    var current: String? = group
+    var visited: Set<String> = []
+    while let name = current, !name.isEmpty, !visited.contains(name), result.count < 12 {
+        result.append(name)
+        visited.insert(name)
+        current = proxies[name]?.now
+    }
+    return result
+}
+
+private func proxyDelayText(_ delay: Int64?) -> String {
+    guard let delay, delay > 0 else { return "--" }
+    return "\(delay) ms"
+}
+
+private func proxyDelayColor(_ delay: Int64?) -> Color {
+    guard let delay, delay > 0 else { return Color.secondary.opacity(0.55) }
+    if delay < 200 { return .green }
+    if delay < 500 { return .orange }
+    return .red
+}
+
+private func proxyFormatBytes(_ value: Int64?) -> String {
+    let bytes = Double(max(value ?? 0, 0))
+    if bytes < 1024 { return String(format: "%.0f B", bytes) }
+    if bytes < 1024 * 1024 { return String(format: "%.1f KB", bytes / 1024) }
+    if bytes < 1024 * 1024 * 1024 { return String(format: "%.1f MB", bytes / 1024 / 1024) }
+    return String(format: "%.2f GB", bytes / 1024 / 1024 / 1024)
+}
+
+private func proxyFormatBytesPerSecond(_ value: Double) -> String {
+    "\(proxyFormatBytes(Int64(max(value, 0))))/s"
+}
+
+private func topValues(_ values: [String], limit: Int) -> [String] {
+    let filtered = values.filter { !$0.isEmpty }
+    let grouped = Dictionary(grouping: filtered, by: { $0 })
+    let counted: [(String, Int)] = grouped.map { key, groupedValues in
+        (key, groupedValues.count)
+    }
+    let sorted = counted.sorted { lhs, rhs in
+        if lhs.1 == rhs.1 {
+            return lhs.0.localizedCaseInsensitiveCompare(rhs.0) == .orderedAscending
+        }
+        return lhs.1 > rhs.1
+    }
+    return sorted.prefix(limit).map { $0.0 }
+}
+
+private func shortLabel(_ value: String, maxLength: Int = 22) -> String {
+    guard value.count > maxLength else { return value }
+    return String(value.prefix(maxLength - 1)) + "…"
+}
+
+private func proxyFormatDate(_ raw: String?) -> String {
+    guard let raw, !raw.isEmpty, !raw.hasPrefix("0001-") else { return "未更新" }
+    let formatter = ISO8601DateFormatter()
+    guard let date = formatter.date(from: raw) else { return raw }
+    return date.formatted(date: .abbreviated, time: .shortened)
+}
+
+private func proxyRuleColor(_ type: String) -> Color {
+    let upper = type.uppercased()
+    if upper.contains("DOMAIN") { return .blue }
+    if upper.contains("IP") || upper.contains("GEOIP") { return .green }
+    if upper.contains("PROCESS") { return .purple }
+    if upper == "MATCH" { return .orange }
+    return .secondary
+}
+
+private func proxyLogColor(_ level: String) -> Color {
+    switch level.lowercased() {
+    case "error", "fatal": return .red
+    case "warning", "warn": return .orange
+    case "debug": return .purple
+    default: return .blue
+    }
+}
+
+private func proxyLogTime(_ raw: String) -> String {
+    let formatter = ISO8601DateFormatter()
+    guard let date = formatter.date(from: raw) else { return raw }
+    return date.formatted(date: .omitted, time: .standard)
 }

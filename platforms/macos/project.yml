@@ -16,6 +16,27 @@ targets:
     platform: macOS
     sources:
       - path: WgSense
+    preBuildScripts:
+      - name: Build Bundled Daemon
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+          core_dir="$SRCROOT/../../core"
+          packaging_dir="$SRCROOT/../../packaging"
+          out_dir="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/libexec"
+          packaging_out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/packaging"
+          mkdir -p "$out_dir" "$packaging_out"
+          (cd "$core_dir" && /usr/bin/env go build -trimpath -o "$out_dir/wgsense-daemon" ./cmd/wgsense-daemon)
+          chmod 0755 "$out_dir/wgsense-daemon"
+          install -m 0755 "$packaging_dir/wgsense-install-services.sh" "$packaging_out/wgsense-install-services.sh"
+          install -m 0755 "$packaging_dir/wgsense-uninstall-services.sh" "$packaging_out/wgsense-uninstall-services.sh"
+          install -m 0755 "$packaging_dir/wgsense-receive-mover.sh" "$packaging_out/wgsense-receive-mover.sh"
+          install -m 0644 "$packaging_dir/com.wgsense.daemon.plist.template" "$packaging_out/com.wgsense.daemon.plist.template"
+          install -m 0644 "$packaging_dir/com.wgsense.receive-mover.plist.template" "$packaging_out/com.wgsense.receive-mover.plist.template"
+    dependencies:
+      - target: WgSenseWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos
@@ -30,4 +51,23 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
 
-  # 阶段 1 将添加 NetworkExtension target
+  WgSenseWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: WgSenseWidget
+      - path: WgSense/Localizable.xcstrings
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos.widget
+        PRODUCT_NAME: WgSenseWidget
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        INFOPLIST_FILE: WgSenseWidget/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"

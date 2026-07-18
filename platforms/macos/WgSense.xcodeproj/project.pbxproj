@@ -8,25 +8,77 @@
 
 /* Begin PBXBuildFile section */
 		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
+		205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
+		3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C9AEACF015695C43E09540 /* ShellCommand.swift */; };
+		3F5137C784574344F867063D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
+		46F0735DC4E70670DF3FE481 /* WgSenseWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */; };
+		48ADE081313F1751E1A488D2 /* ProxyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EC3834F9EE809E1C80F044 /* ProxyAPIClient.swift */; };
 		4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA034BB1EC7512467D785C99 /* MainView.swift */; };
+		521899CB83778C9021CC3025 /* WgSenseWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5788738D511517DE2321E8E8 /* DaemonAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */; };
 		65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF23D4A47461A7F12D1F16B /* OverviewView.swift */; };
+		6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */; };
 		7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */; };
 		80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */; };
-		9DBBB7AE55E177DCEA6E3EE3 /* ProxyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEBD7386FB8E646498DD9DF7 /* ProxyView.swift */; };
+		85FC1CBD1AC639C275B65736 /* ProxyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C415A763228416E61BA81E86 /* ProxyModels.swift */; };
 		A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */; };
+		AFA93798730A8E6F44DC3473 /* DaemonControlAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */; };
+		BE5EC6E099B4A5BDF8F2E894 /* DaemonMaintenanceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */; };
+		C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */; };
 		C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */; };
+		D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25978E89B4CCD23B64EA7345 /* DaemonModels.swift */; };
+		EA45E94FFA4E175DB33049A1 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
+		F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0F3E89622905B4491EC13901 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B26027600128A19F3121940 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 25CCE3A2E4160625D5CFEF3A;
+			remoteInfo = WgSenseWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B75502EE043B340B08D8935C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				521899CB83778C9021CC3025 /* WgSenseWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileFileStore.swift; sourceTree = "<group>"; };
+		13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonMaintenanceService.swift; sourceTree = "<group>"; };
+		25978E89B4CCD23B64EA7345 /* DaemonModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonModels.swift; sourceTree = "<group>"; };
+		2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonAPIClient.swift; sourceTree = "<group>"; };
+		3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseWidget.swift; sourceTree = "<group>"; };
+		54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferModels.swift; sourceTree = "<group>"; };
 		7DF23D4A47461A7F12D1F16B /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
+		7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WgSenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		808710A2E6EAD06A54381677 /* WgSense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WgSense.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		83C9AEACF015695C43E09540 /* ShellCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellCommand.swift; sourceTree = "<group>"; };
+		842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyView.swift; sourceTree = "<group>"; };
 		866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
+		88EC3834F9EE809E1C80F044 /* ProxyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyAPIClient.swift; sourceTree = "<group>"; };
 		89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseApp.swift; sourceTree = "<group>"; };
 		8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireGuardView.swift; sourceTree = "<group>"; };
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
+		A6F32A96612A010AB2B369F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferAPIClient.swift; sourceTree = "<group>"; };
+		BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonControlAPIClient.swift; sourceTree = "<group>"; };
+		C415A763228416E61BA81E86 /* ProxyModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyModels.swift; sourceTree = "<group>"; };
 		C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileManagerView.swift; sourceTree = "<group>"; };
-		CEBD7386FB8E646498DD9DF7 /* ProxyView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProxyView.swift; sourceTree = "<group>"; };
 		EA034BB1EC7512467D785C99 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -35,7 +87,18 @@
 		17FF2B99BBF42B6D938AD46E /* WgSense */ = {
 			isa = PBXGroup;
 			children = (
+				2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */,
 				866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */,
+				C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */,
+				13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */,
+				25978E89B4CCD23B64EA7345 /* DaemonModels.swift */,
+				BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */,
+				0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */,
+				88EC3834F9EE809E1C80F044 /* ProxyAPIClient.swift */,
+				C415A763228416E61BA81E86 /* ProxyModels.swift */,
+				83C9AEACF015695C43E09540 /* ShellCommand.swift */,
+				B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */,
+				54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */,
 				89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */,
 				7B4DD8305A92693258E523D8 /* Views */,
 			);
@@ -46,8 +109,18 @@
 			isa = PBXGroup;
 			children = (
 				17FF2B99BBF42B6D938AD46E /* WgSense */,
+				3A23C79F6E02E8B331B24F45 /* WgSenseWidget */,
 				FA2459F76587896772A17067 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		3A23C79F6E02E8B331B24F45 /* WgSenseWidget */ = {
+			isa = PBXGroup;
+			children = (
+				A6F32A96612A010AB2B369F7 /* Info.plist */,
+				3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */,
+			);
+			path = WgSenseWidget;
 			sourceTree = "<group>";
 		};
 		7B4DD8305A92693258E523D8 /* Views */ = {
@@ -58,8 +131,8 @@
 				8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */,
 				7DF23D4A47461A7F12D1F16B /* OverviewView.swift */,
 				C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */,
+				842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */,
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
-				CEBD7386FB8E646498DD9DF7 /* ProxyView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -68,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				808710A2E6EAD06A54381677 /* WgSense.app */,
+				7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,17 +149,41 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		97935C3C138793D7CD88FAA3 /* WgSense */ = {
+		25CCE3A2E4160625D5CFEF3A /* WgSenseWidget */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = D3F3D3CCCDFD0B852C72BDC0 /* Build configuration list for PBXNativeTarget "WgSense" */;
+			buildConfigurationList = 77C32CE5A5B6F2EBB5DEE4CA /* Build configuration list for PBXNativeTarget "WgSenseWidget" */;
 			buildPhases = (
-				64B8B75BC38FB87A28967F97 /* Sources */,
+				2D5CC359D4FC76663BCF00D2 /* Sources */,
+				5639A9A61303FAFFE77E7276 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
+			name = WgSenseWidget;
+			packageProductDependencies = (
+			);
+			productName = WgSenseWidget;
+			productReference = 7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		97935C3C138793D7CD88FAA3 /* WgSense */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D3F3D3CCCDFD0B852C72BDC0 /* Build configuration list for PBXNativeTarget "WgSense" */;
+			buildPhases = (
+				8D1FBFFA443135427B858347 /* Build Bundled Daemon */,
+				64B8B75BC38FB87A28967F97 /* Sources */,
+				25F515F16F30819B79A9D9E2 /* Resources */,
+				B75502EE043B340B08D8935C /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BC7A466FDD8294E818BEA726 /* PBXTargetDependency */,
+			);
 			name = WgSense;
+			packageProductDependencies = (
+			);
 			productName = WgSense;
 			productReference = 808710A2E6EAD06A54381677 /* WgSense.app */;
 			productType = "com.apple.product-type.application";
@@ -99,6 +197,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					25CCE3A2E4160625D5CFEF3A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					97935C3C138793D7CD88FAA3 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -112,39 +214,131 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
 			);
 			mainGroup = 20E0654B5E955C5FCE7159A9;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = FA2459F76587896772A17067 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				97935C3C138793D7CD88FAA3 /* WgSense */,
+				25CCE3A2E4160625D5CFEF3A /* WgSenseWidget */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		25F515F16F30819B79A9D9E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EA45E94FFA4E175DB33049A1 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5639A9A61303FAFFE77E7276 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F5137C784574344F867063D /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8D1FBFFA443135427B858347 /* Build Bundled Daemon */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Bundled Daemon";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\"\ncore_dir=\"$SRCROOT/../../core\"\npackaging_dir=\"$SRCROOT/../../packaging\"\nout_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/libexec\"\npackaging_out=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/packaging\"\nmkdir -p \"$out_dir\" \"$packaging_out\"\n(cd \"$core_dir\" && /usr/bin/env go build -trimpath -o \"$out_dir/wgsense-daemon\" ./cmd/wgsense-daemon)\nchmod 0755 \"$out_dir/wgsense-daemon\"\ninstall -m 0755 \"$packaging_dir/wgsense-install-services.sh\" \"$packaging_out/wgsense-install-services.sh\"\ninstall -m 0755 \"$packaging_dir/wgsense-uninstall-services.sh\" \"$packaging_out/wgsense-uninstall-services.sh\"\ninstall -m 0755 \"$packaging_dir/wgsense-receive-mover.sh\" \"$packaging_out/wgsense-receive-mover.sh\"\ninstall -m 0644 \"$packaging_dir/com.wgsense.daemon.plist.template\" \"$packaging_out/com.wgsense.daemon.plist.template\"\ninstall -m 0644 \"$packaging_dir/com.wgsense.receive-mover.plist.template\" \"$packaging_out/com.wgsense.receive-mover.plist.template\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
+		2D5CC359D4FC76663BCF00D2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				46F0735DC4E70670DF3FE481 /* WgSenseWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		64B8B75BC38FB87A28967F97 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5788738D511517DE2321E8E8 /* DaemonAPIClient.swift in Sources */,
 				338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */,
+				AFA93798730A8E6F44DC3473 /* DaemonControlAPIClient.swift in Sources */,
+				BE5EC6E099B4A5BDF8F2E894 /* DaemonMaintenanceService.swift in Sources */,
+				D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */,
 				4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */,
 				80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */,
 				A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */,
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
+				205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */,
 				00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */,
+				48ADE081313F1751E1A488D2 /* ProxyAPIClient.swift in Sources */,
+				85FC1CBD1AC639C275B65736 /* ProxyModels.swift in Sources */,
+				C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */,
+				3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */,
+				F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */,
+				6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */,
-				9DBBB7AE55E177DCEA6E3EE3 /* ProxyView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		BC7A466FDD8294E818BEA726 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 25CCE3A2E4160625D5CFEF3A /* WgSenseWidget */;
+			targetProxy = 0F3E89622905B4491EC13901 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		0CA839B26B3825D84C5ECA18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WgSenseWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
+				PRODUCT_NAME = WgSenseWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
 		1D29B686A72C0A8B4A4499E4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -225,6 +419,30 @@
 				SDKROOT = macosx;
 			};
 			name = Debug;
+		};
+		B5BDF4EA668D2D119B98F413 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WgSenseWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
+				PRODUCT_NAME = WgSenseWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
 		};
 		BCCF8D7EAB70B5889F21F3A9 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -317,6 +535,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		77C32CE5A5B6F2EBB5DEE4CA /* Build configuration list for PBXNativeTarget "WgSenseWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0CA839B26B3825D84C5ECA18 /* Debug */,
+				B5BDF4EA668D2D119B98F413 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		BC2380ED623A004CC1864ABB /* Build configuration list for PBXProject "WgSense" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
