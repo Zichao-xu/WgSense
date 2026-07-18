@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wgsense.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__WGSENSE_DAEMON__</string>
+        <string>--api</string>
+        <string>127.0.0.1:8765</string>
+        <string>--runtime-dir</string>
+        <string>__WGSENSE_RUNTIME_DIR__</string>
+        <string>--download-dir</string>
+        <string>__WGSENSE_INCOMING_DIR__</string>
+        <string>--auto-connect-untrusted=false</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>/var/log/wgsense-daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/wgsense-daemon.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

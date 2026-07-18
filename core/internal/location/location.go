@@ -1,12 +1,12 @@
-// Package location 提供位置感知：检测当前是否在家网段。
-// 智能管理的基础——在家断开 WG，在外自动连上。
+// Package location 提供网络位置感知：检测当前是否命中受信任网络前缀。
+// 智能管理的基础：受信任网络断开 WG，非受信任网络按策略自动连接。
 package location
 
 import "net"
 
 // Locator 检测网络位置。
 type Locator interface {
-	// IsHome 返回当前是否命中任一前缀(如 "10.10.1.")。
+	// IsHome 返回当前是否命中任一受信任前缀(如 "10.0.0.")。
 	IsHome(prefixes []string) bool
 	// CurrentIPv4s 返回当前所有非环回 IPv4。
 	CurrentIPv4s() []string

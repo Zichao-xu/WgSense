@@ -4,8 +4,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/wgsense/core/internal/config"
@@ -20,11 +22,16 @@ type Server struct {
 	addr     string
 	transSvc *transfer.Service
 	proxySvc *proxy.Service
+	shutdown func()
 }
 
 // New 创建 API 服务。addr 如 "127.0.0.1:8765"。
 func New(addr string, eng *policy.Engine, transSvc *transfer.Service, proxySvc *proxy.Service) *Server {
 	return &Server{eng: eng, addr: addr, transSvc: transSvc, proxySvc: proxySvc}
+}
+
+func (s *Server) SetShutdown(fn func()) {
+	s.shutdown = fn
 }
 
 // Start 启动 HTTP server（阻塞）。
@@ -43,28 +50,40 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/traffic", s.handleTraffic)
+	mux.HandleFunc("/api/shutdown", s.handleShutdown)
 	mux.HandleFunc("/api/transfer/devices", s.handleTransferDevices)
 	mux.HandleFunc("/api/transfer/scan", s.handleTransferScan)
 	mux.HandleFunc("/api/transfer/add-device", s.handleTransferAddDevice)
 	mux.HandleFunc("/api/transfer/remove-device", s.handleTransferRemoveDevice)
 	mux.HandleFunc("/api/transfer/send", s.handleTransferSend)
+	mux.HandleFunc("/api/transfer/tasks", s.handleTransferTasks)
+	mux.HandleFunc("/api/transfer/start", s.handleTransferStart)
+	mux.HandleFunc("/api/transfer/stop", s.handleTransferStop)
 	mux.HandleFunc("/api/transfer/receive", s.handleTransferReceive)
+	mux.HandleFunc("/api/transfer/decision", s.handleTransferDecision)
 	mux.HandleFunc("/api/transfer/cancel", s.handleTransferCancel)
 
 	// 代理管理 (Mihomo 面板)
 	mux.HandleFunc("/api/proxy/status", proxy.ProxyStatusHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/settings", proxy.SettingsHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/version", proxy.VersionHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/proxies", proxy.ProxiesHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/select", proxy.SelectProxyHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/delay", proxy.DelayTestHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/providers", proxy.ProvidersHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/provider-update", proxy.UpdateProviderHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/provider-healthcheck", proxy.ProviderHealthCheckHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/connections", proxy.ConnectionsHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/connection-close", proxy.CloseConnectionHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/connections-close-all", proxy.CloseAllConnectionsHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/rules", proxy.RulesHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/rule-providers", proxy.RuleProvidersHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/rule-provider-update", proxy.UpdateRuleProviderHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/configs", proxy.ConfigsHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/cache", proxy.CacheHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/action", proxy.ActionHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/dns-query", proxy.DNSQueryHandler(s.proxySvc))
+	mux.HandleFunc("/api/proxy/logs", proxy.ProxyLogsHandler(s.proxySvc))
 	srv := &http.Server{
 		Addr:    s.addr,
 		Handler: mux,
@@ -72,39 +91,60 @@ func (s *Server) Start() error {
 	return srv.ListenAndServe()
 }
 
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if s.shutdown == nil {
+		writeError(w, fmt.Errorf("当前 daemon 不是 App 临时服务，拒绝关闭"))
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+	go s.shutdown()
+}
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.eng.Status())
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] manual connect requested")
 	if err := s.eng.Connect(); err != nil {
+		log.Printf("[api] manual connect failed: %v", err)
 		writeError(w, err)
 		return
 	}
+	log.Printf("[api] manual connect succeeded")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] manual disconnect requested")
 	if err := s.eng.Disconnect(); err != nil {
+		log.Printf("[api] manual disconnect failed: %v", err)
 		writeError(w, err)
 		return
 	}
+	log.Printf("[api] manual disconnect succeeded")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] manual pause requested")
 	if err := s.eng.Pause(); err != nil {
+		log.Printf("[api] manual pause failed: %v", err)
 		writeError(w, err)
 		return
 	}
+	log.Printf("[api] manual pause succeeded")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] manual resume requested")
 	if err := s.eng.Resume(); err != nil {
+		log.Printf("[api] manual resume failed: %v", err)
 		writeError(w, err)
 		return
 	}
+	log.Printf("[api] manual resume succeeded")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -343,29 +383,70 @@ func (s *Server) handleTransferSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 从所有已知设备中按 ID 查找目标（多播+手动合并）
-	multicastDevs := s.transSvc.DiscoverDevices(3)
-	allDevs := s.transSvc.GetAllDevices(multicastDevs)
-	var target transfer.DeviceInfo
-	found := false
-	for _, d := range allDevs {
-		if d.ID == req.ID {
-			target = d
-			found = true
-			break
-		}
-	}
+	// 发送使用发现/扫描/手动添加共享的后端缓存，避免 UI 看得到但后端找不到。
+	target, found := s.transSvc.FindDevice(req.ID)
 	if !found {
 		writeError(w, fmt.Errorf("未找到设备: %s", req.ID))
 		return
 	}
 
-	err := s.transSvc.SendFiles(target, req.Paths)
+	task, err := s.transSvc.StartSend(target, req.Paths)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, map[string]bool{"ok": true})
+	writeJSON(w, map[string]interface{}{"ok": true, "task": task})
+}
+
+// handleTransferTasks 返回后台发送任务和历史。
+// GET /api/transfer/tasks
+func (s *Server) handleTransferTasks(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, s.transSvc.SendTasks())
+}
+
+// handleTransferStart 启动接收/发现服务。
+// POST /api/transfer/start
+func (s *Server) handleTransferStart(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未初始化"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.transSvc.IsRunning() {
+		writeJSON(w, s.transSvc.ReceiveState())
+		return
+	}
+	if err := s.transSvc.Start(context.Background()); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, s.transSvc.ReceiveState())
+}
+
+// handleTransferStop 停止接收/发现服务。
+// POST /api/transfer/stop
+func (s *Server) handleTransferStop(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未初始化"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	s.transSvc.Stop()
+	writeJSON(w, s.transSvc.ReceiveState())
 }
 
 // handleTransferReceive 返回接收状态和进度。
@@ -377,6 +458,32 @@ func (s *Server) handleTransferReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	state := s.transSvc.ReceiveState()
 	writeJSON(w, state)
+}
+
+// handleTransferDecision 接受或拒绝一个待处理的 LocalSend 上传请求。
+// POST /api/transfer/decision body: {"request_id":"...","accepted":true}
+func (s *Server) handleTransferDecision(w http.ResponseWriter, r *http.Request) {
+	if s.transSvc == nil {
+		writeError(w, fmt.Errorf("传输服务未启动"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		RequestID string `json:"request_id"`
+		Accepted  bool   `json:"accepted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.transSvc.ResolvePendingTransfer(req.RequestID, req.Accepted); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // handleTransferCancel 取消传输任务。

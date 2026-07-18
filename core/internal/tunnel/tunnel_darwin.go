@@ -3,13 +3,14 @@
 // 阶段 1 后期迁移到 NetworkExtension 后不再需要 root。
 //
 // 重要设计决策：
-// 1. 不修改系统 DNS — 用 networksetup 改 DNS 在 daemon 异常退出时会残留，导致断网。
-//    DNS 解析由 Go 的 netresolver 在应用层处理（走 TUN 或物理接口的 UDP 53）。
-// 2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
-// 3. cleanup 注册 signal handler — 即使 kill -9 也能尝试清理路由。
+//  1. 不修改系统 DNS — 用 networksetup 改 DNS 在 daemon 异常退出时会残留，导致断网。
+//     DNS 解析由 Go 的 netresolver 在应用层处理（走 TUN 或物理接口的 UDP 53）。
+//  2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
+//  3. cleanup 注册 signal handler — 即使 kill -9 也能尝试清理路由。
 package tunnel
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -32,10 +33,11 @@ type darwinManager struct {
 	dev         *device.Device
 	tunName     string
 	configDir   string
-	origGateway string        // 建隧道前的物理网关
-	physIface   string        // 物理接口名（en0/en1）
-	addedRoutes []routeEntry  // 已添加的路由（断开时清理）
-	cleaned     bool          // 防止重复 cleanup
+	origGateway string       // 建隧道前的物理网关
+	physIface   string       // 物理接口名（en0/en1）
+	addedRoutes []routeEntry // 已添加的路由（断开时清理）
+	cleaned     bool         // 防止重复 cleanup
+	hasIPv6     bool         // TUN 是否配置了 IPv6 地址
 }
 
 type routeEntry struct {
@@ -53,6 +55,7 @@ func newPlatformManager(configDir string) Manager {
 func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	// 重置 cleanup 标志，允许新一轮清理
 	m.cleaned = false
+	m.hasIPv6 = false
 
 	// 0. 获取物理网络信息（必须在路由表变更前）
 	gw, err := getDefaultGateway()
@@ -121,19 +124,21 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 
 	// 5. IPC 配置（IpcSet 内部会触发 BindUpdate + 握手发起，不需要再显式调用 BindUpdate）
 	uapi := buildUAPI(profile)
-	log.Printf("[tunnel] UAPI 配置:\n%s", uapi)
+	log.Printf("[tunnel] 应用 WireGuard 配置：%d 个 peer", len(profile.Peers))
 	if err := m.dev.IpcSet(uapi); err != nil {
 		m.cleanup()
 		return fmt.Errorf("IPC 配置: %w", err)
 	}
 	log.Printf("[tunnel] IpcSet 完成（含内部 BindUpdate + 握手发起）")
 
-	// 7. 配置 TUN IP
+	// 7. 配置 TUN IP。WireGuard Address 可包含多个 CIDR，例如 IPv4 + IPv6。
 	if profile.Interface.Address != "" {
-		if err := configureInterface(m.tunName, profile.Interface.Address); err != nil {
+		hasIPv6, err := configureInterfaceAddresses(m.tunName, profile.Interface.Address)
+		if err != nil {
 			m.cleanup()
 			return fmt.Errorf("配置 TUN IP: %w", err)
 		}
+		m.hasIPv6 = hasIPv6
 		log.Printf("[tunnel] TUN IP: %s", profile.Interface.Address)
 	}
 
@@ -149,7 +154,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 
 	// 9. 握手成功，添加全量隧道路由（0.0.0.0/0 拆分为 0/1 + 128.0/1）
 	for _, peer := range profile.Peers {
-		for _, cidr := range peer.AllowedIPs {
+		for _, cidr := range plannedTunnelRoutes(peer.AllowedIPs, m.hasIPv6) {
 			if err := m.addTunnelRoute(cidr); err != nil {
 				m.cleanup()
 				return fmt.Errorf("添加隧道路由 %s: %w", cidr, err)
@@ -358,6 +363,7 @@ func (m *darwinManager) addExclusionRoute(cidr, gw string) error {
 		// "File exists" 不是错误（路由已存在）
 		if strings.Contains(string(out), "File exists") {
 			log.Printf("[tunnel] 路由已存在（跳过）: %s", cidr)
+			return nil
 		} else {
 			return fmt.Errorf("%s: %s", strings.TrimSpace(string(out)), err)
 		}
@@ -369,18 +375,6 @@ func (m *darwinManager) addExclusionRoute(cidr, gw string) error {
 
 // addTunnelRoute 添加隧道路由。0.0.0.0/0 拆分为 0/1 + 128.0/1。
 func (m *darwinManager) addTunnelRoute(cidr string) error {
-	if cidr == "0.0.0.0/0" {
-		if err := m.addTunnelRoute("0/1"); err != nil {
-			return err
-		}
-		return m.addTunnelRoute("128.0/1")
-	}
-	if cidr == "::/0" {
-		if err := m.addTunnelRoute("::/1"); err != nil {
-			return err
-		}
-		return m.addTunnelRoute("8000::/1")
-	}
 	var cmd *exec.Cmd
 	if strings.Contains(cidr, ":") {
 		cmd = exec.Command("route", "-n", "add", "-inet6", cidr, "-interface", m.tunName)
@@ -391,12 +385,36 @@ func (m *darwinManager) addTunnelRoute(cidr string) error {
 	if err != nil {
 		if strings.Contains(string(out), "File exists") {
 			log.Printf("[tunnel] 隧道路由已存在（跳过）: %s", cidr)
+			return nil
 		} else {
 			return fmt.Errorf("%s: %s", strings.TrimSpace(string(out)), err)
 		}
 	}
 	m.addedRoutes = append(m.addedRoutes, routeEntry{cidr: cidr, gw: "", dev: m.tunName})
 	return nil
+}
+
+// plannedTunnelRoutes expands default routes and drops an address family that
+// is not configured on the tunnel. Fake-IP ranges are deliberately untouched:
+// a local proxy owns those routes and sending them to a physical NIC breaks DNS.
+func plannedTunnelRoutes(allowedIPs []string, hasIPv6 bool) []string {
+	routes := make([]string, 0, len(allowedIPs)+2)
+	for _, cidr := range allowedIPs {
+		cidr = strings.TrimSpace(cidr)
+		switch {
+		case cidr == "":
+			continue
+		case cidr == "0.0.0.0/0":
+			routes = append(routes, "0/1", "128.0/1")
+		case cidr == "::/0" && hasIPv6:
+			routes = append(routes, "::/1", "8000::/1")
+		case strings.Contains(cidr, ":") && !hasIPv6:
+			continue
+		default:
+			routes = append(routes, cidr)
+		}
+	}
+	return routes
 }
 
 // removeRoute 删除单条路由（不经过 addedRoutes 列表）。
@@ -429,6 +447,7 @@ func getDefaultInterface() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// 第一优先：default 路由的接口
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "default") {
 			continue
@@ -442,15 +461,33 @@ func getDefaultInterface() (string, error) {
 			return iface, nil
 		}
 	}
+	// 回退：找路由表中第一个 en* 接口
+	enIfaces := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		iface := fields[len(fields)-1]
+		if strings.HasPrefix(iface, "en") && iface != "" {
+			enIfaces[iface] = true
+		}
+	}
+	for iface := range enIfaces {
+		return iface, nil
+	}
 	return "", fmt.Errorf("未找到物理默认接口")
 }
 
 // getPhysicalGatewayFromNetstat 从 netstat 输出中提取物理接口的网关。
+// 优先匹配 default 路由；如果 default 被遮蔽（如已加 0/1 隧道路由），
+// 回退到扫描 en 接口的路由条目提取网关。
 func getPhysicalGatewayFromNetstat() (string, error) {
 	out, err := exec.Command("netstat", "-rn", "-f", "inet").CombinedOutput()
 	if err != nil {
 		return "", err
 	}
+	// 第一优先：default 路由走 en* 接口
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "default") {
 			continue
@@ -461,6 +498,21 @@ func getPhysicalGatewayFromNetstat() (string, error) {
 		}
 		iface := fields[len(fields)-1]
 		if strings.HasPrefix(iface, "en") {
+			return fields[1], nil
+		}
+	}
+	// 回退：找任何 en* 接口的 UG/UGSc 路由（通常是局域网网关）
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		iface := fields[len(fields)-1]
+		if !strings.HasPrefix(iface, "en") {
+			continue
+		}
+		// 匹配含 G(gateway) 标志的路由
+		if strings.Contains(fields[2], "G") && strings.Contains(fields[1], ".") {
 			return fields[1], nil
 		}
 	}
@@ -498,10 +550,68 @@ func resolveEndpoint(endpoint string) (string, error) {
 		host = endpoint
 	}
 	ips, err := net.LookupHost(host)
-	if err != nil || len(ips) == 0 {
-		return "", fmt.Errorf("解析 %s: %w", host, err)
+	if err == nil {
+		if ip := firstNonFakeIP(ips); ip != "" {
+			return ip, nil
+		}
 	}
-	return ips[0], nil
+
+	bootstrapIPs, bootstrapErr := lookupEndpointWithBootstrapDNS(host)
+	if bootstrapErr == nil {
+		if ip := firstNonFakeIP(bootstrapIPs); ip != "" {
+			return ip, nil
+		}
+	}
+
+	if len(ips) > 0 {
+		return "", fmt.Errorf("解析 %s 得到代理 Fake-IP %v；bootstrap DNS 也未返回可用公网 IP: %v", host, ips, bootstrapErr)
+	}
+	return "", fmt.Errorf("解析 %s: %w", host, err)
+}
+
+func firstNonFakeIP(ips []string) string {
+	for _, candidate := range ips {
+		ip := net.ParseIP(candidate)
+		if ip == nil {
+			continue
+		}
+		if isFakeIP(ip) {
+			continue
+		}
+		return candidate
+	}
+	return ""
+}
+
+func lookupEndpointWithBootstrapDNS(host string) ([]string, error) {
+	servers := []string{"223.5.5.5:53", "119.29.29.29:53", "1.1.1.1:53", "8.8.8.8:53"}
+	var lastErr error
+	for _, server := range servers {
+		resolver := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 3 * time.Second}
+				return d.DialContext(ctx, "udp", server)
+			},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		ips, err := resolver.LookupHost(ctx, host)
+		cancel()
+		if err == nil && len(ips) > 0 {
+			return ips, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func isFakeIP(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	_, fakeNet, _ := net.ParseCIDR("198.18.0.0/15")
+	return fakeNet.Contains(ip4)
 }
 
 // deleteRoute 删除一条路由。
@@ -523,13 +633,35 @@ func deleteRoute(r routeEntry) {
 	}
 }
 
-// configureInterface 用 ifconfig 设置 TUN 的 IP 地址(需 root)。
+// configureInterfaceAddresses 用 ifconfig 设置 TUN 的 IP 地址(需 root)。
+func configureInterfaceAddresses(name, addresses string) (bool, error) {
+	hasIPv6 := false
+	for _, address := range strings.Split(addresses, ",") {
+		address = strings.TrimSpace(address)
+		if address == "" {
+			continue
+		}
+		if strings.Contains(address, ":") {
+			hasIPv6 = true
+		}
+		if err := configureInterface(name, address); err != nil {
+			return hasIPv6, err
+		}
+	}
+	return hasIPv6, nil
+}
+
 func configureInterface(name, address string) error {
 	ip, mask, err := parseCIDR(address)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("ifconfig", name, "inet", ip, ip, "prefixlen", mask)
+	var cmd *exec.Cmd
+	if strings.Contains(ip, ":") {
+		cmd = exec.Command("ifconfig", name, "inet6", ip, "prefixlen", mask)
+	} else {
+		cmd = exec.Command("ifconfig", name, "inet", ip, ip, "prefixlen", mask)
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ifconfig 失败: %s: %w", strings.TrimSpace(string(out)), err)
 	}

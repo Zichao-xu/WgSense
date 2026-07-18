@@ -5,19 +5,16 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"bufio"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
 
@@ -29,24 +26,24 @@ const DefaultLatencyTestURL = "http://www.gstatic.com/generate_204"
 
 // Config Mihomo 连接配置
 type Config struct {
-	Address string // 如 "10.10.1.1:9090" 或 "127.0.0.1:9090"
-	Secret  string // API 密钥（可为空）
+	Address string `json:"address"` // 如 "http://10.10.1.1:9090"
+	Secret  string `json:"secret"`  // API 密钥（可为空）
 
-	LatencyTestURL  string // 延迟测试 URL
-	LatencyTimeout  int    // 延迟超时（毫秒），默认 5000
-	LatencyLow      int    // 低延迟阈值（毫秒），默认 200
-	LatencyMedium   int    // 中延迟阈值（毫秒），默认 500
+	LatencyTestURL string `json:"latency_test_url"` // 延迟测试 URL
+	LatencyTimeout int    `json:"latency_timeout"`  // 延迟超时（毫秒），默认 5000
+	LatencyLow     int    `json:"latency_low"`      // 低延迟阈值（毫秒），默认 200
+	LatencyMedium  int    `json:"latency_medium"`   // 中延迟阈值（毫秒），默认 500
 }
 
 // DefaultConfig 返回远程软路由的默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		Address:         "10.10.1.1:9090",
-		Secret:          "",
-		LatencyTestURL:  DefaultLatencyTestURL,
-		LatencyTimeout:  5000,
-		LatencyLow:      200,
-		LatencyMedium:   500,
+		Address:        "http://10.10.1.1:9090",
+		Secret:         "",
+		LatencyTestURL: DefaultLatencyTestURL,
+		LatencyTimeout: 5000,
+		LatencyLow:     200,
+		LatencyMedium:  500,
 	}
 }
 
@@ -56,9 +53,9 @@ type Client struct {
 	http   *http.Client
 	logger *zap.SugaredLogger
 
-	mu       sync.RWMutex
-	baseURL  string // "http://host:port"
-	version  string // 缓存的版本信息
+	mu      sync.RWMutex
+	baseURL string // "http://host:port"
+	version string // 缓存的版本信息
 }
 
 // NewClient 创建 Mihomo API 客户端
@@ -66,20 +63,18 @@ func NewClient(cfg *Config) (*Client, error) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
-	if cfg.LatencyTestURL == "" {
-		cfg.LatencyTestURL = DefaultLatencyTestURL
-	}
-	if cfg.LatencyTimeout <= 0 {
-		cfg.LatencyTimeout = 5000
+	cfg = cloneConfig(cfg)
+	if err := cfg.normalizeAndValidate(); err != nil {
+		return nil, err
 	}
 
 	logger, _ := zap.NewProduction()
-	baseURL := fmt.Sprintf("http://%s", strings.TrimPrefix(cfg.Address, "http://"))
+	baseURL := cfg.Address
 
 	c := &Client{
-		cfg:    cfg,
-		http:   &http.Client{Timeout: 15 * time.Second},
-		logger: logger.Sugar(),
+		cfg:     cfg,
+		http:    &http.Client{Timeout: 15 * time.Second},
+		logger:  logger.Sugar(),
 		baseURL: baseURL,
 	}
 	return c, nil
@@ -87,6 +82,10 @@ func NewClient(cfg *Config) (*Client, error) {
 
 // doRequest 执行带认证的 HTTP 请求
 func (c *Client) doRequest(method, path string, body interface{}) ([]byte, int, error) {
+	return c.doRequestContext(context.Background(), method, path, body)
+}
+
+func (c *Client) doRequestContext(ctx context.Context, method, path string, body interface{}) ([]byte, int, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -96,16 +95,19 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, int, 
 		bodyReader = bytes.NewReader(data)
 	}
 
+	c.mu.RLock()
 	reqURL := c.baseURL + path
-	req, err := http.NewRequest(method, reqURL, bodyReader)
+	secret := c.cfg.Secret
+	c.mu.RUnlock()
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("创建请求失败: %w", err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.cfg.Secret != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.Secret)
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
 	}
 
 	resp, err := c.http.Do(req)
@@ -119,6 +121,17 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, int, 
 		return nil, resp.StatusCode, fmt.Errorf("读取响应失败: %w", err)
 	}
 	return respData, resp.StatusCode, nil
+}
+
+func (c *Client) requestOK(method, path string, body interface{}) ([]byte, error) {
+	data, code, err := c.doRequest(method, path, body)
+	if err != nil {
+		return data, err
+	}
+	if code >= http.StatusBadRequest {
+		return data, fmt.Errorf("API 错误 %d: %s", code, strings.TrimSpace(string(data)))
+	}
+	return data, nil
 }
 
 // get 简化 GET 请求
@@ -173,10 +186,10 @@ func (c *Client) del(path string) (int, error) {
 
 // VersionResponse Mihomo 版本响应
 type VersionResponse struct {
-	Meta     bool   `json:"meta"`
-	Version  string `json:"version"`
-	Premium  bool   `json:"premium"`
-	Foundation bool `json:"foundation"`
+	Meta       bool   `json:"meta"`
+	Version    string `json:"version"`
+	Premium    bool   `json:"premium"`
+	Foundation bool   `json:"foundation"`
 }
 
 // GetVersion 获取 Mihomo 核心版本
@@ -204,14 +217,14 @@ type ProxiesResponse struct {
 
 // ProxyInfo 单个代理（节点或策略组）
 type ProxyInfo struct {
-	Name     string            `json:"name"`
-	Type     string            `json:"type"` // Selector/Fallback/URLTest/LoadBalance/Smart/PassThrough/Reject/Compatible/Unknown
-	All      []string          `json:"all"`   // 可选节点列表
-	Now      string            `json:"now"`   // 当前选中节点
-	History  []DelayHistory    `json:"history"` // 延迟历史
-	Alive    bool              `json:"alive"`
-	Uptime   uint64            `json:"uptime"`
-	Provider string            `json:"provider"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type"`    // Selector/Fallback/URLTest/LoadBalance/Smart/PassThrough/Reject/Compatible/Unknown
+	All      []string       `json:"all"`     // 可选节点列表
+	Now      string         `json:"now"`     // 当前选中节点
+	History  []DelayHistory `json:"history"` // 延迟历史
+	Alive    bool           `json:"alive"`
+	Uptime   uint64         `json:"uptime"`
+	Provider string         `json:"provider"`
 
 	// 节点详情（叶子节点才有）
 	UDP  bool `json:"udp"`
@@ -260,13 +273,17 @@ type DelayResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type GroupDelayResponse struct {
+	Delays map[string]int64 `json:"delays"`
+}
+
 // TestProxyDelay 测试单个节点延迟
 func (c *Client) TestProxyDelay(proxyName string) (*DelayResponse, error) {
 	testURL := c.cfg.LatencyTestURL
 	timeout := c.cfg.LatencyTimeout
 	path := fmt.Sprintf("/proxies/%s/delay?url=%s&timeout=%d",
 		url.PathEscape(proxyName), url.QueryEscape(testURL), timeout)
-	data, _, err := c.doRequest("GET", path, nil)
+	data, err := c.requestOK(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -278,20 +295,23 @@ func (c *Client) TestProxyDelay(proxyName string) (*DelayResponse, error) {
 }
 
 // TestGroupDelay 测试整个策略组所有节点的延迟
-func (c *Client) TestGroupDelay(groupName string) (*DelayResponse, error) {
+func (c *Client) TestGroupDelay(groupName string) (*GroupDelayResponse, error) {
 	testURL := c.cfg.LatencyTestURL
 	timeout := c.cfg.LatencyTimeout
 	path := fmt.Sprintf("/group/%s/delay?url=%s&timeout=%d",
 		url.PathEscape(groupName), url.QueryEscape(testURL), timeout)
-	data, _, err := c.doRequest("GET", path, nil)
+	data, code, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
-	var r DelayResponse
-	if err := json.Unmarshal(data, &r); err != nil {
+	if code >= http.StatusBadRequest {
+		return nil, fmt.Errorf("API 错误 %d: %s", code, strings.TrimSpace(string(data)))
+	}
+	var delays map[string]int64
+	if err := json.Unmarshal(data, &delays); err != nil {
 		return nil, fmt.Errorf("解析组延迟结果失败: %w", err)
 	}
-	return &r, nil
+	return &GroupDelayResponse{Delays: delays}, nil
 }
 
 // ==================== Provider ====================
@@ -303,12 +323,21 @@ type ProxyProvidersResponse struct {
 
 // ProxyProviderInfo 代理 Provider 信息
 type ProxyProviderInfo struct {
-	Name             string    `json:"name"`
-	Type             string    `json:"type"`
-	VehicleType      string    `json:"vehicleType"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	ProxyCount       int       `json:"proxyCount"`
-	SubscriptionInfo string    `json:"subscriptionInfo,omitempty"`
+	Name             string            `json:"name"`
+	Type             string            `json:"type,omitempty"`
+	VehicleType      string            `json:"vehicleType,omitempty"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+	TestURL          string            `json:"testUrl,omitempty"`
+	Proxies          []ProxyInfo       `json:"proxies,omitempty"`
+	ProxyCount       int               `json:"proxy_count"`
+	SubscriptionInfo *SubscriptionInfo `json:"subscriptionInfo,omitempty"`
+}
+
+type SubscriptionInfo struct {
+	Download int64 `json:"Download"`
+	Upload   int64 `json:"Upload"`
+	Total    int64 `json:"Total"`
+	Expire   int64 `json:"Expire"`
 }
 
 // GetProxyProviders 获取所有代理 Provider
@@ -321,6 +350,14 @@ func (c *Client) GetProxyProviders() (*ProxyProvidersResponse, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, fmt.Errorf("解析 Provider 失败: %w", err)
 	}
+	for name, provider := range r.Providers {
+		if provider.Name == "" {
+			provider.Name = name
+		}
+		provider.ProxyCount = len(provider.Proxies)
+		provider.Proxies = nil
+		r.Providers[name] = provider
+	}
 	return &r, nil
 }
 
@@ -332,7 +369,7 @@ func (c *Client) UpdateProxyProvider(name string) error {
 
 // HealthCheckProvider 对 Provider 进行健康检查
 func (c *Client) HealthCheckProvider(name string) error {
-	_, _, err := c.doRequest("GET",
+	_, err := c.requestOK(http.MethodGet,
 		fmt.Sprintf("/providers/proxies/%s/healthcheck?timeout=15000", url.PathEscape(name)), nil)
 	return err
 }
@@ -346,11 +383,11 @@ type RulesResponse struct {
 
 // RuleInfo 规则条目
 type RuleInfo struct {
-	Type     string   `json:"type"`
-	Payload  string   `json:"payload"`
-	Proxy    string   `json:"proxy"`
-	Chains   []string `json:"chains"`
-	Size     int64    `json:"size"`
+	Type    string   `json:"type"`
+	Payload string   `json:"payload"`
+	Proxy   string   `json:"proxy"`
+	Chains  []string `json:"chains"`
+	Size    int64    `json:"size"`
 }
 
 // GetRules 获取当前生效的规则链
@@ -380,11 +417,14 @@ type RuleProvidersResponse struct {
 
 // RuleProviderInfo 规则 Provider 信息
 type RuleProviderInfo struct {
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	Behavior  string    `json:"behavior"`
-	RuleCount int       `json:"ruleCount"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Behavior    string    `json:"behavior"`
+	Format      string    `json:"format,omitempty"`
+	RuleCount   int       `json:"ruleCount"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	URL         string    `json:"url,omitempty"`
+	VehicleType string    `json:"vehicleType,omitempty"`
 }
 
 // GetRuleProviders 获取规则 Provider
@@ -396,6 +436,12 @@ func (c *Client) GetRuleProviders() (*RuleProvidersResponse, error) {
 	var r RuleProvidersResponse
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, fmt.Errorf("解析规则 Provider 失败: %w", err)
+	}
+	for name, provider := range r.Providers {
+		if provider.Name == "" {
+			provider.Name = name
+		}
+		r.Providers[name] = provider
 	}
 	return &r, nil
 }
@@ -410,18 +456,27 @@ func (c *Client) UpdateRuleProvider(name string) error {
 
 // ConfigsResponse 运行配置响应
 type ConfigsResponse struct {
-	Mode           string `json:"mode"`            // global/direct/rule
-	LogLevel       string `json:"log-level"`
-	AllowLan       bool   `json:"allow-lan"`
-	ExternalController string `json:"external-controller"`
-	Secret         string `json:"secret"`
-	TunEnable      bool   `json:"tun-enable"`
-	MixedPort      int    `json:"mixed-port"`
-	RedirPort      int    `json:"redir-port"`
-	SocksPort      int    `json:"socks-port"`
-	Port           int    `json:"port"`
-	ExternalUI     string `json:"external-ui"`
-	ExternalUIDownloadURL string `json:"external-ui-url"`
+	Mode                  string    `json:"mode"` // global/direct/rule
+	ModeList              []string  `json:"mode-list,omitempty"`
+	Modes                 []string  `json:"modes,omitempty"`
+	LogLevel              string    `json:"log-level"`
+	AllowLan              bool      `json:"allow-lan"`
+	BindAddress           string    `json:"bind-address"`
+	IPv6                  bool      `json:"ipv6"`
+	ExternalController    string    `json:"external-controller"`
+	Secret                string    `json:"-"`
+	Tun                   TunConfig `json:"tun"`
+	MixedPort             int       `json:"mixed-port"`
+	RedirPort             int       `json:"redir-port"`
+	TProxyPort            int       `json:"tproxy-port"`
+	SocksPort             int       `json:"socks-port"`
+	Port                  int       `json:"port"`
+	ExternalUI            string    `json:"external-ui"`
+	ExternalUIDownloadURL string    `json:"external-ui-url"`
+}
+
+type TunConfig struct {
+	Enable bool `json:"enable"`
 }
 
 // GetConfigs 获取运行配置
@@ -450,24 +505,24 @@ func (c *Client) SetMode(mode string) error { // global / direct / rule
 
 // SetTUN 切换 TUN 模式
 func (c *Client) SetTUN(enable bool) error {
-	return c.PatchConfigs(map[string]interface{}{"tun-enable": enable})
+	return c.PatchConfigs(map[string]interface{}{"tun": map[string]bool{"enable": enable}})
 }
 
 // FlushFakeIP 清空 FakeIP 缓存
 func (c *Client) FlushFakeIP() error {
-	_, _, err := c.doRequest("POST", "/cache/fakeip/flush", nil)
+	_, err := c.requestOK(http.MethodPost, "/cache/fakeip/flush", nil)
 	return err
 }
 
 // FlushDNSCache 清空 DNS 缓存
 func (c *Client) FlushDNSCache() error {
-	_, _, err := c.doRequest("POST", "/cache/dns/flush", nil)
+	_, err := c.requestOK(http.MethodPost, "/cache/dns/flush", nil)
 	return err
 }
 
 // ReloadConfigs 重载配置文件
 func (c *Client) ReloadConfigs() error {
-	_, err := c.put("/configs?reload=true", nil)
+	_, err := c.put("/configs?reload=true", map[string]string{"path": "", "payload": ""})
 	return err
 }
 
@@ -480,7 +535,7 @@ func (c *Client) DNSQuery(name string, qtype string) ([]byte, error) {
 
 // RestartCore 重启核心
 func (c *Client) RestartCore() error {
-	_, _, err := c.doRequest("POST", "/restart", nil)
+	_, err := c.requestOK(http.MethodPost, "/restart", nil)
 	return err
 }
 
@@ -490,36 +545,36 @@ func (c *Client) UpgradeCore(channel string) error {
 	if channel != "" {
 		path += "?channel=" + channel
 	}
-	_, _, err := c.doRequest("POST", path, nil)
+	_, err := c.requestOK(http.MethodPost, path, nil)
 	return err
 }
 
 // UpdateGeoData 更新 GeoIP/GeoSite 数据库
 func (c *Client) UpdateGeoData() error {
-	_, _, err := c.doRequest("POST", "/configs/geo", nil)
+	_, err := c.requestOK(http.MethodPost, "/configs/geo", nil)
 	return err
 }
 
 // ==================== 连接管理 ====================// ConnectionsResponse 活跃连接列表响应
 type ConnectionsResponse struct {
-	DownloadTotal int64               `json:"downloadTotal"`
-	UploadTotal   int64               `json:"uploadTotal"`
-	Connections   []ConnectionDetail  `json:"connections"`
+	DownloadTotal int64              `json:"downloadTotal"`
+	UploadTotal   int64              `json:"uploadTotal"`
+	Connections   []ConnectionDetail `json:"connections"`
 }
 
 // ConnectionDetail 单个连接详情
 type ConnectionDetail struct {
-	ID           string            `json:"id"`
-	Metadata     ConnectionMetadata `json:"metadata"`
-	Upload       int64             `json:"upload"`
-	Download     int64             `json:"download"`
-	Start        time.Time         `json:"start"`
-	Chains       []string          `json:"chains"`
-	Rule         string            `json:"rule"`
-	RulePayload  string            `json:"rulePayload"`
-	UploadSpeed  int64             `json:"uploadSpeed"`
-	DownloadSpeed int64            `json:"downloadSpeed"`
-	Alive        bool              `json:"alive"`
+	ID            string             `json:"id"`
+	Metadata      ConnectionMetadata `json:"metadata"`
+	Upload        int64              `json:"upload"`
+	Download      int64              `json:"download"`
+	Start         time.Time          `json:"start"`
+	Chains        []string           `json:"chains"`
+	Rule          string             `json:"rule"`
+	RulePayload   string             `json:"rulePayload"`
+	UploadSpeed   int64              `json:"uploadSpeed"`
+	DownloadSpeed int64              `json:"downloadSpeed"`
+	Alive         bool               `json:"alive"`
 }
 
 // ConnectionMetadata 连接元数据
@@ -583,92 +638,108 @@ type WSMessage struct {
 // SubscribeConnections 订阅实时连接流（WebSocket）
 // 返回消息通道和取消函数。ctx 取消或调用 cancel 会关闭连接。
 func (c *Client) SubscribeConnections(ctx context.Context) (<-chan WSMessage, context.CancelFunc, error) {
-	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1) + "/connections"
-	return c.subscribeWS(ctx, wsURL)
+	return c.subscribeWS(ctx, c.websocketURL("/connections"))
 }
 
 // SubscribeTraffic 订阅实时流量统计（WebSocket）
 func (c *Client) SubscribeTraffic(ctx context.Context) (<-chan WSMessage, context.CancelFunc, error) {
-	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1) + "/traffic"
-	return c.subscribeWS(ctx, wsURL)
+	return c.subscribeWS(ctx, c.websocketURL("/traffic"))
 }
 
 // SubscribeLogs 订阅实时日志（WebSocket）
 func (c *Client) SubscribeLogs(ctx context.Context, logLevel string) (<-chan WSMessage, context.CancelFunc, error) {
-	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1) + "/logs"
+	wsURL := c.websocketURL("/logs")
 	if logLevel != "" {
-		wsURL += "?level=" + logLevel
+		wsURL += "?level=" + url.QueryEscape(logLevel)
 	}
 	return c.subscribeWS(ctx, wsURL)
+}
+
+func (c *Client) websocketURL(path string) string {
+	c.mu.RLock()
+	baseURL := c.baseURL
+	c.mu.RUnlock()
+	baseURL = strings.Replace(baseURL, "https://", "wss://", 1)
+	baseURL = strings.Replace(baseURL, "http://", "ws://", 1)
+	return baseURL + path
 }
 
 // subscribeWS 通用 WebSocket 订阅
 func (c *Client) subscribeWS(ctx context.Context, wsURL string) (<-chan WSMessage, context.CancelFunc, error) {
 	ctx2, cancel := context.WithCancel(ctx)
-
 	ch := make(chan WSMessage, 64)
 	go func() {
 		defer close(ch)
-		defer cancel()
+		backoff := time.Second
 		for {
-			select {
-			case <-ctx2.Done():
+			if ctx2.Err() != nil {
 				return
-			default:
 			}
 
-			conn, resp, err := defaultDialer.DialContext(ctx2, wsURL, nil)
+			header := http.Header{}
+			c.mu.RLock()
+			secret := c.cfg.Secret
+			c.mu.RUnlock()
+			if secret != "" {
+				header.Set("Authorization", "Bearer "+secret)
+			}
+			conn, resp, err := websocket.DefaultDialer.DialContext(ctx2, wsURL, header)
 			if err != nil {
+				connectionError := fmt.Errorf("WebSocket 连接失败: %w", err)
 				if resp != nil {
-					c.logger.Warnf("WS 连接失败(%s): %s", wsURL, resp.Status)
-				} else {
-					c.logger.Warnf("WS 连接失败(%s): %v", wsURL, err)
+					connectionError = fmt.Errorf("WebSocket 连接失败 (%s): %w", resp.Status, err)
 				}
+				c.sendWSMessage(ctx2, ch, WSMessage{Error: connectionError})
 				select {
 				case <-ctx2.Done():
 					return
-				case <-time.After(3 * time.Second):
+				case <-time.After(backoff):
+					if backoff < 8*time.Second {
+						backoff *= 2
+					}
 					continue
 				}
 			}
+			backoff = time.Second
+			connectionFinished := make(chan struct{})
+			go func() {
+				select {
+				case <-ctx2.Done():
+					_ = conn.Close()
+				case <-connectionFinished:
+				}
+			}()
 
-			// 读取循环
-			buf := make([]byte, 65536)
 			for {
-				select {
-				case <-ctx2.Done():
-					conn.Close()
-					return
-				default:
-				}
-
-				conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-				n, err := conn.ReadMessage(buf)
+				_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+				_, message, err := conn.ReadMessage()
 				if err != nil {
-					conn.Close()
-					c.logger.Debugf("WS 断开(%s): %v", wsURL, err)
-					// 重连
-					select {
-					case <-ctx2.Done():
-						return
-					case <-time.After(3 * time.Second):
-						break // 外层重连循环
+					_ = conn.Close()
+					if ctx2.Err() == nil {
+						c.logger.Debugf("WS 断开(%s): %v", wsURL, err)
 					}
+					break
 				}
-
-				msg := make([]byte, n)
-				copy(msg, buf[:n])
-				select {
-				case ch <- WSMessage{Data: msg}:
-				case <-ctx2.Done():
-					conn.Close()
+				if !c.sendWSMessage(ctx2, ch, WSMessage{Data: append(json.RawMessage(nil), message...)}) {
+					_ = conn.Close()
+					close(connectionFinished)
 					return
 				}
 			}
+			close(connectionFinished)
 		}
 	}()
 
 	return ch, cancel, nil
+}
+
+func (c *Client) sendWSMessage(ctx context.Context, ch chan<- WSMessage, message WSMessage) bool {
+	select {
+	case ch <- message:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // Ping 测试连通性（轻量级健康检查）
@@ -677,11 +748,26 @@ func (c *Client) Ping() error {
 	return err
 }
 
+func (c *Client) PingContext(ctx context.Context) error {
+	data, code, err := c.doRequestContext(ctx, http.MethodGet, "/version", nil)
+	if err != nil {
+		return err
+	}
+	if code >= 400 {
+		return fmt.Errorf("Mihomo API %d: %s", code, strings.TrimSpace(string(data)))
+	}
+	return nil
+}
+
 // SetAddress 动态切换目标地址
 func (c *Client) SetAddress(addr string) {
+	baseURL, err := normalizeControllerURL(addr)
+	if err != nil {
+		return
+	}
 	c.mu.Lock()
-	c.baseURL = fmt.Sprintf("http://%s", strings.TrimPrefix(addr, "http://"))
-	c.cfg.Address = addr
+	c.baseURL = baseURL
+	c.cfg.Address = baseURL
 	c.mu.Unlock()
 }
 
@@ -691,210 +777,3 @@ func (c *Client) GetBaseURL() string {
 	defer c.mu.RUnlock()
 	return c.baseURL
 }
-
-// ==================== 内置 WebSocket Dialer（无外部依赖）====================
-
-var defaultDialer = &wsDialer{}
-
-type wsDialer struct{}
-
-func (d *wsDialer) DialContext(ctx context.Context, urlStr string, httpHeader http.Header) (wsConn, *http.Response, error) {
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	host := u.Host
-	if _, port, _ := net.SplitHostPort(host); port == "" {
-		if u.Scheme == "wss" {
-			host += ":443"
-		} else {
-			host += ":80"
-		}
-	}
-
-	var conn net.Conn
-	dialer := &net.Dialer{}
-	conn, err = dialer.DialContext(ctx, "tcp", host)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 构建 WebSocket 握手请求
-	key := generateWSKey()
-	reqHeader := make(http.Header)
-	reqHeader.Set("Upgrade", "websocket")
-	reqHeader.Set("Connection", "Upgrade")
-	reqHeader.Set("Sec-WebSocket-Key", key)
-	reqHeader.Set("Sec-WebSocket-Version", "13")
-	reqHeader.Set("Host", host)
-	for k, v := range httpHeader {
-		reqHeader[k] = v
-	}
-	if u.RawQuery != "" {
-		reqHeader.Set("GET", u.Path+"?"+u.RawQuery)
-	} else {
-		reqHeader.Set("GET", u.Path)
-	}
-
-	// 发送握手请求
-	var reqBuf bytes.Buffer
-	fmt.Fprintf(&reqBuf, "GET %s HTTP/1.1\r\n", reqHeader.Get("GET"))
-	reqHeader.Write(&reqBuf)
-	reqBuf.WriteString("\r\n")
-
-	if _, err := conn.Write(reqBuf.Bytes()); err != nil {
-		conn.Close()
-		return nil, nil, err
-	}
-
-	// 读取握手响应
-	br := bufio.NewReader(conn)
-	req, _ := http.NewRequest("GET", urlStr, nil)
-	resp, err := http.ReadResponse(br, req)
-	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("WS 握手响应失败: %w", err)
-	}
-
-	if resp.StatusCode != 101 {
-		conn.Close()
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, resp, fmt.Errorf("WS 握手失败: status %s: %s", resp.Status, string(body))
-	}
-
-	return &basicWsConn{conn: conn}, resp, nil
-}
-
-func generateWSKey() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return base64.StdEncoding.EncodeToString(b)
-}
-
-// wsConn 接口（兼容 gorilla/websocket）
-type wsConn interface {
-	ReadMessage([]byte) (int, error)
-	WriteMessage(int, []byte) error
-	Close() error
-	SetReadDeadline(time.Time) error
-}
-
-type basicWsConn struct {
-	conn net.Conn
-	rbuf  bytes.Buffer
-}
-
-const (
-	wsOpContinuation = 0x0
-	wsOpText         = 0x1
-	wsOpBinary       = 0x2
-	wsOpClose        = 0x8
-	wsOpPing         = 0x9
-	wsOpPong         = 0xa
-)
-
-func (c *basicWsConn) ReadMessage(buf []byte) (int, error) {
-	// 读取帧头（2 字节基础 + 可选扩展长度 + 掩码）
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(c.conn, header); err != nil {
-		return 0, err
-	}
-
-	opcode := header[0] & 0x0f
-	masked := (header[1] & 0x80) != 0
-	payloadLen := uint64(header[1] & 0x7f)
-
-	switch payloadLen {
-	case 126:
-		ext := make([]byte, 2)
-		io.ReadFull(c.conn, ext)
-		payloadLen = uint64(ext[0])<<8 | uint64(ext[1])
-	case 127:
-		ext := make([]byte, 8)
-		io.ReadFull(c.conn, ext)
-		payloadLen = uint64(ext[0])<<56 | uint64(ext[1])<<48 | uint64(ext[2])<<40 | uint64(ext[3])<<32 |
-			uint64(ext[4])<<24 | uint64(ext[5])<<16 | uint64(ext[6])<<8 | uint64(ext[7])
-	}
-
-	var maskKey [4]byte
-	if masked {
-		io.ReadFull(c.conn, maskKey[:])
-	}
-
-	if int(payloadLen) > len(buf) {
-		payloadLen = uint64(len(buf))
-	}
-
-	data := buf[:payloadLen]
-	io.ReadFull(c.conn, data)
-
-	if masked {
-		for i := range data {
-			data[i] ^= maskKey[i%4]
-		}
-	}
-
-	switch opcode {
-	case wsOpClose:
-		c.Close()
-		return 0, fmt.Errorf("server sent close frame")
-	case wsOpPing:
-		c.WriteMessage(wsOpPong, data)
-		return c.ReadMessage(buf)
-	default:
-		// 文本/二帧/续帧：返回数据
-		if opcode == wsOpText || opcode == wsOpBinary {
-			return int(payloadLen), nil
-		}
-		// 续帧：继续读并追加到 rbuf
-		c.rbuf.Write(data)
-		n, err := c.ReadMessage(buf[:cap(data)])
-		if err != nil {
-			return int(payloadLen), nil
-		}
-		total := copy(data, c.rbuf.Bytes())
-		copy(data[total:], buf[:n])
-		return total + n, nil
-	}
-}
-
-func (c *basicWsConn) WriteMessage(opcode int, data []byte) error {
-	var header [10]byte
-	var nHeader int
-
-	header[0] = 0x80 | byte(opcode) // FIN + opcode
-
-	length := len(data)
-	switch {
-	case length < 126:
-		header[1] = byte(length)
-		nHeader = 2
-	case length < 65536:
-		header[1] = 126
-		header[2] = byte(length >> 8)
-		header[3] = byte(length)
-		nHeader = 4
-	default:
-		header[1] = 127
-		for i := 8; i >= 1; i-- {
-			header[nHeader+9-i] = byte(length >> ((8 - i) * 8))
-		}
-		nHeader = 10
-	}
-
-	if _, err := c.conn.Write(header[:nHeader]); err != nil {
-		return err
-	}
-	if len(data) > 0 {
-		_, err := c.conn.Write(data)
-		return err
-	}
-	return nil
-}
-
-func (c *basicWsConn) Close() error { return c.conn.Close() }
-func (c *basicWsConn) SetReadDeadline(t time.Time) error { return c.conn.SetReadDeadline(t) }
-
-// basicWsConn 实现 wsConn 接口
