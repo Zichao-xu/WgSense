@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,11 +34,14 @@ func main() {
 	passive := flag.Bool("passive", false, "被动模式：仅启动文件传输和本地 API，不运行 WireGuard 策略或 Mihomo")
 	autoConnect := flag.Bool("auto-connect-untrusted", false, "当前网络不在受信任前缀内时自动连接 WireGuard（默认关闭）")
 	autoConnectAway := flag.Bool("auto-connect-away", false, "兼容旧参数：非受信任网络自动连接 WireGuard")
+	trustedPrefixes := flag.String("trusted-network-prefixes", "", "逗号分隔的受信任 IPv4 前缀")
+	startPaused := flag.Bool("start-paused", true, "启动时暂停自动网络策略")
 	appOwned := flag.Bool("app-owned", false, "由当前 GUI App 临时启动；App 退出时允许通过 API 关闭")
 	flag.Parse()
 
 	cfg := config.Default()
 	cfg.AutoConnectUntrusted = *autoConnect || *autoConnectAway
+	cfg.TrustedNetworkPrefixes = splitCommaSeparated(*trustedPrefixes)
 	cfg.Normalize()
 
 	// 运行时状态目录
@@ -55,6 +59,11 @@ func main() {
 	tun := tunnel.New(cDir)
 	hc := healthcheck.New(cfg.HealthCheckTarget)
 	p := pause.New(pauseFile)
+	if *startPaused {
+		_ = p.Pause()
+	} else {
+		_ = p.Resume()
+	}
 	eng := policy.New(cfg, loc, tun, hc, p)
 	eng.SetService("default") // 默认 profile，可从 /api/profiles 选
 	eng.SetPassive(*passive)
@@ -139,6 +148,16 @@ func main() {
 	if err := apiSrv.Start(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func splitCommaSeparated(value string) []string {
+	var values []string
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return values
 }
 
 // runtimeDir 返回运行时状态目录。

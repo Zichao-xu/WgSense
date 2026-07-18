@@ -33,6 +33,7 @@ class DaemonClient: ObservableObject {
     @AppStorage("autoUpGraceSeconds") var autoUpGraceSeconds: Int = 20
     @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = "10.10.1."
     @AppStorage("autoConnectUntrusted") var autoConnectUntrusted: Bool = true
+    @AppStorage("guardAutomationEnabled") private var guardAutomationEnabled: Bool = false
 
     private let api = DaemonAPIClient()
     private let controlAPI = DaemonControlAPIClient()
@@ -154,12 +155,15 @@ class DaemonClient: ObservableObject {
         let runtimePath = NSHomeDirectory() + "/.local/share/wgsense"
         let downloadPath = NSHomeDirectory() + "/.local/share/wgsense/incoming"
         let autoConnect = autoConnectUntrusted ? "true" : "false"
+        let startPaused = guardAutomationEnabled ? "false" : "true"
+        let trustedPrefixes = trustedNetworkPrefixes
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let daemon = daemonPath.replacingOccurrences(of: "'", with: "'\\''")
                 let runtime = runtimePath.replacingOccurrences(of: "'", with: "'\\''")
                 let downloads = downloadPath.replacingOccurrences(of: "'", with: "'\\''")
-                let shellCmd = "'\(daemon)' --api 127.0.0.1:8765 --runtime-dir '\(runtime)' --download-dir '\(downloads)' --auto-connect-untrusted=\(autoConnect) --app-owned=true </dev/null >>/var/log/wgsense-daemon.log 2>&1 &"
+                let prefixes = trustedPrefixes.replacingOccurrences(of: "'", with: "'\\''")
+                let shellCmd = "'\(daemon)' --api 127.0.0.1:8765 --runtime-dir '\(runtime)' --download-dir '\(downloads)' --trusted-network-prefixes '\(prefixes)' --auto-connect-untrusted=\(autoConnect) --start-paused=\(startPaused) --app-owned=true </dev/null >>/var/log/wgsense-daemon.log 2>&1 &"
                 let escaped = shellCmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                 let script = "do shell script \"\(escaped)\" with administrator privileges"
 
@@ -235,6 +239,7 @@ class DaemonClient: ObservableObject {
     func fetchStatus() async {
         do {
             status = try await controlAPI.status()
+            guardAutomationEnabled = !(status?.paused ?? true)
             markDaemonUp()
         } catch {
             status = nil
@@ -299,6 +304,7 @@ class DaemonClient: ObservableObject {
 
     /// 守护开关代表完整网络策略：受信任网络断开，非受信任网络自动连接。
     func setGuardEnabled(_ enabled: Bool) async {
+        guardAutomationEnabled = enabled
         if enabled {
             autoConnectUntrusted = true
             guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else { return }
@@ -346,7 +352,7 @@ class DaemonClient: ObservableObject {
     }
 
     private func connectVPN() async {
-        setPending(connect: true, guardRunning: true, paused: false)
+        setPending(connect: true, guardRunning: nil, paused: nil)
         guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else {
             clearPendingState()
             return
@@ -356,10 +362,6 @@ class DaemonClient: ObservableObject {
         do {
             let current = try await controlAPI.status(timeout: 2)
             status = current
-            if current.paused {
-                try await controlAPI.command("resume", timeout: 5)
-                await fetchStatus()
-            }
 
             optimisticUpdate("connect")
             // Connect waits for endpoint resolution and WireGuard handshake. Keep this
@@ -417,7 +419,7 @@ class DaemonClient: ObservableObject {
     private func setPending(for endpoint: String) {
         switch endpoint {
         case "connect":
-            setPending(connect: true, guardRunning: true, paused: false)
+            setPending(connect: true, guardRunning: nil, paused: nil)
         case "disconnect":
             setPending(connect: false, guardRunning: nil, paused: nil)
         case "pause":

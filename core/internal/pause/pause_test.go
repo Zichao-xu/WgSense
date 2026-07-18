@@ -46,3 +46,14 @@ func TestIsPausedNoFile(t *testing.T) {
 		t.Error("文件不存在时应未暂停")
 	}
 }
+
+func TestResumeIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir + "/pause-marker")
+	if err := c.Resume(); err != nil {
+		t.Fatalf("Resume with no marker returned error: %v", err)
+	}
+	if err := c.Resume(); err != nil {
+		t.Fatalf("second Resume returned error: %v", err)
+	}
+}

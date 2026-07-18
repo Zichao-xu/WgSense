@@ -38,7 +38,11 @@ func (c defaultController) Pause() error {
 }
 
 func (c defaultController) Resume() error {
-	return os.Remove(c.stateFile)
+	err := os.Remove(c.stateFile)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func (c defaultController) IsPaused() bool {
