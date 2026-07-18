@@ -544,6 +544,7 @@ struct ProxyGroupCard: View {
                         DelayDot(delay: d)
                     } else {
                         Text("--").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                    }
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
