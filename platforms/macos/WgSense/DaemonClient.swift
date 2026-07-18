@@ -207,13 +207,18 @@ class DaemonClient: ObservableObject {
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             Task { @MainActor in
                 await self.fetchStatus()
+                if self.status != nil { await self.fetchTransferState() }
                 // 每 3 次轮询拉一次流量（约 6 秒间隔）
                 tick += 1
                 if tick % 3 == 0 { await self.fetchTraffic() }
             }
         }
         // 立即拉一次
-        Task { await fetchStatus(); await fetchTraffic() }
+        Task {
+            await fetchStatus()
+            if status != nil { await fetchTransferState() }
+            await fetchTraffic()
+        }
     }
 
     func stopPolling() {
@@ -233,6 +238,7 @@ class DaemonClient: ObservableObject {
             markDaemonUp()
         } catch {
             status = nil
+            transferState = nil
             errorMsg = "daemon 未连接"
         }
     }
@@ -734,6 +740,19 @@ class DaemonClient: ObservableObject {
             alertMsg = "取消发送失败: \(error.localizedDescription)"
             return false
         }
+    }
+
+    /// 启动文件传输所需的应用自有后台服务，不连接 WireGuard。
+    func startDaemonForTransfer() async -> Bool {
+        let ok = await ensureDaemon(requireActive: false, authorizeIfNeeded: true)
+        guard ok else {
+            transferError = errorMsg ?? "后台服务启动失败"
+            return false
+        }
+        await fetchTransferState()
+        await fetchTransferDevices(timeoutSec: 2)
+        await fetchTransferTasks()
+        return true
     }
 
     // MARK: - 代理管理 (Mihomo)

@@ -606,11 +606,17 @@ struct SidebarView: View {
         Group {
             if let state = client.transferState {
                 HStack(spacing: 4) {
-                    Circle().fill(state.running ? Color.green : Color.red)
-                        .frame(width: 7, height: 7)
-                    Text(state.running ? "运行中" : "已停止")
-                        .font(.caption2).foregroundStyle(state.running ? .green : .red)
+                    if state.pending.isEmpty {
+                        Circle().fill(state.running ? Color.green : Color.red).frame(width: 7, height: 7)
+                        Text(state.running ? "运行中" : "已停止")
+                            .font(.caption2).foregroundStyle(state.running ? .green : .red)
+                    } else {
+                        Image(systemName: "tray.and.arrow.down.fill")
+                        Text("\(state.pending.count) 待确认")
+                    }
                 }
+                .font(.caption2)
+                .foregroundStyle(state.pending.isEmpty ? (state.running ? Color.green : Color.red) : Color.orange)
             } else {
                 Text("--").font(.caption2).foregroundStyle(.tertiary)
             }
@@ -1978,6 +1984,7 @@ struct TransferReceiveView: View {
     @EnvironmentObject var client: DaemonClient
     @State private var togglingReceive = false
     @State private var resolvingRequestID: String?
+    @State private var startingDaemon = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -2038,6 +2045,17 @@ struct TransferReceiveView: View {
                     else { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange) }
                     Text(client.transferError ?? "正在连接 daemon...").font(.body).foregroundStyle(.secondary)
                     Spacer()
+                    if client.transferError != nil {
+                        Button(startingDaemon ? "正在启动..." : "启动后台服务") {
+                            Task {
+                                startingDaemon = true
+                                _ = await client.startDaemonForTransfer()
+                                startingDaemon = false
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(startingDaemon)
+                    }
                 }
                 .frame(maxWidth: .infinity).padding()
                 .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
@@ -2210,6 +2228,7 @@ struct TransferSendView: View {
     @State private var isScanning = false
     @State private var showAddDeviceSheet = false
     @State private var addDeviceAddr = ""
+    @State private var startingDaemon = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -2301,6 +2320,17 @@ struct TransferSendView: View {
                 Text(client.transferError ?? "暂无发现设备").font(.headline).foregroundStyle(.secondary)
                 Text(client.transferError == nil ? "点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址" : "传输功能需要连接到 WgSense daemon")
                     .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                if client.transferError != nil {
+                    Button(startingDaemon ? "正在启动..." : "启动后台服务") {
+                        Task {
+                            startingDaemon = true
+                            _ = await client.startDaemonForTransfer()
+                            startingDaemon = false
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(startingDaemon)
+                }
             }
         }
         .frame(maxWidth: .infinity).padding(40)
