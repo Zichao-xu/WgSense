@@ -130,11 +130,7 @@ private struct SidebarResizeHandle: NSViewRepresentable {
     }
 
     private func resize(by delta: CGFloat) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            width = min(maximumWidth, max(minimumWidth, width + delta))
-        }
+        width = min(maximumWidth, max(minimumWidth, width + delta))
     }
 }
 
@@ -275,6 +271,7 @@ struct SidebarView: View {
     @State private var showProfileDeleteConfirm = false
     @State private var contextMenuTile: TileData? = nil  // 长按/右键磁贴时弹菜单
     @State private var contextMenuAnchor: CGPoint = .zero
+    @Namespace private var tileLayoutNamespace
 
     // VPN 状态快捷访问
     private var isConnected: Bool { client.isVPNOn }
@@ -1420,7 +1417,7 @@ struct SidebarView: View {
         .padding(.horizontal, outerPadding)
         .padding(.vertical, WgTheme.tileGap)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: tiles.map { $0.kind })
-        .animation(.smooth(duration: 0.24), value: columnCount)
+        .animation(.smooth(duration: 0.3), value: columnCount)
         // 空白处点击退出编辑
         .onTapGesture {
             if isEditMode {
@@ -1510,6 +1507,7 @@ struct SidebarView: View {
                     .clipped()
             }
         }
+        .matchedGeometryEffect(id: tile.id, in: tileLayoutNamespace)
         .contextMenu { tileContextMenu(tile) }
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 1.5).onEnded { _ in
