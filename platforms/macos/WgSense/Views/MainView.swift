@@ -69,16 +69,24 @@ extension View {
 struct MainView: View {
     @EnvironmentObject var client: DaemonClient
     @State private var selection: SidebarTab = .dashboard
+    @State private var sidebarWidth: CGFloat = 300
+
+    private let sidebarMinWidth: CGFloat = 176
+    private let sidebarMaxWidth: CGFloat = 620
 
     var body: some View {
         HStack(spacing: 0) {
             SidebarView(selection: $selection)
-                .frame(width: 260)
+                .frame(width: sidebarWidth)
                 .background(WgTheme.sidebarBg)
 
-            Rectangle()
-                .fill(WgTheme.cardBorder)
-                .frame(width: 1)
+            SidebarResizeHandle(
+                width: $sidebarWidth,
+                minimumWidth: sidebarMinWidth,
+                maximumWidth: sidebarMaxWidth
+            )
+            .frame(width: 7)
+            .background(WgTheme.bg)
 
             ScrollView {
                 Group {
@@ -104,6 +112,44 @@ struct MainView: View {
         }
     }
 }
+
+#if canImport(AppKit)
+private struct SidebarResizeHandle: NSViewRepresentable {
+    @Binding var width: CGFloat
+    let minimumWidth: CGFloat
+    let maximumWidth: CGFloat
+
+    func makeNSView(context: Context) -> SidebarResizeHandleView {
+        let view = SidebarResizeHandleView()
+        view.onDrag = resize(by:)
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarResizeHandleView, context: Context) {
+        nsView.onDrag = resize(by:)
+    }
+
+    private func resize(by delta: CGFloat) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            width = min(maximumWidth, max(minimumWidth, width + delta))
+        }
+    }
+}
+
+private final class SidebarResizeHandleView: NSView {
+    var onDrag: ((CGFloat) -> Void)?
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        onDrag?(event.deltaX)
+    }
+}
+#endif
 
 // MARK: - Tab 枚举
 
@@ -261,8 +307,10 @@ struct SidebarView: View {
             Divider().opacity(0.15).padding(.horizontal, 12)
 
             // 磁贴网格区域
-            ScrollView {
-                tileGridContent
+            GeometryReader { geometry in
+                ScrollView {
+                    tileGridContent(availableWidth: geometry.size.width)
+                }
             }
 
             Spacer(minLength: 0)
@@ -1340,33 +1388,39 @@ struct SidebarView: View {
 
     // MARK: - 磁贴网格（手动行打包 + VStack/HStack，medium/large 独占一行）
 
-    private var tileGridContent: some View {
-        let rows = buildTileRows()
+    private func tileGridContent(availableWidth: CGFloat) -> some View {
+        let outerPadding: CGFloat = 12
+        let usableWidth = max(1, availableWidth - outerPadding * 2)
+        let minimumCellWidth: CGFloat = 112
+        let columnCount = max(1, Int((usableWidth + WgTheme.tileGap) / (minimumCellWidth + WgTheme.tileGap)))
+        let cellWidth = max(1, (usableWidth - CGFloat(columnCount - 1) * WgTheme.tileGap) / CGFloat(columnCount))
+        let rows = buildTileRows(columnCount: columnCount)
         return VStack(spacing: WgTheme.tileGap) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 if !row.isEmpty {
-                    // 单个 small 磁贴需要占位符保持半宽
-                    let isSingleSmall = row.count == 1 && row[0].size == .small
+                    let usedColumns = row.reduce(0) { $0 + tileSpan($1, columnCount: columnCount) }
 
                     HStack(spacing: WgTheme.tileGap) {
-                        if isSingleSmall {
-                            tileCell(row[0])
-                            Color.clear  // 占位，保持 small 为半宽
-                        } else {
-                            ForEach(row) { tile in
-                                tileCell(tile)
-                            }
+                        ForEach(row) { tile in
+                            let span = tileSpan(tile, columnCount: columnCount)
+                            tileCell(
+                                tile,
+                                width: cellWidth * CGFloat(span) + WgTheme.tileGap * CGFloat(span - 1)
+                            )
+                        }
+                        if usedColumns < columnCount {
+                            let remaining = columnCount - usedColumns
+                            Color.clear
+                                .frame(width: cellWidth * CGFloat(remaining) + WgTheme.tileGap * CGFloat(max(remaining - 1, 0)))
                         }
                     }
                 }
             }
         }
-        .padding(.horizontal, WgTheme.tileGap)
-        .padding(.top, WgTheme.tileGap)
-        .padding(.bottom, WgTheme.tileGap)
+        .padding(.horizontal, outerPadding)
+        .padding(.vertical, WgTheme.tileGap)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: tiles.map { $0.kind })
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .animation(.smooth(duration: 0.24), value: columnCount)
         // 空白处点击退出编辑
         .onTapGesture {
             if isEditMode {
@@ -1440,19 +1494,19 @@ struct SidebarView: View {
 
     /// 单个磁贴单元格（三种尺寸模式各自固定物理尺寸）
     @ViewBuilder
-    private func tileCell(_ tile: TileData) -> some View {
+    private func tileCell(_ tile: TileData, width: CGFloat) -> some View {
         Group {
             if tile.size == .small {
                 cellBody(tile)
-                    .frame(width: WgTheme.tileX, height: WgTheme.tileY)
+                    .frame(width: width, height: WgTheme.tileY)
                     .clipped()
             } else if tile.size == .medium {
                 cellBody(tile)
-                    .frame(width: WgTheme.tileX * 2 + WgTheme.tileGap, height: WgTheme.tileY)
+                    .frame(width: width, height: WgTheme.tileY)
                     .clipped()
             } else {
                 cellBody(tile)
-                    .frame(width: WgTheme.tileX * 2 + WgTheme.tileGap, height: WgTheme.tileY * 2 + WgTheme.tileGap)
+                    .frame(width: width, height: WgTheme.tileY * 2 + WgTheme.tileGap)
                     .clipped()
             }
         }
@@ -1590,35 +1644,32 @@ struct SidebarView: View {
 
     /// 网格布局引擎：2列网格，支持 small(1格)/medium(2格全宽)/large(4格=2行)
     /// 手动行打包：small 两个并排，medium/large 独占一行（只占 1 列宽）
-    func buildTileRows() -> [[TileData]] {
+    private func tileSpan(_ tile: TileData, columnCount: Int) -> Int {
+        tile.size == .small ? 1 : min(2, columnCount)
+    }
+
+    func buildTileRows(columnCount: Int) -> [[TileData]] {
         var result: [[TileData]] = []
-        var i = 0
+        var row: [TileData] = []
+        var usedColumns = 0
 
-        while i < tiles.count {
-            let tile = tiles[i]
-
-            switch tile.size {
-            case .small:
-                // 尝试和下一个 small 并排
-                if i + 1 < tiles.count && tiles[i + 1].size == .small {
-                    result.append([tile, tiles[i + 1]])
-                    i += 2
-                } else {
-                    // 单个 small 独占一行（渲染时限制为半宽）
-                    result.append([tile])
-                    i += 1
-                }
-
-            case .medium:
-                result.append([tile])
-                i += 1
-
-            case .large:
-                result.append([tile])
-                result.append([])  // large 占用的第二行
-                i += 1
+        for tile in tiles {
+            let span = tileSpan(tile, columnCount: columnCount)
+            if !row.isEmpty && usedColumns + span > columnCount {
+                result.append(row)
+                row = []
+                usedColumns = 0
+            }
+            row.append(tile)
+            usedColumns += span
+            if usedColumns == columnCount {
+                result.append(row)
+                row = []
+                usedColumns = 0
             }
         }
+
+        if !row.isEmpty { result.append(row) }
 
         return result.isEmpty ? [[]] : result
     }
