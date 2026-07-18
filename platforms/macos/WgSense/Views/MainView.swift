@@ -208,8 +208,8 @@ struct SidebarView: View {
     @State private var contextMenuAnchor: CGPoint = .zero
 
     // VPN 状态快捷访问
-    private var isConnected: Bool { client.status?.state == "Connected" }
-    private var guardRunning: Bool { client.status?.paused == false }
+    private var isConnected: Bool { client.isVPNOn }
+    private var guardRunning: Bool { client.isGuardOn }
 
     init(selection: Binding<SidebarTab>) {
         self._selection = selection
@@ -402,13 +402,12 @@ struct SidebarView: View {
                 if isEditMode { editOverlay(tile) }
             }
             // 日志数据后台持续拉取（切换到中/大尺寸时立即可用）
-            .task(id: tile.kind == .logs ? UUID() : nil) {
+            .task {
                 if tile.kind == .logs {
                     await client.fetchLogs(n: 15)
-                    try? await Task.sleep(for: .seconds(2))
                     while !Task.isCancelled && tile.kind == .logs {
-                        await client.fetchLogs(n: 15)
                         try? await Task.sleep(for: .seconds(3))
+                        await client.fetchLogs(n: 15)
                     }
                 }
             }
@@ -426,7 +425,7 @@ struct SidebarView: View {
         case .guardMode:
             isOn = guardRunning; tintColor = .blue
         case .pause:
-            isOn = (client.status?.paused ?? false); tintColor = .orange
+            isOn = client.isPauseOn; tintColor = .orange
         default:
             isOn = false; tintColor = .gray
         }
@@ -434,17 +433,11 @@ struct SidebarView: View {
         return Button {
             switch tile.kind {
             case .vpn:
-                Task {
-                    if isConnected { await client.post("disconnect") } else {
-                        await client.postAndWait("resume")
-                        try? await Task.sleep(for: .seconds(0.8))
-                        await client.postAndWait("connect")
-                    }
-                }
+                Task { await client.post(isConnected ? "disconnect" : "connect") }
             case .guardMode:
-                Task { await client.post(guardRunning ? "pause" : "resume") }
+                Task { await client.setGuardEnabled(!guardRunning) }
             case .pause:
-                Task { await client.post((client.status?.paused ?? false) ? "resume" : "pause") }
+                Task { await client.post(client.isPauseOn ? "resume" : "pause") }
             default: break
             }
         } label: {
@@ -515,14 +508,7 @@ struct SidebarView: View {
             subtitle: isConnected ? "已连" : "断开",
             isOn: isConnected
         ) {
-            Task {
-                if isConnected { await client.post("disconnect") }
-                else {
-                    await client.postAndWait("resume")
-                    try? await Task.sleep(for: .seconds(0.8))
-                    await client.postAndWait("connect")
-                }
-            }
+            Task { await client.post(isConnected ? "disconnect" : "connect") }
         } onTap: {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
         }
@@ -537,8 +523,7 @@ struct SidebarView: View {
             subtitle: guardRunning ? "运行中" : "暂停",
             isOn: guardRunning
         ) {
-            let ep = guardRunning ? "pause" : "resume"
-            Task { await client.post(ep) }
+            Task { await client.setGuardEnabled(!guardRunning) }
         } onTap: {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
         }
@@ -1005,11 +990,9 @@ struct SidebarView: View {
                     .padding(.top, 8)
                     .padding(.horizontal, 4)
                 }
-                .onChange(of: client.logLines.count) { _ in
+                .onChange(of: client.logLines.count) { _, _ in
                     if let last = client.logLines.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                        proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
             }
@@ -1019,12 +1002,11 @@ struct SidebarView: View {
         .background(WgTheme.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
         .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .task(id: UUID()) {
+        .task {
             await client.fetchLogs(n: 30)
-            try? await Task.sleep(for: .seconds(2))
             while !Task.isCancelled {
-                await client.fetchLogs(n: 30)
                 try? await Task.sleep(for: .seconds(3))
+                await client.fetchLogs(n: 30)
             }
         }
         .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
