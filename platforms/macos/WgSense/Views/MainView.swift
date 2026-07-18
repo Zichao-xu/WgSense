@@ -1994,8 +1994,8 @@ extension Notification.Name {
 // MARK: - 接收页（独立视图）
 struct TransferReceiveView: View {
     @EnvironmentObject var client: DaemonClient
-    @State private var autoSaveMode = 0
-    private let autoSaveLabels = ["关", "收藏夹", "开"]
+    @State private var togglingReceive = false
+    @State private var resolvingRequestID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -2012,10 +2012,26 @@ struct TransferReceiveView: View {
                 }
                 Spacer()
                 if let state = client.transferState {
-                    HStack(spacing: 6) {
-                        Circle().fill(state.running ? Color.green : Color.red).frame(width: 10, height: 10)
-                        Text(state.running ? "运行中" : "已停止").font(.callout.weight(.medium))
-                            .foregroundStyle(state.running ? .green : .red)
+                    HStack(spacing: 10) {
+                        HStack(spacing: 6) {
+                            Circle().fill(state.running ? Color.green : Color.red).frame(width: 10, height: 10)
+                            Text(state.running ? "运行中" : "已停止").font(.callout.weight(.medium))
+                                .foregroundStyle(state.running ? .green : .red)
+                        }
+                        Toggle("", isOn: Binding(
+                            get: { client.transferState?.running ?? false },
+                            set: { enabled in
+                                Task {
+                                    togglingReceive = true
+                                    let ok = await client.setTransferReceiveEnabled(enabled)
+                                    if !ok { await client.fetchTransferState() }
+                                    togglingReceive = false
+                                }
+                            }
+                        ))
+                        .labelsHidden()
+                        .disabled(togglingReceive)
+                        if togglingReceive { ProgressView().controlSize(.small) }
                     }
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 8).fill((state.running ? Color.green : Color.red).opacity(0.1)))
@@ -2035,33 +2051,63 @@ struct TransferReceiveView: View {
                 .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
                 .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
             } else {
-                HStack(spacing: 12) { ProgressView(); Text("正在连接 daemon...").font(.body).foregroundStyle(.secondary) }
+                HStack(spacing: 12) {
+                    if client.transferError == nil { ProgressView() }
+                    else { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange) }
+                    Text(client.transferError ?? "正在连接 daemon...").font(.body).foregroundStyle(.secondary)
+                    Spacer()
+                }
                 .frame(maxWidth: .infinity).padding()
+                .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("自动保存").font(.headline.weight(.semibold))
-                HStack(spacing: 12) {
-                    ForEach(0..<autoSaveLabels.count, id: \.self) { i in
-                        Button { withAnimation { autoSaveMode = i } } label: {
-                            Text(autoSaveLabels[i])
-                                .font(.callout.weight(autoSaveMode == i ? .semibold : .regular))
-                                .foregroundStyle(autoSaveMode == i ? .white : .primary)
-                                .frame(maxWidth: .infinity).padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(autoSaveMode == i ? WgTheme.accent : WgTheme.cardBg)
-                                        .overlay(RoundedRectangle(cornerRadius: 8)
-                                            .stroke(autoSaveMode == i ? WgTheme.accent : WgTheme.cardBorder, lineWidth: 1))
-                                )
-                        }.buttonStyle(.plain)
+                HStack {
+                    Text("待接收").font(.headline.weight(.semibold))
+                    Spacer()
+                    if let count = client.transferState?.pending.count, count > 0 {
+                        Text("\(count)").font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Capsule().fill(WgTheme.accent))
                     }
+                }
+                if let pending = client.transferState?.pending, !pending.isEmpty {
+                    ForEach(pending) { pendingRequestRow($0) }
+                } else {
+                    HStack(spacing: 10) {
+                        Image(systemName: "tray.and.arrow.down").foregroundStyle(.tertiary)
+                        Text("暂无待确认的传输").font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+                }
+            }
+
+            if let active = client.transferState?.active, !active.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("接收中").font(.headline.weight(.semibold))
+                    ForEach(active) { activeTransferRow($0) }
+                }
+            }
+
+            if let history = client.transferState?.history, !history.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("最近接收").font(.headline.weight(.semibold))
+                    ForEach(Array(history.prefix(5))) { historyTransferRow($0) }
                 }
             }
             Spacer()
         }
         .padding(28)
-        .onAppear { Task { await client.fetchTransferState() } }
+        .task {
+            while !Task.isCancelled {
+                await client.fetchTransferState()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 
     private func receiveInfoRow(_ label: String, value: String) -> some View {
@@ -2069,6 +2115,92 @@ struct TransferReceiveView: View {
             Text(label).font(.caption).foregroundStyle(.tertiary)
             Text(value).font(.body.weight(.medium)).foregroundStyle(.primary)
         }
+    }
+
+    private func pendingRequestRow(_ request: DaemonClient.TransferPendingRequest) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "desktopcomputer.and.arrow.down")
+                .font(.system(size: 22)).foregroundStyle(WgTheme.accent)
+                .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(request.alias).font(.body.weight(.semibold))
+                Text("\(request.files.count) 个文件 · \(formattedBytes(request.totalSize)) · \(request.ip)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(request.files.prefix(3).map(\.name).joined(separator: "、"))
+                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            Spacer()
+            if resolvingRequestID == request.id {
+                ProgressView().controlSize(.small).frame(width: 72)
+            } else {
+                Button(role: .destructive) { resolve(request, accepted: false) } label: {
+                    Image(systemName: "xmark").frame(width: 20, height: 20)
+                }
+                .buttonStyle(.bordered).help("拒绝")
+                Button { resolve(request, accepted: true) } label: {
+                    Label("接受", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+    }
+
+    private func resolve(_ request: DaemonClient.TransferPendingRequest, accepted: Bool) {
+        resolvingRequestID = request.id
+        Task {
+            _ = await client.resolveTransferRequest(request.id, accepted: accepted)
+            resolvingRequestID = nil
+        }
+    }
+
+    private func activeTransferRow(_ progress: DaemonClient.TransferFileProgress) -> some View {
+        let total = max(progress.totalBytes, 1)
+        let fraction = min(max(Double(progress.doneBytes) / Double(total), 0), 1)
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Image(systemName: "arrow.down.doc.fill").foregroundStyle(WgTheme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(progress.fileName).font(.body.weight(.medium)).lineLimit(1)
+                    Text("来自 \(progress.sender) · \(progress.senderIP)").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(Int(fraction * 100))%")
+                    .font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+            }
+            ProgressView(value: fraction).animation(.easeOut(duration: 0.18), value: progress.doneBytes)
+            HStack { Text(formattedBytes(progress.doneBytes)); Spacer(); Text(formattedBytes(progress.totalBytes)) }
+                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+    }
+
+    private func historyTransferRow(_ progress: DaemonClient.TransferFileProgress) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: progress.status == "completed" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(progress.status == "completed" ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(progress.fileName).font(.callout.weight(.medium)).lineLimit(1)
+                Text(progress.status == "completed"
+                     ? "\(progress.sender) · \(formattedBytes(progress.doneBytes))"
+                     : "\(progress.sender) · \(progress.error ?? "传输失败")")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Text(progress.status == "completed" ? "已完成" : "失败")
+                .font(.caption.weight(.medium)).foregroundStyle(progress.status == "completed" ? .green : .orange)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+    }
+
+    private func formattedBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
@@ -2078,6 +2210,7 @@ struct TransferSendView: View {
 
     enum SendType: String, CaseIterable {
         case file, folder, text, clipboard
+        static var supportedCases: [SendType] { [.file, .folder] }
         var icon: String {
             switch self { case .file: return "doc"; case .folder: return "folder"; case .text: return "text.bubble"; case .clipboard: return "clipboard" }
         }
@@ -2090,7 +2223,7 @@ struct TransferSendView: View {
     @State private var showFilePicker = false
     @State private var showFolderPicker = false
     @State private var selectedDevice: DaemonClient.TransferDevice?
-    @State private var sending = false
+    @State private var isStartingSend = false
     @State private var lastSendResult: String?
     @State private var isScanning = false
     @State private var showAddDeviceSheet = false
@@ -2102,7 +2235,7 @@ struct TransferSendView: View {
                 Text("发送").font(.system(size: 22, weight: .bold)).foregroundStyle(.primary)
                     .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 16)
                 Text("发送类型").font(.caption).fontWeight(.medium).foregroundStyle(.tertiary).padding(.horizontal, 20)
-                ForEach(SendType.allCases, id: \.self) { type in
+                ForEach(SendType.supportedCases, id: \.self) { type in
                     Button { selectSendType(type) } label: {
                         HStack(spacing: 12) {
                             Image(systemName: type.icon).font(.system(size: 16, weight: .medium)).frame(width: 24)
@@ -2123,7 +2256,13 @@ struct TransferSendView: View {
             Rectangle().fill(WgTheme.cardBorder.opacity(0.5)).frame(width: 1)
             ScrollView { sendContentArea.padding(32) }.background(WgTheme.bg)
         }
-        .onAppear { Task { await loadInitialData() } }
+        .task {
+            await loadInitialData()
+            while !Task.isCancelled {
+                await client.fetchTransferTasks()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data, .image, .movie, .audio], allowsMultipleSelection: true) { handleFileSelection($0) }
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder], allowsMultipleSelection: false) { handleFileSelection($0) }
         .sheet(isPresented: $showAddDeviceSheet) { addDeviceSheet }
@@ -2137,15 +2276,38 @@ struct TransferSendView: View {
                 HStack {
                     Text("目标设备").font(.headline.weight(.semibold)); Spacer()
                     HStack(spacing: 8) {
-                        Button { Task { await refreshDevices() } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(.secondary) }.buttonStyle(.plain).disabled(isScanning)
-                        Button { Task { await scanSubnetDevices() } } label: { Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.blue) }.buttonStyle(.plain).disabled(isScanning)
-                        Button { showAddDeviceSheet = true } label: { Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(.orange) }.buttonStyle(.plain)
+                        Button { Task { await refreshDevices() } } label: {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(.secondary)
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                        }.buttonStyle(.plain).disabled(isScanning).help("刷新设备")
+                        Button { Task { await scanSubnetDevices() } } label: {
+                            Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.blue)
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                        }.buttonStyle(.plain).disabled(isScanning).help("扫描局域网设备")
+                        Button { showAddDeviceSheet = true } label: {
+                            Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(.orange)
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("手动添加设备")
                     }
                 }
                 if client.transferDevices.isEmpty && !isScanning { deviceEmptyCard }
                 else { LazyVGrid(columns: [GridItem(.flexible(), spacing: 12)], spacing: 12) { ForEach(client.transferDevices) { device in sendDeviceRow(device) } } }
             }
             if let device = selectedDevice { Divider().opacity(0.1); selectedDeviceActions(device) }
+            if let active = client.transferSendTasks?.active, !active.isEmpty {
+                Divider().opacity(0.1)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("发送任务").font(.headline.weight(.semibold))
+                    ForEach(active) { activeSendTaskRow($0) }
+                }
+            }
+            if let history = client.transferSendTasks?.history, !history.isEmpty {
+                Divider().opacity(0.1)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("最近发送").font(.headline.weight(.semibold))
+                    ForEach(Array(history.prefix(5))) { sendHistoryRow($0) }
+                }
+            }
             Spacer()
         }
     }
@@ -2154,8 +2316,9 @@ struct TransferSendView: View {
         VStack(spacing: 16) {
             Image(systemName: "antenna.radiowaves.left.and.right.slash").font(.system(size: 48)).foregroundStyle(.quaternary)
             VStack(spacing: 6) {
-                Text("暂无发现设备").font(.headline).foregroundStyle(.secondary)
-                Text("点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址").font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                Text(client.transferError ?? "暂无发现设备").font(.headline).foregroundStyle(.secondary)
+                Text(client.transferError == nil ? "点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址" : "传输功能需要连接到 WgSense daemon")
+                    .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity).padding(40)
@@ -2175,12 +2338,12 @@ struct TransferSendView: View {
             Spacer()
             if sendType != nil {
                 Button { triggerSend(target: device) } label: {
-                    Label(sending ? "发送中..." : "发送", systemImage: sending ? "arrow.triangle.2.circlepath" : "paperplane.fill")
+                    Label(isStartingSend ? "创建中..." : "发送", systemImage: isStartingSend ? "arrow.triangle.2.circlepath" : "paperplane.fill")
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(sending ? AnyShapeStyle(Color.gray.opacity(0.7)) : AnyShapeStyle(Color.white))
+                        .foregroundStyle(isStartingSend ? AnyShapeStyle(Color.gray.opacity(0.7)) : AnyShapeStyle(Color.white))
                         .frame(maxWidth: .infinity).padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(sending ? Color.gray : WgTheme.accent))
-                }.disabled(sending)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(isStartingSend ? Color.gray : WgTheme.accent))
+                }.disabled(isStartingSend)
             } else { Text("请选择发送类型 →").font(.callout.italic()).foregroundStyle(.tertiary) }
         }
         .padding(18)
@@ -2211,17 +2374,21 @@ struct TransferSendView: View {
     }
 
     // MARK: - Actions
-    private func loadInitialData() async { await client.fetchTransferState(); await client.fetchTransferDevices(timeoutSec: 3) }
+    private func loadInitialData() async {
+        await client.fetchTransferState()
+        await client.fetchTransferDevices(timeoutSec: 3)
+        await client.fetchTransferTasks()
+    }
     private func refreshDevices() async { isScanning = true; await client.fetchTransferDevices(timeoutSec: 5); try? await Task.sleep(for: .seconds(1)); isScanning = false }
     private func scanSubnetDevices() async { isScanning = true; let found = await client.scanSubnet(timeoutSec: 10); try? await Task.sleep(for: .seconds(1)); isScanning = false; if found.isEmpty { lastSendResult = "扫描完成，未发现 LocalSend 设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } else { lastSendResult = "扫描发现 \(found.count) 个设备"; DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil } } }
-    private func selectSendType(_ type: SendType) { withAnimation(.easeInOut(duration: 0.15)) { sendType = type }; switch type { case .file: showFilePicker = true; case .folder: showFolderPicker = true; default: break } }
+    private func selectSendType(_ type: SendType) { withAnimation(.easeInOut(duration: 0.15)) { sendType = type } }
     private func triggerSend(target: DaemonClient.TransferDevice) {
         guard sendType != nil else { return }
         if sendType == .file || sendType == .folder {
             if sendType == .file { showFilePicker = true } else { showFolderPicker = true }
             return
         }
-        lastSendResult = "文本与剪贴板发送将在下一批恢复"
+        lastSendResult = "当前版本仅支持发送文件和文件夹"
     }
 
     private func handleFileSelection(_ result: Result<[URL], Error>) {
@@ -2230,32 +2397,99 @@ struct TransferSendView: View {
             return
         }
         guard let target = selectedDevice else { return }
-        let paths = urls.compactMap { url in
-            url.startAccessingSecurityScopedResource()
-            defer { url.stopAccessingSecurityScopedResource() }
-            return url.path
-        }
+        let paths = urls.map(\.path)
         guard !paths.isEmpty else {
             lastSendResult = "无法获取文件路径"
             return
         }
 
-        sending = true
+        isStartingSend = true
         lastSendResult = nil
         Task {
             let success = await client.startFileSend(to: target.id, paths: paths) != nil
             await MainActor.run {
-                sending = false
-                lastSendResult = success ? "发送任务已创建 (\(paths.count) 个文件)" : "发送失败"
+                isStartingSend = false
+                lastSendResult = success ? "等待对方确认" : "发送任务创建失败"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { lastSendResult = nil }
             }
         }
     }
 
+    private func activeSendTaskRow(_ task: DaemonClient.TransferSendTask) -> some View {
+        let total = max(task.totalBytes, 1)
+        let fraction = min(max(Double(task.doneBytes) / Double(total), 0), 1)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: task.status == "waiting" ? "person.crop.circle.badge.clock" : "paperplane.fill")
+                    .font(.system(size: 20)).foregroundStyle(WgTheme.accent).frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(task.deviceAlias).font(.body.weight(.semibold))
+                    Text(sendStatusLabel(task.status)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if task.status == "sending" {
+                    Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+                }
+                Button { Task { _ = await client.cancelTransfer(taskID: task.id) } } label: {
+                    Image(systemName: "xmark.circle").frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).disabled(task.status == "cancelling").help("取消发送")
+            }
+            ProgressView(value: fraction).animation(.easeInOut(duration: 0.18), value: task.doneBytes)
+            HStack {
+                Text(task.files.prefix(3).map(\.name).joined(separator: "、")).lineLimit(1)
+                Spacer()
+                Text("\(formattedSendBytes(task.doneBytes)) / \(formattedSendBytes(task.totalBytes))").monospacedDigit()
+            }
+            .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+    }
+
+    private func sendHistoryRow(_ task: DaemonClient.TransferSendTask) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(task.status == "completed" ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.deviceAlias).font(.callout.weight(.medium)).lineLimit(1)
+                Text(task.status == "completed"
+                     ? "\(task.completedFiles) 个文件 · \(formattedSendBytes(task.doneBytes))"
+                     : task.error ?? sendStatusLabel(task.status))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Text(sendStatusLabel(task.status)).font(.caption.weight(.medium))
+                .foregroundStyle(task.status == "completed" ? .green : .orange)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+    }
+
+    private func sendStatusLabel(_ status: String) -> String {
+        switch status {
+        case "preparing": return "正在整理文件"
+        case "waiting": return "等待对方确认"
+        case "sending": return "发送中"
+        case "cancelling": return "正在取消"
+        case "completed": return "已完成"
+        case "cancelled": return "已取消"
+        case "failed": return "失败"
+        default: return status
+        }
+    }
+
+    private func formattedSendBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
     // MARK: - 设备行
     private func sendDeviceRow(_ device: DaemonClient.TransferDevice) -> some View {
-        Button { withAnimation { selectedDevice = device } } label: {
-            HStack(spacing: 14) {
+        HStack(spacing: 10) {
+            Button { withAnimation { selectedDevice = device } } label: {
+                HStack(spacing: 14) {
                 Image(systemName: iconForOS(device.deviceType ?? "")).font(.system(size: 26)).foregroundStyle(colorForOS(device.deviceType ?? ""))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -2266,10 +2500,23 @@ struct TransferSendView: View {
                 }
                 Spacer()
                 if selectedDevice?.id == device.id { Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(WgTheme.accent) }
+                }
+            }.buttonStyle(.plain)
+            if device.source == "manual" {
+                Button {
+                    Task {
+                        let ok = await client.removeManualDevice(deviceID: device.id)
+                        if selectedDevice?.id == device.id { selectedDevice = nil }
+                        lastSendResult = ok ? "设备已移除" : "只能移除手动添加的设备"
+                    }
+                } label: {
+                    Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(.red.opacity(0.75))
+                        .frame(width: 30, height: 30).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("移除此手动设备")
             }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(selectedDevice?.id == device.id ? WgTheme.accent.opacity(0.08) : WgTheme.cardBg).overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(selectedDevice?.id == device.id ? WgTheme.accent : WgTheme.cardBorder, lineWidth: 1)))
-        }.buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(selectedDevice?.id == device.id ? WgTheme.accent.opacity(0.08) : WgTheme.cardBg).overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(selectedDevice?.id == device.id ? WgTheme.accent : WgTheme.cardBorder, lineWidth: 1)))
     }
 
     private func sourceBadgeLabel(_ source: String) -> String { switch source { case "manual": return "手动"; case "scan": return "扫描"; default: return "多播" } }
