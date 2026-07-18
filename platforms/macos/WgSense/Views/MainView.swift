@@ -22,6 +22,29 @@ enum WgTheme {
 }
 
 extension View {
+    func wgTileSurface(
+        tint: Color? = nil,
+        isSelected: Bool = false
+    ) -> some View {
+        let shape = RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
+        let accent = tint ?? WgTheme.accent
+        return self
+            .background {
+                shape
+                    .fill(Color.black.opacity(0.16))
+                    .overlay(shape.fill(tint?.opacity(0.16) ?? Color.white.opacity(0.025)))
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                shape.stroke(
+                    isSelected ? accent.opacity(0.72) : Color.white.opacity(0.09),
+                    lineWidth: isSelected ? 1.25 : 0.75
+                )
+                .allowsHitTesting(false)
+            }
+            .clipShape(shape)
+    }
+
     func wgGlassSurface(
         cornerRadius: CGFloat = 12,
         tint: Color? = nil,
@@ -394,9 +417,7 @@ struct SidebarView: View {
                 }
             }
             .buttonStyle(.plain)
-            .background(WgTheme.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+            .wgTileSurface()
             .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
             .overlay(alignment: .topTrailing) {
                 if isEditMode { editOverlay(tile) }
@@ -471,9 +492,7 @@ struct SidebarView: View {
             }
         }
         .buttonStyle(.plain)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .wgTileSurface(tint: isOn ? tintColor : nil)
         .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
         .overlay(alignment: .topTrailing) {
             if isEditMode { editOverlay(tile) }
@@ -591,13 +610,7 @@ struct SidebarView: View {
             }
             .padding(tile.size == .small ? 10 : 16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                    .fill(Color.blue.opacity(0.08))
-                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                        .stroke(selection == .transferReceive ? Color.blue : Color.clear,
-                                lineWidth: selection == .transferReceive ? 1.5 : 0))
-            )
+            .wgTileSurface(tint: .blue, isSelected: selection == .transferReceive)
         }
         .buttonStyle(.plain)
     }
@@ -672,13 +685,7 @@ struct SidebarView: View {
             }
             .padding(tile.size == .small ? 10 : 16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                    .fill(Color.orange.opacity(0.08))
-                    .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                        .stroke(selection == .transferSend ? Color.orange : Color.clear,
-                                lineWidth: selection == .transferSend ? 1.5 : 0))
-            )
+            .wgTileSurface(tint: .orange, isSelected: selection == .transferSend)
         }
         .buttonStyle(.plain)
     }
@@ -782,10 +789,8 @@ struct SidebarView: View {
             .padding(tile.size == .small ? 12 : 16)
         }
         .buttonStyle(.plain)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-        .task(id: UUID()) {
+        .wgTileSurface(tint: client.proxyRunning ? .purple : nil, isSelected: selection == .proxy)
+        .task {
             await client.fetchProxyStatus()
             if client.proxyRunning {
                 await client.fetchProxyVersion()
@@ -901,9 +906,7 @@ struct SidebarView: View {
             }
             .padding(tilePadding(tile.size))
             .frame(maxHeight: .infinity, alignment: .topLeading)
-            .background(WgTheme.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+            .wgTileSurface(tint: .orange, isSelected: selection == .profile)
         }
         .buttonStyle(.plain)
     }
@@ -943,10 +946,7 @@ struct SidebarView: View {
             }
             .padding(tilePadding(tile.size))
             .frame(minHeight: tileNavMinHeight(tile.size), maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                .fill(isSelected ? WgTheme.accent.opacity(0.1) : WgTheme.cardBg))
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                .stroke(isSelected ? WgTheme.accent.opacity(0.25) : WgTheme.cardBorder, lineWidth: 1))
+            .wgTileSurface(tint: isSelected ? WgTheme.accent : nil, isSelected: isSelected)
         }
         .buttonStyle(.plain)
     }
@@ -1005,9 +1005,7 @@ struct SidebarView: View {
         }
         .padding(tilePadding(tile.size))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .wgTileSurface(isSelected: selection == .logs)
         .task {
             await client.fetchLogs(n: 30)
             while !Task.isCancelled {
@@ -1083,10 +1081,8 @@ struct SidebarView: View {
         }
         .padding(tilePadding(tile.size))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .task(id: UUID()) {
+        .wgTileSurface(tint: isConnected ? .cyan : nil, isSelected: selection == .dashboard)
+        .task {
             await client.fetchTraffic()
             // 持续刷新流量
             while !Task.isCancelled {
@@ -1177,10 +1173,7 @@ struct SidebarView: View {
             }
             .padding(tilePadding(tile.size))
             .frame(minHeight: tileMinHeight(tile.size), maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                .fill(isOn ? color.opacity(0.07) : WgTheme.cardBg))
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                .stroke(isOn ? color.opacity(0.13) : WgTheme.cardBorder, lineWidth: 1))
+            .wgTileSurface(tint: isOn ? color : nil)
         }
         .buttonStyle(.plain)
     }
@@ -1245,8 +1238,7 @@ struct SidebarView: View {
         }
         .padding(tilePadding(tile.size))
         .frame(minHeight: actionTileMinHeight(tile.size), maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: WgTheme.cardRadius).fill(WgTheme.cardBg))
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
+        .wgTileSurface(tint: color)
     }
 
     // MARK: - 尺寸辅助函数
