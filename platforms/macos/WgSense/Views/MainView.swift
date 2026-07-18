@@ -6,10 +6,34 @@ import AppKit
 // MARK: - 主题色（Clash Party 风格）
 
 enum WgTheme {
-    static let bg = Color(red: 0.08, green: 0.08, blue: 0.09)
-    static let sidebarBg = Color(red: 0.06, green: 0.06, blue: 0.07)
-    static let cardBg = Color.white.opacity(0.05)
-    static let cardBorder = Color.white.opacity(0.06)
+    static let bg = adaptive(
+        light: NSColor(calibratedRed: 0.94, green: 0.95, blue: 0.96, alpha: 1),
+        dark: NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.09, alpha: 1)
+    )
+    static let sidebarBg = adaptive(
+        light: NSColor(calibratedRed: 0.88, green: 0.89, blue: 0.91, alpha: 1),
+        dark: NSColor(calibratedRed: 0.06, green: 0.06, blue: 0.07, alpha: 1)
+    )
+    static let cardBg = adaptive(
+        light: NSColor(calibratedWhite: 1, alpha: 0.72),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.05)
+    )
+    static let cardBorder = adaptive(
+        light: NSColor(calibratedWhite: 0, alpha: 0.10),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.06)
+    )
+    static let tileBg = adaptive(
+        light: NSColor(calibratedWhite: 1, alpha: 0.78),
+        dark: NSColor(calibratedWhite: 0, alpha: 0.16)
+    )
+    static let tileNeutralTint = adaptive(
+        light: NSColor(calibratedWhite: 0, alpha: 0.025),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.025)
+    )
+    static let tileBorder = adaptive(
+        light: NSColor(calibratedWhite: 0, alpha: 0.12),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.09)
+    )
     static let accent = Color(red: 0.2, green: 0.5, blue: 0.95)
     static let cardRadius: CGFloat = 10
     static let spacing: CGFloat = 12
@@ -19,6 +43,12 @@ enum WgTheme {
     static let tileY: CGFloat = 80
     static let tileX: CGFloat = tileY / 0.618
     static let tileGap: CGFloat = tileY / 10
+
+    private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        })
+    }
 }
 
 extension View {
@@ -31,13 +61,13 @@ extension View {
         return self
             .background {
                 shape
-                    .fill(Color.black.opacity(0.16))
-                    .overlay(shape.fill(tint?.opacity(0.16) ?? Color.white.opacity(0.025)))
+                    .fill(WgTheme.tileBg)
+                    .overlay(shape.fill(tint?.opacity(0.16) ?? WgTheme.tileNeutralTint))
                     .allowsHitTesting(false)
             }
             .overlay {
                 shape.stroke(
-                    isSelected ? accent.opacity(0.72) : Color.white.opacity(0.09),
+                    isSelected ? accent.opacity(0.72) : WgTheme.tileBorder,
                     lineWidth: isSelected ? 1.25 : 0.75
                 )
                 .allowsHitTesting(false)
@@ -68,6 +98,8 @@ extension View {
 
 struct MainView: View {
     @EnvironmentObject var client: DaemonClient
+    @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
+    @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
     @State private var selection: SidebarTab = .dashboard
     @State private var sidebarWidth: CGFloat = 300
 
@@ -106,10 +138,22 @@ struct MainView: View {
             .background(WgTheme.bg)
         }
         .frame(minWidth: 780, minHeight: 500)
+        .environment(\.locale, selectedLanguage.locale)
+        .preferredColorScheme(selectedAppearance.colorScheme)
+        .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
+        .id("content-\(appLanguageRaw)")
         .task { await client.refresh() }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             Task { await client.fetchStatus() }
         }
+    }
+
+    private var selectedLanguage: WgAppLanguage {
+        WgAppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
+    private var selectedAppearance: WgAppAppearance {
+        WgAppAppearance(rawValue: appAppearanceRaw) ?? .system
     }
 }
 
@@ -153,7 +197,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
     case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about
     var id: String { rawValue }
 
-    var label: String {
+    var label: LocalizedStringKey {
         switch self {
         case .dashboard: return "概览"
         case .wireguard: return "WireGuard"
@@ -174,7 +218,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
     case vpn, guardMode, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .vpn: return "VPN"
         case .guardMode: return "守护"
@@ -456,7 +500,7 @@ struct SidebarView: View {
                     // 小磁贴统一：标题左上角 + 图标背景右下角
                     Text(tile.kind.title)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundStyle(.primary.opacity(0.9))
                         .padding(.leading, 10)
                         .padding(.top, 10)
                 }
@@ -518,7 +562,7 @@ struct SidebarView: View {
                 // 左上角：标题文字（横向）
                 Text(tile.kind.title)
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundStyle(.primary.opacity(0.9))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.leading, 10)
                     .padding(.top, 10)
@@ -844,7 +888,7 @@ struct SidebarView: View {
         }
     }
 
-    private func statItem(_ label: String, _ value: String, _ color: Color) -> some View {
+    private func statItem(_ label: LocalizedStringKey, _ value: String, _ color: Color) -> some View {
         VStack(spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(color)
             Text(value).font(.caption).fontWeight(.medium).monospacedDigit()
@@ -1137,7 +1181,7 @@ struct SidebarView: View {
         }
     }
 
-    private func connDetailRow(_ label: String, value: String, color: Color? = nil) -> some View {
+    private func connDetailRow(_ label: LocalizedStringKey, value: String, color: Color? = nil) -> some View {
         HStack {
             Text(label).font(.caption2).foregroundStyle(.tertiary)
             Spacer()
@@ -1149,7 +1193,7 @@ struct SidebarView: View {
 
     private func controlTile(
         tile: TileData, icon: String, color: Color,
-        subtitle: String, isOn: Bool,
+        subtitle: LocalizedStringKey, isOn: Bool,
         toggleAction: @escaping () -> Void,
         onTap: @escaping () -> Void
     ) -> some View {
@@ -1227,7 +1271,7 @@ struct SidebarView: View {
 
     private func actionTile(
         tile: TileData, icon: String, color: Color,
-        subtitle: String, actionLabel: String,
+        subtitle: LocalizedStringKey, actionLabel: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1619,7 +1663,7 @@ struct SidebarView: View {
         .frame(width: 170)
     }
 
-    private func menuRow(_ title: String, icon: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func menuRow(_ title: LocalizedStringKey, icon: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon).font(.system(size: 13))
@@ -1938,8 +1982,12 @@ struct AboutView: View {
         }
     }
 
-    private func aboutRow(_ l: String, _ v: String) -> some View {
-        HStack { Text(l).font(.subheadline).foregroundStyle(.secondary); Spacer(); Text(v).font(.subheadline).fontWeight(.medium) }
+    private func aboutRow(_ label: LocalizedStringKey, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
+            Spacer()
+            Text(LocalizedStringKey(value)).font(.subheadline).fontWeight(.medium)
+        }
         .padding(.vertical, 4)
     }
 }
@@ -2084,15 +2132,17 @@ struct TransferReceiveView: View {
                 HStack(spacing: 12) {
                     if client.transferError == nil { ProgressView() }
                     else { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange) }
-                    Text(client.transferError ?? "正在连接 daemon...").font(.body).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(client.transferError ?? "正在连接 daemon...")).font(.body).foregroundStyle(.secondary)
                     Spacer()
                     if client.transferError != nil {
-                        Button(startingDaemon ? "正在启动..." : "启动后台服务") {
+                        Button {
                             Task {
                                 startingDaemon = true
                                 _ = await client.startDaemonForTransfer()
                                 startingDaemon = false
                             }
+                        } label: {
+                            Text(LocalizedStringKey(startingDaemon ? "正在启动..." : "启动后台服务"))
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(startingDaemon)
@@ -2151,7 +2201,7 @@ struct TransferReceiveView: View {
         }
     }
 
-    private func receiveInfoRow(_ label: String, value: String) -> some View {
+    private func receiveInfoRow(_ label: LocalizedStringKey, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label).font(.caption).foregroundStyle(.tertiary)
             Text(value).font(.body.weight(.medium)).foregroundStyle(.primary)
@@ -2255,7 +2305,7 @@ struct TransferSendView: View {
         var icon: String {
             switch self { case .file: return "doc"; case .folder: return "folder"; case .text: return "text.bubble"; case .clipboard: return "clipboard" }
         }
-        var label: String {
+        var label: LocalizedStringKey {
             switch self { case .file: return "文件"; case .folder: return "文件夹"; case .text: return "文本"; case .clipboard: return "剪贴板" }
         }
     }
@@ -2358,16 +2408,18 @@ struct TransferSendView: View {
         VStack(spacing: 16) {
             Image(systemName: "antenna.radiowaves.left.and.right.slash").font(.system(size: 48)).foregroundStyle(.quaternary)
             VStack(spacing: 6) {
-                Text(client.transferError ?? "暂无发现设备").font(.headline).foregroundStyle(.secondary)
-                Text(client.transferError == nil ? "点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址" : "传输功能需要连接到 WgSense daemon")
+                Text(LocalizedStringKey(client.transferError ?? "暂无发现设备")).font(.headline).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(client.transferError == nil ? "点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址" : "传输功能需要连接到 WgSense daemon"))
                     .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
                 if client.transferError != nil {
-                    Button(startingDaemon ? "正在启动..." : "启动后台服务") {
+                    Button {
                         Task {
                             startingDaemon = true
                             _ = await client.startDaemonForTransfer()
                             startingDaemon = false
                         }
+                    } label: {
+                        Text(LocalizedStringKey(startingDaemon ? "正在启动..." : "启动后台服务"))
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(startingDaemon)
@@ -2580,7 +2632,7 @@ struct TransferSendView: View {
 
 // MARK: - 设置行组件
 private struct SettingsToggleRow: View {
-    let label: String
+    let label: LocalizedStringKey
     @Binding var isOn: Bool
 
     var body: some View {
@@ -2599,7 +2651,7 @@ private struct SettingsToggleRow: View {
 }
 
 private struct SettingsButtonRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let value: String
 
     var body: some View {
@@ -2616,7 +2668,7 @@ private struct SettingsButtonRow: View {
 }
 
 private struct SettingsNavRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let action: () -> Void
 
     var body: some View {

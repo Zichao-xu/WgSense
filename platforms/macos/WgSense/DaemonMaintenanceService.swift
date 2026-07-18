@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct DaemonDiagnostics {
     var generatedAt: Date = Date()
@@ -63,7 +64,7 @@ enum MaintenanceAction: String, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .installSystemHelper: return "安装系统 helper"
         case .uninstallSystemHelper: return "卸载系统 helper"
@@ -72,7 +73,7 @@ enum MaintenanceAction: String, Identifiable {
         }
     }
 
-    var message: String {
+    var message: LocalizedStringKey {
         switch self {
         case .installSystemHelper:
             return "会安装 WgSense daemon、接收文件搬运 helper 和 launchd 配置，需要管理员授权。"

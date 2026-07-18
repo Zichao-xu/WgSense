@@ -222,7 +222,7 @@ private struct ProxyFeedbackBar: View {
         HStack(spacing: 8) {
             Image(systemName: color == .red ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(color)
-            Text(message)
+            Text(LocalizedStringKey(message))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -249,15 +249,22 @@ private struct ProxyUnavailableView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            ContentUnavailableView(
-                client.proxyServiceRunning ? "控制器未连接" : "后台服务未启动",
-                systemImage: client.proxyServiceRunning ? "network.slash" : "gearshape.2",
-                description: Text(client.proxyServiceRunning ? "请在设置中检查 Mihomo 地址与密钥" : "先启动 WgSense 后台服务，再连接 Mihomo 控制器")
-            )
+            ContentUnavailableView {
+                Label(
+                    title: { Text(LocalizedStringKey(client.proxyServiceRunning ? "控制器未连接" : "后台服务未启动")) },
+                    icon: { Image(systemName: client.proxyServiceRunning ? "network.slash" : "gearshape.2") }
+                )
+            } description: {
+                Text(LocalizedStringKey(client.proxyServiceRunning ? "请在设置中检查 Mihomo 地址与密钥" : "先启动 WgSense 后台服务，再连接 Mihomo 控制器"))
+            }
             HStack(spacing: 10) {
                 if let startDaemon, !client.proxyServiceRunning {
                     Button(action: startDaemon) {
-                        Label(client.isAuthorizingDaemon ? "等待授权" : "启动后台服务", systemImage: "play.circle")
+                        Label {
+                            Text(LocalizedStringKey(client.isAuthorizingDaemon ? "等待授权" : "启动后台服务"))
+                        } icon: {
+                            Image(systemName: "play.circle")
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(client.isAuthorizingDaemon)
@@ -525,10 +532,10 @@ private struct ProxyChartSeries: Identifiable {
 }
 
 private struct ProxyPanel<Content: View>: View {
-    var title: String?
+    var title: LocalizedStringKey?
     let content: Content
 
-    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+    init(title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
     }
@@ -564,7 +571,7 @@ private struct ProxyOverviewMetricStrip: View {
         }
     }
 
-    private func metric(_ title: String, _ value: String) -> some View {
+    private func metric(_ title: LocalizedStringKey, _ value: String) -> some View {
         VStack(spacing: 8) {
             Text(title)
                 .font(.caption.weight(.semibold))
@@ -580,10 +587,10 @@ private struct ProxyOverviewMetricStrip: View {
 }
 
 private struct ProxyLineChart: View {
-    let title: String
+    let title: LocalizedStringKey
     let series: [ProxyChartSeries]
     let formatter: (Double) -> String
-    var emptyText: String = "暂无数据"
+    var emptyText: LocalizedStringKey = "暂无数据"
 
     private let timeWindow: TimeInterval = 60
     private var allValues: [Double] { series.flatMap(\.values) }
@@ -1731,7 +1738,7 @@ private struct ProxySourceStatsTable: View {
 }
 
 private struct ProxyBarChart: View {
-    let title: String
+    let title: LocalizedStringKey
     let data: [ProxyBarDatum]
     let color: Color
 
@@ -1780,7 +1787,7 @@ private struct ProxyBarChart: View {
 }
 
 private struct ProxyMetric: View {
-    let title: String
+    let title: LocalizedStringKey
     let value: String
     let icon: String
     let color: Color
@@ -2534,6 +2541,7 @@ private enum ProxyLogFilter: String, CaseIterable, Identifiable {
     case warning = "Warning"
     case error = "Error"
     var id: String { rawValue }
+    var title: LocalizedStringKey { LocalizedStringKey(rawValue) }
 }
 
 private struct ProxyLogsPage: View {
@@ -2557,7 +2565,7 @@ private struct ProxyLogsPage: View {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     Picker("级别", selection: $filter) {
-                        ForEach(ProxyLogFilter.allCases) { item in Text(item.rawValue).tag(item) }
+                        ForEach(ProxyLogFilter.allCases) { item in Text(item.title).tag(item) }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 360)
@@ -3023,7 +3031,7 @@ private struct ProxyMaintenanceSettings: View {
 }
 
 private struct ProxyActionButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     var roleColor: Color = .primary
     let busy: Bool
@@ -3098,11 +3106,11 @@ private struct ProxyDNSQuerySettings: View {
 }
 
 private struct ProxySectionBlock<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     let content: Content
 
-    init(title: String, icon: String, @ViewBuilder content: () -> Content) {
+    init(title: LocalizedStringKey, icon: String, @ViewBuilder content: () -> Content) {
         self.title = title
         self.icon = icon
         self.content = content()
@@ -3122,10 +3130,10 @@ private struct ProxySectionBlock<Content: View>: View {
 }
 
 private struct ProxySettingRow<Content: View>: View {
-    let label: String
+    let label: LocalizedStringKey
     let content: Content
 
-    init(label: String, @ViewBuilder content: () -> Content) {
+    init(label: LocalizedStringKey, @ViewBuilder content: () -> Content) {
         self.label = label
         self.content = content()
     }
@@ -3144,7 +3152,7 @@ private struct ProxySettingRow<Content: View>: View {
 }
 
 private struct ProxyPortField: View {
-    let label: String
+    let label: LocalizedStringKey
     @Binding var value: Int
 
     var body: some View {

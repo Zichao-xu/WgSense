@@ -46,7 +46,7 @@ struct OverviewView: View {
     // MARK: - 状态 Pill 标签
 
     private func statusPill(_ state: String) -> some View {
-        Text(state)
+        Text(localizedStatus(state))
             .font(.caption)
             .fontWeight(.medium)
             .foregroundStyle(statusColorFor(state))
@@ -110,7 +110,7 @@ struct OverviewView: View {
         .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
     }
 
-    private func detailLine(_ label: String, _ value: String) -> some View {
+    private func detailLine(_ label: LocalizedStringKey, _ value: LocalizedStringKey) -> some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.caption)
@@ -123,7 +123,7 @@ struct OverviewView: View {
 
     // MARK: - 信息卡片
 
-    private func infoCard(title: String, value: String, icon: String, color: Color) -> some View {
+    private func infoCard(title: LocalizedStringKey, value: LocalizedStringKey, icon: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
@@ -178,7 +178,7 @@ struct OverviewView: View {
         }
     }
 
-    private func moduleRow(icon: String, name: String, desc: String, active: Bool, color: Color) -> some View {
+    private func moduleRow(icon: String, name: LocalizedStringKey, desc: LocalizedStringKey, active: Bool, color: Color) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 16))
@@ -213,11 +213,12 @@ struct OverviewView: View {
 
     private var isConnected: Bool { client.isVPNOn }
 
-    private var stateText: String {
-        client.status?.state ?? "daemon 离线"
+    private var stateText: LocalizedStringKey {
+        guard let state = client.status?.state else { return "daemon 离线" }
+        return localizedStatus(state)
     }
 
-    private var networkText: String {
+    private var networkText: LocalizedStringKey {
         guard let status = client.status else { return "未知" }
         return status.isTrustedNetwork ? "受信任" : "非受信任"
     }
@@ -227,7 +228,7 @@ struct OverviewView: View {
         return status.isTrustedNetwork ? .green : .blue
     }
 
-    private var guardText: String {
+    private var guardText: LocalizedStringKey {
         guard let status = client.status else { return "未连接" }
         return status.paused ? "已暂停" : "运行中"
     }
@@ -237,9 +238,19 @@ struct OverviewView: View {
         return status.paused ? .gray : .green
     }
 
-    private var wireGuardModuleText: String {
+    private var wireGuardModuleText: LocalizedStringKey {
         guard let status = client.status else { return "daemon 未连接" }
-        return status.state
+        return localizedStatus(status.state)
+    }
+
+    private func localizedStatus(_ state: String) -> LocalizedStringKey {
+        switch state {
+        case "Connected": return "已连接"
+        case "Disconnected": return "未连接"
+        case "Connecting": return "连接中"
+        case "Disconnecting": return "断开中"
+        default: return "状态未知"
+        }
     }
 
     private var statusColor: Color {

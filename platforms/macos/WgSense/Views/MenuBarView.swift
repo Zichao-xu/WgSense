@@ -4,6 +4,8 @@ import AppKit
 // 菜单栏下拉：状态 + 快速开关
 struct MenuBarView: View {
     @EnvironmentObject var client: DaemonClient
+    @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
+    @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
     @Environment(\.openWindow) var openWindow
 
     var body: some View {
@@ -107,7 +109,19 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(width: 286)
+        .environment(\.locale, selectedLanguage.locale)
+        .preferredColorScheme(selectedAppearance.colorScheme)
+        .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
+        .id("menu-content-\(appLanguageRaw)")
         .task { await refresh() }
+    }
+
+    private var selectedLanguage: WgAppLanguage {
+        WgAppLanguage(rawValue: appLanguageRaw) ?? .system
+    }
+
+    private var selectedAppearance: WgAppAppearance {
+        WgAppAppearance(rawValue: appAppearanceRaw) ?? .system
     }
 
     private var localizedState: LocalizedStringKey {

@@ -590,7 +590,7 @@ struct ManualWizardView: View {
             .padding(.bottom, 4)
     }
 
-    private func wizardTitle(_ title: String, _ subtitle: String) -> some View {
+    private func wizardTitle(_ title: LocalizedStringKey, _ subtitle: LocalizedStringKey) -> some View {
         VStack(spacing: 4) {
             Text(title).font(.title3).fontWeight(.semibold)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -598,7 +598,7 @@ struct ManualWizardView: View {
         .padding(.bottom, 8)
     }
 
-    private func wizardField(_ label: String, _ placeholder: String, text: Binding<String>, monospaced: Bool = false) -> some View {
+    private func wizardField(_ label: LocalizedStringKey, _ placeholder: LocalizedStringKey, text: Binding<String>, monospaced: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             if monospaced {
@@ -613,7 +613,7 @@ struct ManualWizardView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func reviewRow(_ label: String, _ value: String) -> some View {
+    private func reviewRow(_ label: LocalizedStringKey, _ value: String) -> some View {
         HStack {
             Text(label).foregroundStyle(.secondary).font(.caption)
             Spacer()

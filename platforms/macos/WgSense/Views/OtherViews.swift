@@ -3,9 +3,9 @@ import AppKit
 
 // 占位页
 struct PlaceholderView: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
-    let desc: String
+    let desc: LocalizedStringKey
 
     var body: some View {
         VStack(spacing: 16) {
@@ -133,7 +133,7 @@ struct LogsView: View {
         isRefreshing = false
     }
 
-    private func statusChip(_ tag: String, _ value: String) -> some View {
+    private func statusChip(_ tag: LocalizedStringKey, _ value: LocalizedStringKey) -> some View {
         HStack(spacing: 6) {
             Text(tag).foregroundStyle(.secondary)
             Text(value)
@@ -148,7 +148,8 @@ struct LogsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var client: DaemonClient
-    @EnvironmentObject var languageSettings: AppLanguageSettings
+    @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
+    @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
     @State private var applyingConfig = false
     @State private var transferToggling = false
     @State private var settingsMessage: String?
@@ -165,16 +166,40 @@ struct SettingsView: View {
             Text("设置").font(.title2).fontWeight(.semibold)
 
             settingsGroup("外观与语言") {
-                HStack {
-                    Label("界面语言", systemImage: "character.bubble")
-                    Spacer()
-                    Picker("界面语言", selection: $languageSettings.selection) {
-                        ForEach(WgAppLanguage.allCases) { language in
-                            Text(language.title).tag(language)
+                VStack(spacing: 10) {
+                    HStack {
+                        Label("界面语言", systemImage: "character.bubble")
+                        Spacer()
+                        Picker("界面语言", selection: Binding(
+                            get: { WgAppLanguage(rawValue: appLanguageRaw) ?? .system },
+                            set: { appLanguageRaw = $0.rawValue }
+                        )) {
+                            ForEach(WgAppLanguage.allCases) { language in
+                                Text(language.title).tag(language)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 180)
                     }
-                    .labelsHidden()
-                    .frame(width: 180)
+                    Divider().opacity(0.3)
+                    HStack {
+                        Label("外观模式", systemImage: "circle.lefthalf.filled")
+                        Spacer()
+                        Picker("外观模式", selection: Binding(
+                            get: { WgAppAppearance(rawValue: appAppearanceRaw) ?? .system },
+                            set: { newValue in
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    appAppearanceRaw = newValue.rawValue
+                                }
+                            }
+                        )) {
+                            ForEach(WgAppAppearance.allCases) { appearance in
+                                Text(appearance.title).tag(appearance)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 180)
+                    }
                 }
                 .padding(.vertical, 6)
             }
@@ -230,7 +255,11 @@ struct SettingsView: View {
                     }
                 }
             } label: {
-                Label(applyingConfig ? "正在应用..." : "应用配置到 daemon", systemImage: applyingConfig ? "hourglass" : "arrow.triangle.2.circlepath")
+                Label {
+                    Text(LocalizedStringKey(applyingConfig ? "正在应用..." : "应用配置到 daemon"))
+                } icon: {
+                    Image(systemName: applyingConfig ? "hourglass" : "arrow.triangle.2.circlepath")
+                }
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -238,7 +267,7 @@ struct SettingsView: View {
             .disabled(applyingConfig)
 
             if let settingsMessage {
-                Text(settingsMessage)
+                Text(LocalizedStringKey(settingsMessage))
                     .font(.caption)
                     .foregroundStyle(settingsMessage.contains("失败") ? .orange : .green)
             }
@@ -370,7 +399,11 @@ struct SettingsView: View {
                     shuttingDownDaemon = false
                 }
             } label: {
-                Label(shuttingDownDaemon ? "正在关闭..." : "关闭临时服务", systemImage: "power")
+                Label {
+                    Text(LocalizedStringKey(shuttingDownDaemon ? "正在关闭..." : "关闭临时服务"))
+                } icon: {
+                    Image(systemName: "power")
+                }
             }
             .disabled(shuttingDownDaemon || client.status?.app_owned != true)
         }
@@ -460,12 +493,15 @@ struct SettingsView: View {
         .controlSize(.small)
     }
 
-    private func settingStepper(_ label: LocalizedStringKey, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1, unit: String) -> some View {
+    private func settingStepper(_ label: LocalizedStringKey, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1, unit: LocalizedStringKey) -> some View {
         HStack {
             Text(label)
             Spacer()
             Stepper(value: value, in: range, step: step) {
-                Text("\(value.wrappedValue) \(unit)")
+                HStack(spacing: 4) {
+                    Text("\(value.wrappedValue)")
+                    Text(unit)
+                }
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -473,7 +509,7 @@ struct SettingsView: View {
         .padding(.vertical, 6)
     }
 
-    private func settingField(_ label: LocalizedStringKey, placeholder: String, text: Binding<String>) -> some View {
+    private func settingField(_ label: LocalizedStringKey, placeholder: LocalizedStringKey, text: Binding<String>) -> some View {
         HStack {
             Text(label)
             Spacer()
@@ -488,7 +524,7 @@ struct SettingsView: View {
         HStack {
             Text(label).foregroundStyle(.secondary)
             Spacer()
-            Text(value)
+            Text(LocalizedStringKey(value))
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
