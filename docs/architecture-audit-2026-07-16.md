@@ -21,8 +21,8 @@ not a single broken function; it is accumulation:
 
 ## Immediate Fixes Applied
 
-- Removed the macOS client's personal development fallback path
-  `/Users/adams/Projects/wgsense/core/wgsense-daemon`; fallback is now
+- Removed the macOS client's development-tree fallback path
+  `$REPOSITORY_ROOT/core/wgsense-daemon`; fallback is now
   `/usr/local/libexec/wgsense-daemon`.
 - Replaced hard-coded packaging plists with templates:
   - `packaging/com.wgsense.daemon.plist.template`

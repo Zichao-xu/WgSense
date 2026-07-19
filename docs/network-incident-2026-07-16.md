@@ -6,7 +6,7 @@ At the office network, WgSense was running as a root LaunchDaemon with automatic
 away-network connection enabled. The system resolver returned a Mihomo/Clash
 Fake-IP for the WireGuard endpoint:
 
-`ddns.aminoac.icu:51820 -> 198.18.1.6`
+`vpn.example.invalid:51820 -> 198.18.1.6`
 
 WgSense treated that Fake-IP as the real endpoint and added a physical exclusion
 route for it. WireGuard then attempted to handshake with a local proxy synthetic
@@ -30,6 +30,6 @@ stuck and unreliable.
 ## Current Safety State
 
 On 2026-07-16, no WgSense LaunchDaemon, LaunchAgent, API listener, or WgSense
-process was running when inspected. The active IPv4 default route was physical
-Wi-Fi `en0` via `10.10.1.1`. Existing `utun0`-`utun3` had only IPv6 link-local
+process was running when inspected. The active IPv4 default route remained on
+the physical Wi-Fi interface. Existing utun interfaces had only IPv6 link-local
 addresses and were not WgSense processes.

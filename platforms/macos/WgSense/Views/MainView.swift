@@ -73,6 +73,7 @@ extension View {
                 .allowsHitTesting(false)
             }
             .clipShape(shape)
+            .contentShape(shape)
     }
 
     func wgGlassSurface(
@@ -218,6 +219,10 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
     case vpn, guardMode, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
     var id: String { rawValue }
 
+    var isAddable: Bool {
+        self != .pause && self != .stop
+    }
+
     var title: LocalizedStringKey {
         switch self {
         case .vpn: return "VPN"
@@ -315,6 +320,7 @@ struct SidebarView: View {
     @State private var showProfileDeleteConfirm = false
     @State private var contextMenuTile: TileData? = nil  // 长按/右键磁贴时弹菜单
     @State private var contextMenuAnchor: CGPoint = .zero
+    @State private var vpnPauseTask: Task<Void, Never>?
     @Namespace private var tileLayoutNamespace
 
     // VPN 状态快捷访问
@@ -330,8 +336,6 @@ struct SidebarView: View {
         [
             TileData(kind: .vpn),
             TileData(kind: .guardMode),
-            TileData(kind: .pause),
-            TileData(kind: .stop),
             TileData(kind: .transferReceive),
             TileData(kind: .transferSend),
             TileData(kind: .proxy),
@@ -504,6 +508,8 @@ struct SidebarView: View {
                         .padding(.leading, 10)
                         .padding(.top, 10)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             }
             .buttonStyle(.plain)
             .wgTileSurface()
@@ -579,12 +585,20 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(10)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .wgTileSurface(tint: isOn ? tintColor : nil)
         .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
         .overlay(alignment: .topTrailing) {
             if isEditMode { editOverlay(tile) }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if tile.kind == .vpn && !isEditMode {
+                vpnQuickControls(compact: true)
+                    .padding(8)
+            }
         }
     }
 
@@ -600,8 +614,73 @@ struct SidebarView: View {
             case .logs: selection = .logs
             case .about: selection = .about
             case .guardMode: selection = .settings
-            case .pause, .stop: break
+            case .stop: stopAllServices()
+            case .pause: break
             }
+        }
+    }
+
+    private func stopAllServices() {
+        vpnPauseTask?.cancel()
+        vpnPauseTask = nil
+        Task {
+            await client.post("disconnect")
+            try? await Task.sleep(for: .milliseconds(300))
+            await client.post("pause")
+        }
+    }
+
+    private func toggleVPNPause() {
+        if client.isPauseOn {
+            vpnPauseTask?.cancel()
+            vpnPauseTask = nil
+            Task {
+                await client.post("resume")
+                await client.post("connect")
+            }
+            return
+        }
+
+        vpnPauseTask?.cancel()
+        let duration = Duration.seconds(client.pauseMinutes * 60)
+        vpnPauseTask = Task {
+            await client.post("pause")
+            await client.post("disconnect")
+            do {
+                try await Task.sleep(for: duration)
+                guard !Task.isCancelled else { return }
+                await client.post("resume")
+                await client.post("connect")
+            } catch {
+                // Manual resume or stop cancels the scheduled reconnect.
+            }
+            vpnPauseTask = nil
+        }
+    }
+
+    private func vpnQuickControls(compact: Bool) -> some View {
+        HStack(spacing: compact ? 5 : 7) {
+            Button(action: toggleVPNPause) {
+                Image(systemName: client.isPauseOn ? "arrowtriangle.up.fill" : "pause.fill")
+                    .font(.system(size: compact ? 9 : 10, weight: .semibold))
+                    .foregroundStyle(client.isPauseOn ? Color.green : Color.orange)
+                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                    .background(Circle().fill(WgTheme.tileBg))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(client.isPauseOn ? "继续并重新连接" : "暂停 \(client.pauseMinutes) 分钟")
+
+            Button(action: stopAllServices) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                    .background(Circle().fill(WgTheme.tileBg))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("停止 VPN")
         }
     }
 
@@ -619,6 +698,12 @@ struct SidebarView: View {
             Task { await client.post(isConnected ? "disconnect" : "connect") }
         } onTap: {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !isEditMode {
+                vpnQuickControls(compact: false)
+                    .padding(tilePadding(tile.size))
+            }
         }
     }
 
@@ -665,14 +750,8 @@ struct SidebarView: View {
             color: .red,
             subtitle: "全部关闭",
             isOn: false,
-            toggleAction: {
-                Task {
-                    await client.post("disconnect")  // 先断 WG
-                    try? await Task.sleep(for: .milliseconds(300))
-                    await client.post("pause")      // 再停守护
-                }
-            },
-            onTap: { /* 点击非控制区域不做导航 */ }
+            toggleAction: stopAllServices,
+            onTap: stopAllServices
         )
     }
 
@@ -698,7 +777,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tile.size == .small ? 10 : 16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             .wgTileSurface(tint: .blue, isSelected: selection == .transferReceive)
         }
         .buttonStyle(.plain)
@@ -773,7 +853,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tile.size == .small ? 10 : 16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             .wgTileSurface(tint: .orange, isSelected: selection == .transferSend)
         }
         .buttonStyle(.plain)
@@ -876,6 +957,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tile.size == .small ? 12 : 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .wgTileSurface(tint: client.proxyRunning ? .purple : nil, isSelected: selection == .proxy)
@@ -994,7 +1077,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tilePadding(tile.size))
-            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             .wgTileSurface(tint: .orange, isSelected: selection == .profile)
         }
         .buttonStyle(.plain)
@@ -1034,7 +1118,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tilePadding(tile.size))
-            .frame(minHeight: tileNavMinHeight(tile.size), maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: tileNavMinHeight(tile.size), maxHeight: .infinity)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             .wgTileSurface(tint: isSelected ? WgTheme.accent : nil, isSelected: isSelected)
         }
         .buttonStyle(.plain)
@@ -1095,6 +1180,9 @@ struct SidebarView: View {
         .padding(tilePadding(tile.size))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .wgTileSurface(isSelected: selection == .logs)
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .logs }
+        }
         .task {
             await client.fetchLogs(n: 30)
             while !Task.isCancelled {
@@ -1116,7 +1204,10 @@ struct SidebarView: View {
 
     // --- 连接面板（内容随尺寸自适应）---
     private func connectionTile(_ tile: TileData) -> some View {
-        VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 6) {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
+        } label: {
+            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 6) {
             // 第一行：标题 + 状态点
             HStack(spacing: 6) {
                 Image(systemName: "arrow.up.arrow.down.circle")
@@ -1167,10 +1258,13 @@ struct SidebarView: View {
                     connDetailRow("守护", value: guardRunning ? "运行中" : "暂停")
                 }
             }
+            }
+            .padding(tilePadding(tile.size))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
+            .wgTileSurface(tint: isConnected ? .cyan : nil, isSelected: selection == .dashboard)
         }
-        .padding(tilePadding(tile.size))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .wgTileSurface(tint: isConnected ? .cyan : nil, isSelected: selection == .dashboard)
+        .buttonStyle(.plain)
         .task {
             await client.fetchTraffic()
             // 持续刷新流量
@@ -1261,7 +1355,8 @@ struct SidebarView: View {
                 }
             }
             .padding(tilePadding(tile.size))
-            .frame(minHeight: tileMinHeight(tile.size), maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: tileMinHeight(tile.size), maxHeight: .infinity)
+            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
             .wgTileSurface(tint: isOn ? color : nil)
         }
         .buttonStyle(.plain)
@@ -1326,7 +1421,17 @@ struct SidebarView: View {
             }
         }
         .padding(tilePadding(tile.size))
-        .frame(minHeight: actionTileMinHeight(tile.size), maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: actionTileMinHeight(tile.size), maxHeight: .infinity)
+        .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
+        .background {
+            if !isEditMode {
+                Button(action: action) {
+                    Color.clear
+                        .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
         .wgTileSurface(tint: color)
     }
 
@@ -1540,17 +1645,16 @@ struct SidebarView: View {
             if tile.size == .small {
                 cellBody(tile)
                     .frame(width: width, height: WgTheme.tileY)
-                    .clipped()
             } else if tile.size == .medium {
                 cellBody(tile)
                     .frame(width: width, height: WgTheme.tileY)
-                    .clipped()
             } else {
                 cellBody(tile)
                     .frame(width: width, height: WgTheme.tileY * 2 + WgTheme.tileGap)
-                    .clipped()
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         .matchedGeometryEffect(id: tile.id, in: tileLayoutNamespace)
         .contextMenu { tileContextMenu(tile) }
             .simultaneousGesture(
@@ -1913,7 +2017,7 @@ struct AddTileSheet: View {
 
             Divider().opacity(0.3)
 
-            let available = TileKind.allCases.filter { !existingKinds.contains($0) }
+            let available = TileKind.allCases.filter { $0.isAddable && !existingKinds.contains($0) }
             if available.isEmpty {
                 Text("所有磁贴已添加").foregroundColor(.secondary).padding()
             } else {
@@ -1943,7 +2047,9 @@ struct AddTileSheet: View {
         .frame(width: 320, height: availableKinds.isEmpty ? 200 : nil)
     }
 
-    private var availableKinds: [TileKind] { TileKind.allCases.filter { !existingKinds.contains($0) } }
+    private var availableKinds: [TileKind] {
+        TileKind.allCases.filter { $0.isAddable && !existingKinds.contains($0) }
+    }
 }
 
 // MARK: - 关于页

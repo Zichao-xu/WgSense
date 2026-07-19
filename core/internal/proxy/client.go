@@ -26,7 +26,7 @@ const DefaultLatencyTestURL = "http://www.gstatic.com/generate_204"
 
 // Config Mihomo 连接配置
 type Config struct {
-	Address string `json:"address"` // 如 "http://10.10.1.1:9090"
+	Address string `json:"address"` // 如 "http://127.0.0.1:9090"
 	Secret  string `json:"secret"`  // API 密钥（可为空）
 
 	LatencyTestURL string `json:"latency_test_url"` // 延迟测试 URL
@@ -35,10 +35,10 @@ type Config struct {
 	LatencyMedium  int    `json:"latency_medium"`   // 中延迟阈值（毫秒），默认 500
 }
 
-// DefaultConfig 返回远程软路由的默认配置
+// DefaultConfig 返回本机 Mihomo 控制器的默认配置。
 func DefaultConfig() *Config {
 	return &Config{
-		Address:        "http://10.10.1.1:9090",
+		Address:        "http://127.0.0.1:9090",
 		Secret:         "",
 		LatencyTestURL: DefaultLatencyTestURL,
 		LatencyTimeout: 5000,

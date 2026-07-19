@@ -2697,7 +2697,7 @@ private struct ProxyControllerSettingsEditor: View {
             VStack(spacing: 12) {
                 controllerStatusRow
                 ProxySettingRow(label: "地址") {
-                    TextField("http://10.10.1.1:9090", text: $address)
+                    TextField("http://127.0.0.1:9090", text: $address)
                         .textFieldStyle(.roundedBorder)
                 }
                 ProxySettingRow(label: "密钥") {

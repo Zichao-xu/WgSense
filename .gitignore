@@ -31,6 +31,8 @@ xcuserdata/
 /core/cmd/wgsense-daemon/wgsense-daemon
 /tmp/
 *.bak
+*.dmg
+SHA256SUMS.txt
 
 # 内部归档（不公开）
 .archive-*

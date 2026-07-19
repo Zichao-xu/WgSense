@@ -77,7 +77,7 @@ loading/error/success feedback, or clearly present itself as read-only.
     range, which made AI endpoints unreachable when WgSense WG was active.
   - verified the installed profile has one complete interface/peer, a resolvable
     endpoint, and an address outside the configured home prefix. The live root
-    policy checks every 10 seconds, remains disconnected on `10.10.1.*`, and
+    policy checks every 10 seconds, remains disconnected on configured trusted networks, and
     the away-network branch is covered by unit and race tests.
   - after the 2026-07-16 office incident, away-network auto-connect is now
     disabled by default. Endpoint DNS results in `198.18.0.0/15` are treated as

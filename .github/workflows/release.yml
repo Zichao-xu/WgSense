@@ -23,13 +23,6 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Build Go daemon
-        working-directory: core
-        run: |
-          go build -o wgsense-daemon ./cmd/wgsense-daemon/
-          chmod +x wgsense-daemon
-          tar czf wgsense-daemon-darwin-amd64.tar.gz wgsense-daemon
-
       - name: Build macOS app
         working-directory: platforms/macos
         run: |
@@ -40,31 +33,39 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="-" \
             -derivedDataPath build
-          cd build/Build/Products/Release
-          zip -r WgSense-macOS.zip WgSense.app
 
-      - name: Upload daemon artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wgsense-daemon-darwin
-          path: core/wgsense-daemon-darwin-amd64.tar.gz
+      - name: Verify app bundle
+        run: |
+          app="platforms/macos/build/Build/Products/Release/WgSense.app"
+          test -x "$app/Contents/Resources/libexec/wgsense-daemon"
+          test -x "$app/Contents/Resources/packaging/wgsense-install-services.sh"
+          test -x "$app/Contents/Resources/packaging/wgsense-uninstall-services.sh"
+          test -f "$app/Contents/Resources/AppIcon.icns"
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --verify --deep --strict "$app"
+
+      - name: Create install DMG
+        run: |
+          brew install create-dmg
+          chmod +x packaging/create-dmg.sh
+          packaging/create-dmg.sh \
+            platforms/macos/build/Build/Products/Release/WgSense.app \
+            WgSense-macOS.dmg
+          shasum -a 256 WgSense-macOS.dmg > SHA256SUMS.txt
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
           name: WgSense-macOS
-          path: platforms/macos/build/Build/Products/Release/WgSense-macOS.zip
+          path: |
+            WgSense-macOS.dmg
+            SHA256SUMS.txt
 
   release:
     needs: build-macos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: wgsense-daemon-darwin
-          path: artifacts/
 
       - uses: actions/download-artifact@v4
         with:
@@ -90,19 +91,18 @@ jobs:
 
             ### 安装
 
-            1. 下载 `WgSense-macOS.zip`，解压后拖入 `/Applications`
-            2. 下载 `wgsense-daemon-darwin-amd64.tar.gz`，解压
-            3. 用 sudo 运行 daemon：`sudo ./wgsense-daemon`
-            4. 启动 WgSense.app
+            1. 下载并打开 `WgSense-macOS.dmg`
+            2. 将 `WgSense.app` 拖入 `Applications`
+            3. 启动 WgSense；需要系统 helper 时由 App 内的维护面板安装
 
-            > alpha 阶段：daemon 需 sudo 创建 TUN，NetworkExtension 尚未实现。
+            > 此构建使用临时签名且尚未公证。首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
 
             ### 注意
 
             - 请确保已备份现有 WG 配置
             - 测试期间如断网，恢复 DNS：`sudo networksetup -setdnsservers Wi-Fi empty`
           files: |
-            artifacts/wgsense-daemon-darwin-amd64.tar.gz
-            artifacts/WgSense-macOS.zip
+            artifacts/WgSense-macOS.dmg
+            artifacts/SHA256SUMS.txt
           draft: false
           prerelease: true

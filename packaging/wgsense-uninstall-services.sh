@@ -8,7 +8,6 @@ launchctl bootout "gui/$uid" "/Users/${SUDO_USER:-$USER}/Library/LaunchAgents/co
 launchctl bootout "gui/$uid" "/Users/${SUDO_USER:-$USER}/Library/LaunchAgents/com.wgsense.passive.plist" 2>/dev/null || true
 
 pkill -f '/usr/local/libexec/wgsense-daemon' 2>/dev/null || true
-pkill -f '/Users/.*/Projects/wgsense/core/wgsense-daemon' 2>/dev/null || true
 
 rm -f /Library/LaunchDaemons/com.wgsense.daemon.plist
 rm -f "/Users/${SUDO_USER:-$USER}/Library/LaunchAgents/com.wgsense.receive-mover.plist"

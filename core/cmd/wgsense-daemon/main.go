@@ -26,7 +26,7 @@ import (
 
 func main() {
 	apiAddr := flag.String("api", "127.0.0.1:8765", "API 监听地址")
-	mihomoAddr := flag.String("mihomo", "10.10.1.1:9090", "Mihomo API 地址")
+	mihomoAddr := flag.String("mihomo", "127.0.0.1:9090", "Mihomo API 地址")
 	mihomoSecret := flag.String("mihomo-secret", "", "Mihomo API 密钥")
 	configDir := flag.String("config-dir", "", "配置目录（默认 ~/.local/share/wgsense/profiles）")
 	runtimeDirOverride := flag.String("runtime-dir", "", "运行数据目录（授权启动时应指向登录用户目录）")
@@ -132,7 +132,7 @@ func main() {
 	}()
 
 	// 前台启动 API server
-	log.Printf("WgSense daemon 启动 interval=%ds api=%s mihomo=%s passive=%t auto_connect_untrusted=%t app_owned=%t", cfg.IntervalSeconds, *apiAddr, *mihomoAddr, *passive, cfg.AutoConnectUntrusted, *appOwned)
+	log.Printf("WgSense daemon 启动 interval=%ds api=%s mihomo=%s passive=%t auto_connect_untrusted=%t app_owned=%t", cfg.IntervalSeconds, *apiAddr, proxyCfg.Address, *passive, cfg.AutoConnectUntrusted, *appOwned)
 	apiSrv := api.New(*apiAddr, eng, transSvc, proxySvc)
 	if *appOwned {
 		apiSrv.SetShutdown(func() {

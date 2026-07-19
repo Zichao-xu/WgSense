@@ -31,7 +31,7 @@ class DaemonClient: ObservableObject {
     @AppStorage("healthCheckTarget") var healthCheckTarget: String = "https://1.1.1.1"
     @AppStorage("intervalSeconds") var intervalSeconds: Int = 10
     @AppStorage("autoUpGraceSeconds") var autoUpGraceSeconds: Int = 20
-    @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = "10.10.1."
+    @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = ""
     @AppStorage("autoConnectUntrusted") var autoConnectUntrusted: Bool = true
     @AppStorage("guardAutomationEnabled") private var guardAutomationEnabled: Bool = false
 

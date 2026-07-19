@@ -223,11 +223,7 @@ struct DaemonMaintenanceService {
     }
 
     private func packagedScriptPath(_ name: String) -> String? {
-        if let bundled = Bundle.main.path(forResource: name, ofType: nil, inDirectory: "packaging") {
-            return bundled
-        }
-        let devPath = "/Users/adams/Projects/wgsense/packaging/\(name)"
-        return FileManager.default.fileExists(atPath: devPath) ? devPath : nil
+        Bundle.main.path(forResource: name, ofType: nil, inDirectory: "packaging")
     }
 
     private func cleanLines(_ output: String) -> [String] {

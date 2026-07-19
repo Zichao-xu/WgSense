@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.2.0-alpha** — macOS 基础版 + 代理面板：
+**v0.3.0-beta** — macOS 一体化测试版：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
@@ -39,7 +39,8 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 - [ ] NetworkExtension target(等 Apple Developer 账号)
 - [ ] Windows / Linux / iOS / Android 平台
 
-> alpha 阶段：daemon 需 `sudo` 运行(手动创建 TUN)，NetworkExtension 尚未实现。
+> 当前没有 Apple Developer 签名与公证。系统 helper 只会在用户从 App
+> 维护面板明确安装时请求管理员授权；NetworkExtension 尚未实现。
 
 ## 项目结构
 
@@ -80,23 +81,25 @@ xcodegen generate
 open WgSense.xcodeproj
 ```
 
-## 安装(alpha)
+## 安装
 
-从 [Releases](../../releases) 下载最新构建，或自行编译：
+从 [Releases](../../releases) 下载 `WgSense-macOS.dmg`，打开后将
+`WgSense.app` 拖入 `Applications`。DMG 已内置 daemon 和维护脚本，不需要
+单独下载后台组件。未经公证的首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
+
+自行编译：
 
 ```bash
-# 编译 daemon
-cd core && go build -o wgsense-daemon ./cmd/wgsense-daemon/
-
-# 编译 macOS app
 cd platforms/macos
 xcodegen generate
 xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Release build
-
-# 运行(需 sudo 创建 TUN)
-sudo ./wgsense-daemon
-open build/Release/WgSense.app
 ```
+
+## 隐私与默认配置
+
+- 仓库和发布包不包含 WireGuard 私钥、Mihomo 密钥、个人路径或个人网络地址。
+- Mihomo 控制器默认连接 `127.0.0.1:9090`，远程控制器由用户自行配置。
+- 受信任网络列表默认留空，自动连接策略默认关闭。
 
 ## 商业模式
 
