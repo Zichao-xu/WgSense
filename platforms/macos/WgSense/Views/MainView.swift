@@ -1262,7 +1262,7 @@ struct SidebarView: View {
             .padding(tilePadding(tile.size))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: isConnected ? .cyan : nil, isSelected: selection == .dashboard)
+            .wgTileSurface(tint: isConnected ? .cyan : nil)
         }
         .buttonStyle(.plain)
         .task {
@@ -1541,27 +1541,31 @@ struct SidebarView: View {
         let columnCount = max(1, Int((usableWidth + WgTheme.tileGap) / (minimumCellWidth + WgTheme.tileGap)))
         let cellWidth = max(1, (usableWidth - CGFloat(columnCount - 1) * WgTheme.tileGap) / CGFloat(columnCount))
         let rows = buildTileRows(columnCount: columnCount)
-        return VStack(spacing: WgTheme.tileGap) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                if !row.isEmpty {
-                    let usedColumns = row.reduce(0) { $0 + tileSpan($1, columnCount: columnCount) }
+        return VStack(spacing: 0) {
+            VStack(spacing: WgTheme.tileGap) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    if !row.isEmpty {
+                        let usedColumns = row.reduce(0) { $0 + tileSpan($1, columnCount: columnCount) }
 
-                    HStack(spacing: WgTheme.tileGap) {
-                        ForEach(row) { tile in
-                            let span = tileSpan(tile, columnCount: columnCount)
-                            tileCell(
-                                tile,
-                                width: cellWidth * CGFloat(span) + WgTheme.tileGap * CGFloat(span - 1)
-                            )
-                        }
-                        if usedColumns < columnCount {
-                            let remaining = columnCount - usedColumns
-                            Color.clear
-                                .frame(width: cellWidth * CGFloat(remaining) + WgTheme.tileGap * CGFloat(max(remaining - 1, 0)))
+                        HStack(spacing: WgTheme.tileGap) {
+                            ForEach(row) { tile in
+                                let span = tileSpan(tile, columnCount: columnCount)
+                                tileCell(
+                                    tile,
+                                    width: cellWidth * CGFloat(span) + WgTheme.tileGap * CGFloat(span - 1)
+                                )
+                            }
+                            if usedColumns < columnCount {
+                                let remaining = columnCount - usedColumns
+                                Color.clear
+                                    .frame(width: cellWidth * CGFloat(remaining) + WgTheme.tileGap * CGFloat(max(remaining - 1, 0)))
+                            }
                         }
                     }
                 }
             }
+            editFooter
+                .padding(.top, WgTheme.tileGap)
         }
         .padding(.horizontal, outerPadding)
         .padding(.vertical, WgTheme.tileGap)
@@ -1573,69 +1577,66 @@ struct SidebarView: View {
                 withAnimation(.spring(response: 0.35)) { isEditMode = false }
             }
         }
-        // 空白处长按进入编辑模式
-        .overlay(alignment: .bottom) {
-            // 底部操作栏
-            if !isEditMode {
-                // 非编辑模式：只显示"长按空白处编辑"
-                Button {
-                    withAnimation(.spring(response: 0.35)) { isEditMode = true }
-                } label: {
-                    Text("长按空白处编辑")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.plain)
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 1.5).onEnded { _ in
-                        withAnimation(.spring(response: 0.35)) { isEditMode = true }
-                    }
-                )
-            } else {
-                // 编辑模式：添加按钮 + 设置入口 + 退出提示
-                HStack(spacing: 8) {
-                    // 添加磁贴（收纳进编辑模式）
-                    Button { showAddSheet = true } label: {
-                        Label("添加磁贴", systemImage: "plus.circle.fill")
-                            .font(.caption2).foregroundStyle(WgTheme.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 8)
-                                .fill(WgTheme.accent.opacity(0.1)))
-                            .overlay(RoundedRectangle(cornerRadius: 8)
-                                .stroke(WgTheme.accent.opacity(0.25), lineWidth: 1))
-                    }.buttonStyle(.plain)
-
-                    // 设置图标（从 tab 栏挪到编辑栏）
-                    Button {
-                        selection = .settings
-                        withAnimation(.spring(response: 0.35)) { isEditMode = false }
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                            .background(Circle().fill(Color.white.opacity(0.06)))
-                    }.buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text("点击退出编辑")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary.opacity(0.5))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
-        }
         // 磁贴 Popover 菜单
         .popover(item: $contextMenuTile) { tile in
             tileMenuPopover(tile)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: tiles.map(\.size))
+    }
+
+    @ViewBuilder
+    private var editFooter: some View {
+        if !isEditMode {
+            Button {
+                withAnimation(.spring(response: 0.35)) { isEditMode = true }
+            } label: {
+                Text("长按空白处编辑")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary.opacity(0.5))
+                    .frame(maxWidth: .infinity, minHeight: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 1.5).onEnded { _ in
+                    withAnimation(.spring(response: 0.35)) { isEditMode = true }
+                }
+            )
+        } else {
+            HStack(spacing: 8) {
+                Button { showAddSheet = true } label: {
+                    Label("添加磁贴", systemImage: "plus.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(WgTheme.accent)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 8)
+                            .fill(WgTheme.accent.opacity(0.1)))
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(WgTheme.accent.opacity(0.25), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selection = .settings
+                    withAnimation(.spring(response: 0.35)) { isEditMode = false }
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Color.white.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 8)
+
+                Text("点击退出编辑")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary.opacity(0.5))
+            }
+            .frame(minHeight: 28)
+        }
     }
 
     /// 单个磁贴单元格（三种尺寸模式各自固定物理尺寸）

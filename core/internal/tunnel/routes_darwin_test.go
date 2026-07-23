@@ -45,3 +45,41 @@ func TestIsFakeIP(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDNSServers(t *testing.T) {
+	got := parseDNSServers("10.66.66.1, 1.1.1.1\n8.8.8.8")
+	want := []string{"10.66.66.1", "1.1.1.1", "8.8.8.8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dns servers = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseNetworkServiceForInterface(t *testing.T) {
+	output := `Hardware Port: Wi-Fi
+Device: en0
+Ethernet Address: 00:11:22:33:44:55
+
+Hardware Port: USB 10/100/1000 LAN
+Device: en4
+Ethernet Address: aa:bb:cc:dd:ee:ff
+`
+	got, err := parseNetworkServiceForInterface(output, "en4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "USB 10/100/1000 LAN" {
+		t.Fatalf("service = %q", got)
+	}
+}
+
+func TestParseCurrentDNSServers(t *testing.T) {
+	got := parseCurrentDNSServers("10.10.1.1\n1.1.1.1\n")
+	want := []string{"10.10.1.1", "1.1.1.1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("current dns = %#v, want %#v", got, want)
+	}
+
+	if got := parseCurrentDNSServers("There aren't any DNS Servers set on Wi-Fi.\n"); got != nil {
+		t.Fatalf("empty dns = %#v, want nil", got)
+	}
+}

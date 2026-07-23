@@ -3,14 +3,15 @@
 // 阶段 1 后期迁移到 NetworkExtension 后不再需要 root。
 //
 // 重要设计决策：
-//  1. 不修改系统 DNS — 用 networksetup 改 DNS 在 daemon 异常退出时会残留，导致断网。
-//     DNS 解析由 Go 的 netresolver 在应用层处理（走 TUN 或物理接口的 UDP 53）。
+//  1. 只在隧道握手成功后临时应用 profile DNS，cleanup 恢复原 DNS，避免 Fake-IP DNS
+//     在全隧道路由下把域名解析到不可达地址。
 //  2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
-//  3. cleanup 注册 signal handler — 即使 kill -9 也能尝试清理路由。
+//  3. cleanup 注册 signal handler — 尽量在进程退出时恢复 DNS 并清理路由。
 package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -36,6 +37,7 @@ type darwinManager struct {
 	origGateway string       // 建隧道前的物理网关
 	physIface   string       // 物理接口名（en0/en1）
 	addedRoutes []routeEntry // 已添加的路由（断开时清理）
+	dnsSnapshot *dnsSnapshot // 已替换 DNS 时的原始设置
 	cleaned     bool         // 防止重复 cleanup
 	hasIPv6     bool         // TUN 是否配置了 IPv6 地址
 }
@@ -44,6 +46,11 @@ type routeEntry struct {
 	cidr string
 	gw   string // 网关 IP（空=interface 路由）
 	dev  string // 接口名
+}
+
+type dnsSnapshot struct {
+	Service string   `json:"service"`
+	Servers []string `json:"servers"`
 }
 
 func newPlatformManager(configDir string) Manager {
@@ -56,6 +63,9 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	// 重置 cleanup 标志，允许新一轮清理
 	m.cleaned = false
 	m.hasIPv6 = false
+	if err := restoreStaleDNS(m.configDir); err != nil {
+		log.Printf("[tunnel] 启动前恢复残留 DNS 失败: %v", err)
+	}
 
 	// 0. 获取物理网络信息（必须在路由表变更前）
 	gw, err := getDefaultGateway()
@@ -163,7 +173,10 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	}
 	log.Printf("[tunnel] 全量隧道路由已添加 (0/1 + 128.0/1 → %s)", m.tunName)
 
-	// 不修改系统 DNS
+	if err := m.applyProfileDNS(profile.Interface.DNS); err != nil {
+		m.cleanup()
+		return fmt.Errorf("应用 DNS: %w", err)
+	}
 	return nil
 }
 
@@ -325,8 +338,7 @@ func (m *darwinManager) setupSignalHandler() {
 	}()
 }
 
-// cleanup 清理所有资源：删除路由、关闭设备。
-// 不再恢复 DNS（因为没有修改过）。
+// cleanup 清理所有资源：先恢复临时 DNS，再删除路由、关闭设备。
 func (m *darwinManager) cleanup() {
 	if m.cleaned {
 		return
@@ -334,6 +346,16 @@ func (m *darwinManager) cleanup() {
 	m.cleaned = true
 
 	log.Printf("[tunnel] cleanup: 删除 %d 条路由", len(m.addedRoutes))
+
+	if m.dnsSnapshot != nil {
+		if err := restoreDNS(*m.dnsSnapshot); err != nil {
+			log.Printf("[tunnel] 恢复 DNS 失败: %v", err)
+		} else {
+			_ = removeStoredDNSSnapshot(m.configDir)
+			log.Printf("[tunnel] DNS 已恢复: %s", m.dnsSnapshot.Service)
+		}
+		m.dnsSnapshot = nil
+	}
 
 	// 删除所有已添加的路由（逆序）
 	for i := len(m.addedRoutes) - 1; i >= 0; i-- {
@@ -347,6 +369,38 @@ func (m *darwinManager) cleanup() {
 		m.dev.Close()
 		m.dev = nil
 	}
+}
+
+func (m *darwinManager) applyProfileDNS(rawDNS string) error {
+	servers := parseDNSServers(rawDNS)
+	if len(servers) == 0 {
+		return nil
+	}
+	service, err := networkServiceForInterface(m.physIface)
+	if err != nil {
+		return err
+	}
+	current, err := currentDNSServers(service)
+	if err != nil {
+		return err
+	}
+	if stringSlicesEqual(current, servers) {
+		log.Printf("[tunnel] DNS 已是 profile 配置: %s", strings.Join(servers, ", "))
+		return nil
+	}
+	m.dnsSnapshot = &dnsSnapshot{Service: service, Servers: current}
+	if err := storeDNSSnapshot(m.configDir, *m.dnsSnapshot); err != nil {
+		m.dnsSnapshot = nil
+		return err
+	}
+	args := append([]string{"-setdnsservers", service}, servers...)
+	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
+		m.dnsSnapshot = nil
+		_ = removeStoredDNSSnapshot(m.configDir)
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	log.Printf("[tunnel] DNS 已切换到 profile: %s → %s", service, strings.Join(servers, ", "))
+	return nil
 }
 
 // addExclusionRoute 添加排除路由（不走隧道）。
@@ -674,4 +728,136 @@ func parseCIDR(cidr string) (ip, mask string, err error) {
 		return "", "", fmt.Errorf("无效 CIDR: %s", cidr)
 	}
 	return parts[0], parts[1], nil
+}
+
+func parseDNSServers(raw string) []string {
+	var servers []string
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		server := strings.TrimSpace(part)
+		if server == "" {
+			continue
+		}
+		servers = append(servers, server)
+	}
+	return servers
+}
+
+func networkServiceForInterface(iface string) (string, error) {
+	out, err := exec.Command("networksetup", "-listallhardwareports").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return parseNetworkServiceForInterface(string(out), iface)
+}
+
+func parseNetworkServiceForInterface(output, iface string) (string, error) {
+	var currentPort string
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		switch {
+		case strings.HasPrefix(line, "Hardware Port:"):
+			currentPort = strings.TrimSpace(strings.TrimPrefix(line, "Hardware Port:"))
+		case strings.HasPrefix(line, "Device:"):
+			device := strings.TrimSpace(strings.TrimPrefix(line, "Device:"))
+			if device == iface && currentPort != "" {
+				return currentPort, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("未找到接口 %s 对应的网络服务", iface)
+}
+
+func currentDNSServers(service string) ([]string, error) {
+	out, err := exec.Command("networksetup", "-getdnsservers", service).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return parseCurrentDNSServers(string(out)), nil
+}
+
+func parseCurrentDNSServers(output string) []string {
+	var servers []string
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, "There aren't any DNS Servers") || strings.Contains(line, "没有设置 DNS") {
+			return nil
+		}
+		servers = append(servers, line)
+	}
+	return servers
+}
+
+func restoreDNS(snapshot dnsSnapshot) error {
+	args := []string{"-setdnsservers", snapshot.Service}
+	if len(snapshot.Servers) == 0 {
+		args = append(args, "Empty")
+	} else {
+		args = append(args, snapshot.Servers...)
+	}
+	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+func storeDNSSnapshot(configDir string, snapshot dnsSnapshot) error {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dnsSnapshotPath(configDir), data, 0600)
+}
+
+func restoreStaleDNS(configDir string) error {
+	data, err := os.ReadFile(dnsSnapshotPath(configDir))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var snapshot dnsSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return err
+	}
+	if snapshot.Service == "" {
+		_ = removeStoredDNSSnapshot(configDir)
+		return nil
+	}
+	if err := restoreDNS(snapshot); err != nil {
+		return err
+	}
+	return removeStoredDNSSnapshot(configDir)
+}
+
+func removeStoredDNSSnapshot(configDir string) error {
+	err := os.Remove(dnsSnapshotPath(configDir))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func dnsSnapshotPath(configDir string) string {
+	return filepath.Join(configDir, ".wgsense-dns-snapshot.json")
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

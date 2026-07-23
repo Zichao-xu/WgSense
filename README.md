@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.0-beta** — macOS 一体化测试版：
+**v0.3.1-beta** — macOS 一体化修复版：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
