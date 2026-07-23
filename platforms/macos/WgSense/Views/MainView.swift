@@ -101,51 +101,90 @@ struct MainView: View {
     @EnvironmentObject var client: DaemonClient
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
+    @AppStorage("tileDashboardDemoEnabled") private var tileDashboardDemoEnabled = false
     @State private var selection: SidebarTab = .dashboard
     @State private var sidebarWidth: CGFloat = 300
 
     private let sidebarMinWidth: CGFloat = 176
     private let sidebarMaxWidth: CGFloat = 620
+    private let demoSidebarMinWidth: CGFloat = 620
+    private let demoSidebarMaxWidth: CGFloat = 980
 
     var body: some View {
         HStack(spacing: 0) {
             SidebarView(selection: $selection)
-                .frame(width: sidebarWidth)
+                .frame(width: resolvedSidebarWidth)
                 .background(WgTheme.sidebarBg)
 
             SidebarResizeHandle(
                 width: $sidebarWidth,
-                minimumWidth: sidebarMinWidth,
-                maximumWidth: sidebarMaxWidth
+                minimumWidth: tileDashboardDemoEnabled ? demoSidebarMinWidth : sidebarMinWidth,
+                maximumWidth: tileDashboardDemoEnabled ? demoSidebarMaxWidth : sidebarMaxWidth
             )
             .frame(width: 7)
             .background(WgTheme.bg)
 
-            ScrollView {
-                Group {
-                    switch selection {
-                    case .dashboard, .wireguard: OverviewView()
-                    case .proxy: ProxyView()
-                    case .profile: ProfileManagerView()
-                    case .transferReceive: TransferReceiveView()
-                    case .transferSend: TransferSendView()
-                    case .settings: SettingsView()
-                    case .logs: LogsView()
-                    case .about: AboutView()
-                    }
-                }
-                .padding(28)
-            }
-            .background(WgTheme.bg)
+            mainContent
+                .background(WgTheme.bg)
         }
-        .frame(minWidth: 780, minHeight: 500)
+        .frame(minWidth: tileDashboardDemoEnabled ? 1060 : 780, minHeight: 500)
         .environment(\.locale, selectedLanguage.locale)
         .preferredColorScheme(selectedAppearance.colorScheme)
         .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
+        .animation(.smooth(duration: 0.35), value: tileDashboardDemoEnabled)
         .id("content-\(appLanguageRaw)")
+        .onAppear { normalizeSidebarWidthForMode() }
+        .onChange(of: tileDashboardDemoEnabled) { _ in normalizeSidebarWidthForMode() }
         .task { await client.refresh() }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             Task { await client.fetchStatus() }
+        }
+    }
+
+    private var resolvedSidebarWidth: CGFloat {
+        if tileDashboardDemoEnabled {
+            return min(demoSidebarMaxWidth, max(demoSidebarMinWidth, sidebarWidth))
+        }
+        return min(sidebarMaxWidth, max(sidebarMinWidth, sidebarWidth))
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if tileDashboardDemoEnabled {
+            DemoPhoneContent(selection: selection)
+                .frame(width: 390)
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 24)
+        } else {
+            ScrollView {
+                routedContent
+                    .padding(28)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var routedContent: some View {
+        switch selection {
+        case .dashboard, .wireguard: OverviewView()
+        case .proxy: ProxyView()
+        case .profile: ProfileManagerView()
+        case .transferReceive: TransferReceiveView()
+        case .transferSend: TransferSendView()
+        case .settings: SettingsView()
+        case .logs: LogsView()
+        case .about: AboutView()
+        }
+    }
+
+    private func normalizeSidebarWidthForMode() {
+        withAnimation(.smooth(duration: 0.35)) {
+            if tileDashboardDemoEnabled {
+                sidebarWidth = min(demoSidebarMaxWidth, max(demoSidebarMinWidth, sidebarWidth))
+            } else {
+                sidebarWidth = min(sidebarMaxWidth, max(sidebarMinWidth, sidebarWidth))
+            }
         }
     }
 
@@ -312,6 +351,7 @@ struct TileData: Identifiable, Codable {
 struct SidebarView: View {
     @Binding var selection: SidebarTab
     @EnvironmentObject var client: DaemonClient
+    @AppStorage("tileDashboardDemoEnabled") private var tileDashboardDemoEnabled = false
     @State private var tiles: [TileData] = []
     @State private var isEditMode = false
     @State private var draggedItem: TileData?
@@ -412,6 +452,16 @@ struct SidebarView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(selection == .settings ? WgTheme.accent : .secondary)
             }.buttonStyle(.plain)
+
+            Button {
+                withAnimation(.smooth(duration: 0.35)) { tileDashboardDemoEnabled.toggle() }
+            } label: {
+                Image(systemName: tileDashboardDemoEnabled ? "rectangle.grid.3x2.fill" : "rectangle.grid.3x2")
+                    .font(.system(size: 16))
+                    .foregroundStyle(tileDashboardDemoEnabled ? WgTheme.accent : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(tileDashboardDemoEnabled ? "关闭磁贴演示" : "打开磁贴演示")
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -1534,14 +1584,18 @@ struct SidebarView: View {
 
     // MARK: - 磁贴网格（手动行打包 + VStack/HStack，medium/large 独占一行）
 
-    private func tileGridContent(availableWidth: CGFloat) -> some View {
+    private func tileGridContent(availableWidth: CGFloat) -> AnyView {
+        if tileDashboardDemoEnabled {
+            return AnyView(demoTileBoardContent(availableWidth: availableWidth))
+        }
+
         let outerPadding: CGFloat = 12
         let usableWidth = max(1, availableWidth - outerPadding * 2)
         let minimumCellWidth: CGFloat = 112
         let columnCount = max(1, Int((usableWidth + WgTheme.tileGap) / (minimumCellWidth + WgTheme.tileGap)))
         let cellWidth = max(1, (usableWidth - CGFloat(columnCount - 1) * WgTheme.tileGap) / CGFloat(columnCount))
         let rows = buildTileRows(columnCount: columnCount)
-        return VStack(spacing: 0) {
+        return AnyView(VStack(spacing: 0) {
             VStack(spacing: WgTheme.tileGap) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     if !row.isEmpty {
@@ -1581,7 +1635,144 @@ struct SidebarView: View {
         .popover(item: $contextMenuTile) { tile in
             tileMenuPopover(tile)
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: tiles.map(\.size))
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: tiles.map(\.size)))
+    }
+
+    private func demoTileBoardContent(availableWidth: CGFloat) -> some View {
+        let outerPadding: CGFloat = 18
+        let usableWidth = max(1, availableWidth - outerPadding * 2)
+        let columnCount = usableWidth > 780 ? 3 : 2
+        let gap: CGFloat = 14
+        let cellWidth = max(150, (usableWidth - CGFloat(columnCount - 1) * gap) / CGFloat(columnCount))
+        let boardTiles = demoTiles
+
+        return ScrollView {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.fixed(cellWidth), spacing: gap), count: columnCount),
+                alignment: .leading,
+                spacing: gap
+            ) {
+                ForEach(boardTiles) { tile in
+                    let span = min(tile.span, columnCount)
+                    DemoDashboardTile(
+                        tile: tile,
+                        isSelected: demoSelectionMatches(tile.kind),
+                        isEditMode: isEditMode,
+                        samples: demoSamples(for: tile.kind),
+                        value: demoValue(for: tile.kind),
+                        detail: demoDetail(for: tile.kind),
+                        action: { demoTap(tile.kind) }
+                    )
+                    .frame(
+                        width: cellWidth * CGFloat(span) + gap * CGFloat(max(span - 1, 0)),
+                        height: tile.span == 2 ? 246 : 188
+                    )
+                    .gridCellColumns(span)
+                    .animation(.smooth(duration: 0.28), value: client.status?.state)
+                }
+            }
+            editFooter
+                .padding(.top, gap)
+        }
+        .padding(.horizontal, outerPadding)
+        .padding(.vertical, 14)
+    }
+
+    private var demoTiles: [DemoDashboardTileModel] {
+        [
+            DemoDashboardTileModel(kind: .vpn, icon: "network", title: "VPN", accent: .green, span: 1),
+            DemoDashboardTileModel(kind: .connection, icon: "arrow.up.arrow.down", title: "Network", accent: .cyan, span: 2),
+            DemoDashboardTileModel(kind: .guardMode, icon: "shield.checkered", title: "Guard", accent: .blue, span: 1),
+            DemoDashboardTileModel(kind: .proxy, icon: "point.3.connected.trianglepath.dotted", title: "Proxy", accent: .purple, span: 1),
+            DemoDashboardTileModel(kind: .transferReceive, icon: "arrow.down.circle", title: "Receive", accent: .blue, span: 1),
+            DemoDashboardTileModel(kind: .transferSend, icon: "arrow.up.circle", title: "Send", accent: .orange, span: 1),
+            DemoDashboardTileModel(kind: .profile, icon: "doc.text", title: "Profiles", accent: .orange, span: 1),
+            DemoDashboardTileModel(kind: .logs, icon: "waveform.path.ecg", title: "Logs", accent: .pink, span: 2),
+        ]
+    }
+
+    private func demoSelectionMatches(_ kind: TileKind) -> Bool {
+        switch kind {
+        case .vpn, .connection: return selection == .dashboard || selection == .wireguard
+        case .guardMode: return selection == .settings
+        case .proxy: return selection == .proxy
+        case .transferReceive: return selection == .transferReceive
+        case .transferSend: return selection == .transferSend
+        case .profile: return selection == .profile
+        case .logs: return selection == .logs
+        case .about: return selection == .about
+        case .pause, .stop: return false
+        }
+    }
+
+    private func demoTap(_ kind: TileKind) {
+        withAnimation(.smooth(duration: 0.22)) {
+            switch kind {
+            case .vpn, .connection: selection = .dashboard
+            case .guardMode: selection = .settings
+            case .proxy: selection = .proxy
+            case .transferReceive: selection = .transferReceive
+            case .transferSend: selection = .transferSend
+            case .profile: selection = .profile
+            case .logs: selection = .logs
+            case .about: selection = .about
+            case .pause, .stop: break
+            }
+        }
+    }
+
+    private func demoValue(for kind: TileKind) -> String {
+        switch kind {
+        case .vpn: return isConnected ? "ON" : "OFF"
+        case .connection: return formatSpeed(client.traffic?.rx_speed ?? 0)
+        case .guardMode: return guardRunning ? "Active" : "Idle"
+        case .proxy: return client.proxyRunning ? "Live" : "Offline"
+        case .transferReceive:
+            let activeBytes = client.transferState?.active?.reduce(Int64(0)) { $0 + $1.doneBytes } ?? 0
+            return formatSize(UInt64(max(0, activeBytes)))
+        case .transferSend:
+            let activeBytes = client.transferSendTasks?.active.reduce(Int64(0)) { $0 + $1.doneBytes } ?? 0
+            return formatSize(UInt64(max(0, activeBytes)))
+        case .profile: return client.status?.service.isEmpty == false ? (client.status?.service ?? "default") : "default"
+        case .logs: return "\(client.logLines.count)"
+        default: return ""
+        }
+    }
+
+    private func demoDetail(for kind: TileKind) -> String {
+        switch kind {
+        case .vpn: return isConnected ? "Tunnel established" : "Ready"
+        case .connection: return "↑ \(formatSpeed(client.traffic?.tx_speed ?? 0)) · ↓ \(formatSpeed(client.traffic?.rx_speed ?? 0))"
+        case .guardMode: return guardRunning ? "Policy watching" : "Manual control"
+        case .proxy: return client.proxyRunning ? "Mihomo connected" : "Controller offline"
+        case .transferReceive: return client.transferState?.running == true ? "Listening" : "Stopped"
+        case .transferSend: return client.transferSendTasks?.active.first?.status ?? "Ready"
+        case .profile: return client.profiles.isEmpty ? "No profiles loaded" : "\(client.profiles.count) profiles"
+        case .logs: return client.logLines.last?.text ?? "Waiting for events"
+        default: return ""
+        }
+    }
+
+    private func demoSamples(for kind: TileKind) -> [Double] {
+        let base: [Double]
+        switch kind {
+        case .vpn:
+            base = isConnected ? [0.18, 0.24, 0.42, 0.66, 0.74, 0.70, 0.82, 0.76] : [0.08, 0.09, 0.08, 0.10, 0.09, 0.08, 0.09, 0.08]
+        case .connection:
+            let rx = max(1, client.traffic?.rx_speed ?? 1)
+            let tx = max(1, client.traffic?.tx_speed ?? 1)
+            let scale = max(rx, tx, 1024)
+            base = [0.04, tx / scale * 0.35, rx / scale * 0.9, 0.16, 0.48, 0.22, 0.72, 0.26]
+        case .guardMode:
+            base = guardRunning ? [0.50, 0.54, 0.58, 0.62, 0.59, 0.64, 0.68, 0.66] : [0.18, 0.16, 0.17, 0.15, 0.16, 0.14, 0.16, 0.15]
+        case .proxy:
+            base = client.proxyRunning ? [0.35, 0.62, 0.45, 0.74, 0.56, 0.82, 0.64, 0.70] : [0.12, 0.10, 0.11, 0.09, 0.10, 0.08, 0.10, 0.09]
+        case .logs:
+            base = [0.18, 0.42, 0.28, 0.68, 0.34, 0.80, 0.44, 0.58]
+        default:
+            base = [0.22, 0.30, 0.28, 0.44, 0.38, 0.62, 0.52, 0.68]
+        }
+        return base.map { min(1, max(0.02, $0)) }
     }
 
     @ViewBuilder
@@ -1819,6 +2010,287 @@ struct SidebarView: View {
         if !row.isEmpty { result.append(row) }
 
         return result.isEmpty ? [[]] : result
+    }
+}
+
+// MARK: - Dashboard Demo
+
+private struct DemoDashboardTileModel: Identifiable {
+    var id: String { kind.rawValue }
+    let kind: TileKind
+    let icon: String
+    let title: String
+    let accent: Color
+    let span: Int
+}
+
+private struct DemoDashboardTile: View {
+    let tile: DemoDashboardTileModel
+    let isSelected: Bool
+    let isEditMode: Bool
+    let samples: [Double]
+    let value: String
+    let detail: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let phase = timeline.date.timeIntervalSinceReferenceDate
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(tile.accent.opacity(isSelected ? 0.16 : 0.05))
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .stroke(isSelected ? tile.accent.opacity(0.70) : Color.white.opacity(0.08), lineWidth: isSelected ? 1.4 : 0.8)
+                        }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .top) {
+                            Label(tile.title, systemImage: tile.icon)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(tile.accent)
+                            Spacer()
+                            if isEditMode {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+
+                        Spacer(minLength: 4)
+
+                        HStack(alignment: .bottom, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(value)
+                                    .font(.system(size: tile.span == 2 ? 38 : 33, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.55)
+                                Text(detail)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.72)
+                            }
+
+                            Spacer(minLength: 2)
+
+                            DemoSparkline(samples: samples, phase: phase, accent: tile.accent)
+                                .frame(width: tile.span == 2 ? 210 : 118, height: 82)
+                        }
+                    }
+                    .padding(22)
+                }
+                .scaleEffect(isHovering ? 1.018 : 1)
+                .shadow(color: tile.accent.opacity(isHovering ? 0.22 : 0.08), radius: isHovering ? 18 : 8, y: isHovering ? 8 : 3)
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .onHover { hovering in
+            withAnimation(.smooth(duration: 0.16)) { isHovering = hovering }
+        }
+    }
+}
+
+private struct DemoSparkline: View {
+    let samples: [Double]
+    let phase: TimeInterval
+    let accent: Color
+
+    var body: some View {
+        Canvas { context, size in
+            let points = animatedPoints(in: size)
+            guard points.count > 1 else { return }
+
+            var fillPath = Path()
+            fillPath.move(to: CGPoint(x: points[0].x, y: size.height))
+            points.forEach { fillPath.addLine(to: $0) }
+            fillPath.addLine(to: CGPoint(x: points.last?.x ?? size.width, y: size.height))
+            fillPath.closeSubpath()
+
+            context.fill(fillPath, with: .linearGradient(
+                Gradient(colors: [accent.opacity(0.38), accent.opacity(0.04)]),
+                startPoint: CGPoint(x: 0, y: 0),
+                endPoint: CGPoint(x: 0, y: size.height)
+            ))
+
+            var line = Path()
+            line.move(to: points[0])
+            for idx in points.indices.dropFirst() {
+                let previous = points[idx - 1]
+                let current = points[idx]
+                let midX = (previous.x + current.x) / 2
+                line.addCurve(
+                    to: current,
+                    control1: CGPoint(x: midX, y: previous.y),
+                    control2: CGPoint(x: midX, y: current.y)
+                )
+            }
+
+            context.stroke(line, with: .color(accent), style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round))
+
+            if let last = points.last {
+                context.fill(Path(ellipseIn: CGRect(x: last.x - 4, y: last.y - 4, width: 8, height: 8)), with: .color(accent.opacity(0.95)))
+            }
+        }
+    }
+
+    private func animatedPoints(in size: CGSize) -> [CGPoint] {
+        let values = samples.enumerated().map { index, value in
+            let pulse = sin(phase * 2.2 + Double(index) * 0.65) * 0.035
+            return min(1, max(0.02, value + pulse))
+        }
+        let step = values.count > 1 ? size.width / CGFloat(values.count - 1) : size.width
+        return values.enumerated().map { index, value in
+            CGPoint(
+                x: CGFloat(index) * step,
+                y: size.height - CGFloat(value) * size.height
+            )
+        }
+    }
+}
+
+private struct DemoPhoneContent: View {
+    @EnvironmentObject var client: DaemonClient
+    let selection: SidebarTab
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text(selection.label)
+                    .font(.title2.weight(.bold))
+                Spacer()
+                Circle()
+                    .fill(client.isVPNOn ? Color.green : Color.orange)
+                    .frame(width: 10, height: 10)
+            }
+
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(WgTheme.cardBg)
+                .overlay {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Image(systemName: icon)
+                                .font(.system(size: 34, weight: .semibold))
+                                .foregroundStyle(accent)
+                            Spacer()
+                            Text(client.status?.service ?? "default")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text(title)
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .minimumScaleFactor(0.7)
+
+                        Text(subtitle)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                            DemoSparkline(
+                                samples: samples,
+                                phase: timeline.date.timeIntervalSinceReferenceDate,
+                                accent: accent
+                            )
+                        }
+                        .frame(height: 136)
+
+                        Spacer()
+
+                        VStack(spacing: 12) {
+                            statRow("VPN", value: client.isVPNOn ? "Connected" : "Disconnected", color: client.isVPNOn ? .green : .secondary)
+                            statRow("Guard", value: client.isGuardOn ? "Running" : "Manual", color: client.isGuardOn ? .blue : .secondary)
+                            statRow("Traffic", value: "↑ \(speed(client.traffic?.tx_speed ?? 0))  ↓ \(speed(client.traffic?.rx_speed ?? 0))", color: .cyan)
+                        }
+                    }
+                    .padding(26)
+                }
+                .aspectRatio(9.0 / 16.0, contentMode: .fit)
+        }
+    }
+
+    private var title: String {
+        switch selection {
+        case .dashboard, .wireguard: return client.isVPNOn ? "Connected" : "Ready"
+        case .proxy: return client.proxyRunning ? "Proxy Live" : "Proxy Offline"
+        case .profile: return "Profiles"
+        case .transferReceive: return "Receive"
+        case .transferSend: return "Send"
+        case .settings: return "Controls"
+        case .logs: return "Live Logs"
+        case .about: return "WgSense"
+        }
+    }
+
+    private var subtitle: String {
+        switch selection {
+        case .dashboard, .wireguard: return "A compact phone-ratio preview for the selected workspace."
+        case .proxy: return "Controller status, rules, and traffic stay in motion."
+        case .profile: return "Profile state and quick switching preview."
+        case .transferReceive: return "LocalSend receive status and approvals."
+        case .transferSend: return "Discovery and outgoing transfer progress."
+        case .settings: return "Runtime and daemon controls."
+        case .logs: return client.logLines.last?.text ?? "Waiting for daemon events."
+        case .about: return "Cross-platform network toolkit."
+        }
+    }
+
+    private var icon: String {
+        switch selection {
+        case .dashboard, .wireguard: return "network"
+        case .proxy: return "globe.asia.australia"
+        case .profile: return "doc.text"
+        case .transferReceive: return "arrow.down.circle"
+        case .transferSend: return "arrow.up.circle"
+        case .settings: return "slider.horizontal.3"
+        case .logs: return "waveform.path.ecg"
+        case .about: return "info.circle"
+        }
+    }
+
+    private var accent: Color {
+        switch selection {
+        case .dashboard, .wireguard: return .green
+        case .proxy: return .purple
+        case .profile: return .orange
+        case .transferReceive: return .blue
+        case .transferSend: return .orange
+        case .settings: return WgTheme.accent
+        case .logs: return .pink
+        case .about: return .cyan
+        }
+    }
+
+    private var samples: [Double] {
+        [0.20, 0.32, 0.26, 0.56, 0.42, 0.78, 0.52, client.isVPNOn ? 0.72 : 0.18]
+    }
+
+    private func statRow(_ label: String, value: String, color: Color) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).foregroundStyle(color).monospacedDigit()
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private func speed(_ value: Double) -> String {
+        if value < 1024 { return String(format: "%.0f B/s", value) }
+        if value < 1024 * 1024 { return String(format: "%.1f KB/s", value / 1024) }
+        return String(format: "%.1f MB/s", value / 1024 / 1024)
     }
 }
 
