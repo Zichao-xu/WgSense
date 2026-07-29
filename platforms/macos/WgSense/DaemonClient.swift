@@ -315,7 +315,8 @@ class DaemonClient: ObservableObject {
         }
     }
 
-    static func shutdownAppOwnedDaemonSync() {
+    nonisolated static func shutdownAppOwnedDaemonSync() {
+        guard shouldShutdownAppOwnedDaemonSync() else { return }
         guard let url = URL(string: "http://127.0.0.1:8765/api/shutdown") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -324,6 +325,37 @@ class DaemonClient: ObservableObject {
         let task = URLSession.shared.dataTask(with: req) { _, _, _ in sem.signal() }
         task.resume()
         _ = sem.wait(timeout: .now() + 1.2)
+    }
+
+    private nonisolated static func shouldShutdownAppOwnedDaemonSync() -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:8765/api/status") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 0.8
+
+        let sem = DispatchSemaphore(value: 0)
+        var shouldShutdown = false
+        let task = URLSession.shared.dataTask(with: req) { data, _, _ in
+            defer { sem.signal() }
+            guard
+                let data,
+                let status = try? JSONDecoder().decode(DaemonStatus.self, from: data),
+                status.app_owned == true
+            else { return }
+
+            shouldShutdown = shouldShutdownAppOwnedDaemon(status)
+        }
+        task.resume()
+        _ = sem.wait(timeout: .now() + 1.0)
+        return shouldShutdown
+    }
+
+    private nonisolated static func shouldShutdownAppOwnedDaemon(_ status: DaemonStatus) -> Bool {
+        guard status.app_owned == true else { return false }
+        // If the user has an active tunnel or active guard policy, leaving the
+        // app must not silently tear down the network session. Idle temporary
+        // daemons are still cleaned up on quit.
+        return status.state != "Connected" && status.paused
     }
 
     func shutdownAppOwnedDaemon() async -> Bool {
