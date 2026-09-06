@@ -10,6 +10,8 @@ import (
 func TestRuntimeConfigRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	cfg := Default()
+	cfg.DesiredVPNEnabled = true
+	cfg.DesiredGuardEnabled = true
 	cfg.AutoConnectUntrusted = true
 	cfg.TrustedNetworkPrefixes = []string{"10.10.1.", "192.168.1."}
 	cfg.IntervalSeconds = 7
@@ -26,6 +28,9 @@ func TestRuntimeConfigRoundTrip(t *testing.T) {
 	}
 	if got.AutoConnectUntrusted != true {
 		t.Fatal("auto-connect setting was not persisted")
+	}
+	if !got.DesiredVPNEnabled || !got.DesiredGuardEnabled {
+		t.Fatalf("desired state was not persisted: %#v", got)
 	}
 	if !reflect.DeepEqual(got.TrustedNetworkPrefixes, cfg.TrustedNetworkPrefixes) {
 		t.Fatalf("trusted prefixes = %#v", got.TrustedNetworkPrefixes)

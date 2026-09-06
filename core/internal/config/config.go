@@ -10,6 +10,16 @@ import (
 
 // Config 是 WgSense 守护的运行配置。
 type Config struct {
+	// DesiredVPNEnabled records the user's intent to keep WireGuard up. It is
+	// intentionally separate from the instantaneous tunnel state so transient
+	// network failures do not clear the UI switch or stop reconnect attempts.
+	DesiredVPNEnabled bool `json:"desired_vpn_enabled"`
+
+	// DesiredGuardEnabled records the user's intent to keep trusted-network
+	// automation enabled. The actual tunnel may still be disconnected on a
+	// trusted network or while reconnecting.
+	DesiredGuardEnabled bool `json:"desired_guard_enabled"`
+
 	// AutoConnectUntrusted controls whether the daemon may connect WireGuard by
 	// itself when the current network is outside trusted prefixes. Manual connect
 	// is unaffected.

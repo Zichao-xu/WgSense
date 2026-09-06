@@ -145,7 +145,7 @@ func main() {
 		<-sigCh
 		log.Println("收到退出信号")
 		cancel()
-		if err := eng.Disconnect(); err != nil {
+		if err := eng.ShutdownCleanup(); err != nil {
 			log.Printf("退出前清理隧道失败: %v", err)
 		}
 		os.Exit(0)
@@ -157,7 +157,7 @@ func main() {
 	if *appOwned {
 		apiSrv.SetShutdown(func() {
 			cancel()
-			_ = eng.Disconnect()
+			_ = eng.ShutdownCleanup()
 			go func() {
 				// Give the HTTP response a moment to flush before exiting.
 				time.Sleep(200 * time.Millisecond)

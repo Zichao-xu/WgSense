@@ -73,6 +73,13 @@ func (e *Engine) SetAppOwned(appOwned bool) { e.appOwned = appOwned }
 // SetConfigPath enables persistence for runtime configuration changes.
 func (e *Engine) SetConfigPath(path string) { e.configPath = path }
 
+func (e *Engine) saveCurrentConfig() error {
+	if e.configPath == "" {
+		return nil
+	}
+	return config.SaveRuntime(e.configPath, e.cfg)
+}
+
 // RunOnce 执行一次巡检。
 // 逻辑：
 //   - 受信任网络 → 断开 WG
@@ -80,11 +87,16 @@ func (e *Engine) SetConfigPath(path string) { e.configPath = path }
 //   - 非受信任网络 + Disconnected + AutoConnectUntrusted → 自动连上
 //   - 非受信任网络 + Connected → 假连接检测，失效则强制 stop/start
 func (e *Engine) RunOnce() error {
-	// 暂停时跳过所有自动管理（包括可信网络断开、非可信网络连接、假连接检测）
-	if e.pause.IsPaused() {
+	// 没有任何保持连接的用户意图，或显式暂停时，跳过自动管理。VPN/守护意图仍
+	// 保留，失败只进入等待/重试，不把开关意图改回关闭。
+	if (!e.cfg.DesiredGuardEnabled && !e.cfg.DesiredVPNEnabled && !e.cfg.AutoConnectUntrusted) || e.pause.IsPaused() {
 		state, _ := e.tun.Status(e.service)
-		e.Logf("巡检 trusted=%v state=%s service=%s（已暂停，跳过）",
-			e.loc.IsHome(e.cfg.TrustedNetworkPrefixes), state, e.service)
+		reason := "未要求保持连接"
+		if e.pause.IsPaused() {
+			reason = "已暂停"
+		}
+		e.Logf("巡检 trusted=%v state=%s service=%s（%s，跳过自动策略）",
+			e.loc.IsHome(e.cfg.TrustedNetworkPrefixes), state, e.service, reason)
 		return nil
 	}
 
@@ -92,9 +104,9 @@ func (e *Engine) RunOnce() error {
 	state, _ := e.tun.Status(e.service)
 	e.Logf("巡检 trusted=%v state=%s service=%s", trusted, state, e.service)
 
-	// 受信任网络 → 断开
+	// 受信任网络 → 守护管理的隧道应断开；用户手动要求 VPN 保持开启时不抢断。
 	if trusted {
-		if state != tunnel.StateDisconnected {
+		if state != tunnel.StateDisconnected && !e.cfg.DesiredVPNEnabled {
 			e.Logf("命中受信任网络，断开 WireGuard")
 			return e.tun.Disconnect(e.service)
 		}
@@ -105,7 +117,7 @@ func (e *Engine) RunOnce() error {
 	switch state {
 	case tunnel.StateDisconnected:
 		e.healthFailures = 0
-		if !e.cfg.AutoConnectUntrusted {
+		if !e.shouldKeepVPNUp(trusted) {
 			e.Logf("当前网络不在受信任前缀内，自动连接未启用")
 			return nil
 		}
@@ -157,6 +169,13 @@ func (e *Engine) RunOnce() error {
 		}
 	}
 	return nil
+}
+
+func (e *Engine) shouldKeepVPNUp(trusted bool) bool {
+	if e.cfg.DesiredVPNEnabled {
+		return true
+	}
+	return !trusted && (e.cfg.DesiredGuardEnabled || e.cfg.AutoConnectUntrusted)
 }
 
 func (e *Engine) recordAutoFailure() {
@@ -218,32 +237,57 @@ type StatusSnapshot struct {
 	AtHome               bool   `json:"at_home"`
 	State                string `json:"state"`
 	Paused               bool   `json:"paused"`
+	DesiredVPNEnabled    bool   `json:"desired_vpn_enabled"`
+	DesiredGuardEnabled  bool   `json:"desired_guard_enabled"`
 	Service              string `json:"service"`
 	Passive              bool   `json:"passive"`
 	AutoConnectUntrusted bool   `json:"auto_connect_untrusted"`
 	Auto                 bool   `json:"auto_connect_away"`
 	AppOwned             bool   `json:"app_owned"`
+	HealthFailures       int    `json:"health_failures"`
+	AutoFailures         int    `json:"auto_failures"`
+	NextAutoAttempt      string `json:"next_auto_attempt,omitempty"`
+	LastHealthCheck      string `json:"last_health_check,omitempty"`
+	LastAutoUp           string `json:"last_auto_up,omitempty"`
 }
 
 // Status 返回当前状态快照。
 func (e *Engine) Status() StatusSnapshot {
 	state, _ := e.tun.Status(e.service)
 	trusted := e.loc.IsHome(e.cfg.TrustedNetworkPrefixes)
-	return StatusSnapshot{
+	snapshot := StatusSnapshot{
 		TrustedNetwork:       trusted,
 		AtHome:               trusted,
 		State:                string(state),
 		Paused:               e.pause.IsPaused(),
+		DesiredVPNEnabled:    e.shouldKeepVPNUp(trusted),
+		DesiredGuardEnabled:  e.cfg.DesiredGuardEnabled,
 		Service:              e.service,
 		Passive:              e.passive,
 		AutoConnectUntrusted: e.cfg.AutoConnectUntrusted,
 		Auto:                 e.cfg.AutoConnectUntrusted,
 		AppOwned:             e.appOwned,
+		HealthFailures:       e.healthFailures,
+		AutoFailures:         e.autoFailures,
 	}
+	if !e.nextAutoAttempt.IsZero() {
+		snapshot.NextAutoAttempt = e.nextAutoAttempt.Format(time.RFC3339)
+	}
+	if !e.lastHealthCheck.IsZero() {
+		snapshot.LastHealthCheck = e.lastHealthCheck.Format(time.RFC3339)
+	}
+	if !e.lastAutoUp.IsZero() {
+		snapshot.LastAutoUp = e.lastAutoUp.Format(time.RFC3339)
+	}
+	return snapshot
 }
 
 // Connect 手动连接隧道。
 func (e *Engine) Connect() error {
+	e.cfg.DesiredVPNEnabled = true
+	if err := e.saveCurrentConfig(); err != nil {
+		return err
+	}
 	if e.passive {
 		return fmt.Errorf("daemon 处于被动模式，WireGuard 连接需要正式网络服务")
 	}
@@ -268,17 +312,41 @@ func (e *Engine) Connect() error {
 
 // Disconnect 手动断开隧道。
 func (e *Engine) Disconnect() error {
+	e.cfg.DesiredVPNEnabled = false
+	if err := e.saveCurrentConfig(); err != nil {
+		return err
+	}
+	e.healthFailures = 0
+	return e.tun.Disconnect(e.service)
+}
+
+// ShutdownCleanup disconnects the underlying tunnel while preserving user
+// intent. Use it for daemon shutdown/restart paths, not for a user-requested
+// disconnect.
+func (e *Engine) ShutdownCleanup() error {
 	e.healthFailures = 0
 	return e.tun.Disconnect(e.service)
 }
 
 // Pause 暂停自动管理。
 func (e *Engine) Pause() error {
+	e.cfg.DesiredGuardEnabled = false
+	e.cfg.AutoConnectUntrusted = false
+	e.cfg.AutoConnectAway = false
+	if err := e.saveCurrentConfig(); err != nil {
+		return err
+	}
 	return e.pause.Pause()
 }
 
 // Resume 恢复自动管理。
 func (e *Engine) Resume() error {
+	e.cfg.DesiredGuardEnabled = true
+	e.cfg.AutoConnectUntrusted = true
+	e.cfg.AutoConnectAway = true
+	if err := e.saveCurrentConfig(); err != nil {
+		return err
+	}
 	if err := e.pause.Resume(); err != nil {
 		return err
 	}

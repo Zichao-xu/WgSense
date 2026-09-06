@@ -67,7 +67,9 @@ func (m *mockPause) IsPaused() bool { return m.paused }
 
 func TestRunOnceTrustedNetworkDisconnects(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected}
-	eng := New(config.Default(), mockLocation{trusted: true}, tun, mockHealth{connected: true}, &mockPause{})
+	cfg := config.Default()
+	cfg.DesiredGuardEnabled = true
+	eng := New(cfg, mockLocation{trusted: true}, tun, mockHealth{connected: true}, &mockPause{})
 	if err := eng.RunOnce(); err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +152,41 @@ func TestPassiveEngineRejectsManualConnect(t *testing.T) {
 	if !eng.Status().Passive {
 		t.Fatal("passive mode is missing from status")
 	}
+	if !eng.Status().DesiredVPNEnabled {
+		t.Fatal("连接失败也应保留用户开启 VPN 的意图")
+	}
+}
+
+func TestManualConnectFailureKeepsDesiredVPNOn(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateDisconnected, connectErr: errors.New("network blocked")}
+	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
+
+	if err := eng.Connect(); err == nil {
+		t.Fatal("connect should fail")
+	}
+	status := eng.Status()
+	if !status.DesiredVPNEnabled {
+		t.Fatalf("连接失败后不应清空 VPN 意图: %#v", status)
+	}
+	if status.State != string(tunnel.StateDisconnected) {
+		t.Fatalf("真实隧道状态仍应是断开: %#v", status)
+	}
+}
+
+func TestGuardIntentDrivesStatusWithoutConnectedTunnel(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateDisconnected}
+	cfg := config.Default()
+	cfg.DesiredGuardEnabled = true
+	cfg.AutoConnectUntrusted = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
+
+	status := eng.Status()
+	if !status.DesiredGuardEnabled || !status.DesiredVPNEnabled {
+		t.Fatalf("非受信网络下守护意图应显示保持 VPN: %#v", status)
+	}
+	if status.State != string(tunnel.StateDisconnected) {
+		t.Fatalf("意图不应伪造真实连接状态: %#v", status)
+	}
 }
 
 func TestRunOnceUntrustedPaused(t *testing.T) {
@@ -166,7 +203,9 @@ func TestRunOnceUntrustedPaused(t *testing.T) {
 func TestRunOnceStaleConnected(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected}
 	// 单次波动不能破坏长连接；连续多次失败才重启。
-	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
 	for i := 0; i < maxHealthFailures-1; i++ {
 		eng.lastHealthCheck = time.Time{}
 		if err := eng.RunOnce(); err != nil {
@@ -218,6 +257,28 @@ func TestManualConnectDoesNotRestartExistingTunnel(t *testing.T) {
 	}
 }
 
+func TestShutdownCleanupPreservesDesiredVPNIntent(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateConnected}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: true}, &mockPause{})
+	path := filepath.Join(t.TempDir(), "settings.json")
+	eng.SetConfigPath(path)
+
+	if err := eng.ShutdownCleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateDisconnected {
+		t.Fatalf("shutdown cleanup should disconnect the tunnel: %s", tun.state)
+	}
+	if !eng.Status().DesiredVPNEnabled {
+		t.Fatal("daemon shutdown cleanup must not clear the user's VPN intent")
+	}
+	if _, err := config.LoadRuntime(path); !config.IsNotExist(err) {
+		t.Fatalf("shutdown cleanup should not rewrite runtime config, err=%v", err)
+	}
+}
+
 func TestUpdateConfigPersistsRuntimeConfig(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateDisconnected}
 	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
@@ -245,7 +306,9 @@ func TestUpdateConfigPersistsRuntimeConfig(t *testing.T) {
 
 func TestHealthRestartFailureKeepsRetrySoon(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected, connectErr: errors.New("temporary network down")}
-	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
 
 	for i := 0; i < maxHealthFailures; i++ {
 		eng.lastHealthCheck = time.Time{}
@@ -262,7 +325,9 @@ func TestHealthRestartFailureKeepsRetrySoon(t *testing.T) {
 func TestRunOnceTransientHealthFailureRecovers(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected}
 	health := &mutableHealth{connected: false}
-	eng := New(config.Default(), mockLocation{trusted: false}, tun, health, &mockPause{})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, health, &mockPause{})
 	if err := eng.RunOnce(); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +344,9 @@ func TestRunOnceTransientHealthFailureRecovers(t *testing.T) {
 func TestRunOnceUntrustedConnectedHealthy(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected}
 	// health 报告通 → 正常，不动
-	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: true}, &mockPause{})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: true}, &mockPause{})
 	if err := eng.RunOnce(); err != nil {
 		t.Fatal(err)
 	}

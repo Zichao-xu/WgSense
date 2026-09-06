@@ -34,6 +34,7 @@ class DaemonClient: ObservableObject {
     @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = ""
     @AppStorage("autoConnectUntrusted") var autoConnectUntrusted: Bool = true
     @AppStorage("guardAutomationEnabled") private var guardAutomationEnabled: Bool = false
+    @AppStorage("desiredVPNEnabled") private var desiredVPNEnabled: Bool = false
 
     private let api = DaemonAPIClient()
     private let controlAPI = DaemonControlAPIClient()
@@ -68,11 +69,11 @@ class DaemonClient: ObservableObject {
     }
 
     var isVPNOn: Bool {
-        pendingConnected ?? (status?.state == "Connected")
+        pendingConnected ?? status?.desired_vpn_enabled ?? desiredVPNEnabled
     }
 
     var isGuardOn: Bool {
-        pendingGuardRunning ?? (status.map { !$0.paused } ?? false)
+        pendingGuardRunning ?? status?.desired_guard_enabled ?? guardAutomationEnabled
     }
 
     var isPauseOn: Bool {
@@ -112,6 +113,11 @@ class DaemonClient: ObservableObject {
                 await syncConfigSilently()
                 return true
             }
+            if needsSystemService, runningStatus.passive != true {
+                await syncConfigSilently()
+                log("当前为临时 daemon，先保持可用；系统服务迁移不阻断本次操作")
+                return true
+            }
         }
         if runningStatus?.passive == true {
             alertMsg = "当前是被动服务，无法建立 WireGuard；请启动正式网络服务"
@@ -146,6 +152,19 @@ class DaemonClient: ObservableObject {
                 await syncConfigSilently()
                 markDaemonUp()
                 return true
+            }
+        }
+
+        if requireActive {
+            log("系统服务启动失败，回退临时 daemon")
+            let fallbackStarted = await startDaemonWithPrivileges()
+            if fallbackStarted {
+                try? await Task.sleep(for: .seconds(2))
+                if (try? await controlAPI.status(timeout: 2.0)) != nil {
+                    await syncConfigSilently()
+                    markDaemonUp()
+                    return true
+                }
             }
         }
 
@@ -307,7 +326,8 @@ class DaemonClient: ObservableObject {
     func fetchStatus() async {
         do {
             status = try await controlAPI.status()
-            guardAutomationEnabled = !(status?.paused ?? true)
+            desiredVPNEnabled = status?.desired_vpn_enabled ?? (status?.state == "Connected")
+            guardAutomationEnabled = status?.desired_guard_enabled ?? !(status?.paused ?? true)
             markDaemonUp()
         } catch {
             status = nil
@@ -373,9 +393,13 @@ class DaemonClient: ObservableObject {
     /// 守护开关代表完整网络策略：受信任网络断开，非受信任网络自动连接。
     func setGuardEnabled(_ enabled: Bool) async {
         guardAutomationEnabled = enabled
+        setPending(connect: nil, guardRunning: enabled, paused: !enabled)
         if enabled {
             autoConnectUntrusted = true
-            guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else { return }
+            guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else {
+                clearPendingState()
+                return
+            }
             await syncConfigSilently()
             await runDaemonCommand("resume")
         } else {
@@ -448,10 +472,20 @@ class DaemonClient: ObservableObject {
             await connectVPN()
             return
         }
+        if endpoint == "disconnect" {
+            desiredVPNEnabled = false
+        } else if endpoint == "resume" {
+            guardAutomationEnabled = true
+            autoConnectUntrusted = true
+        } else if endpoint == "pause" {
+            guardAutomationEnabled = false
+            autoConnectUntrusted = false
+        }
         await runDaemonCommand(endpoint)
     }
 
     private func connectVPN() async {
+        desiredVPNEnabled = true
         setPending(connect: true, guardRunning: nil, paused: nil)
         guard await ensureDaemon(requireActive: true, authorizeIfNeeded: true) else {
             clearPendingState()
@@ -662,6 +696,8 @@ class DaemonClient: ObservableObject {
             try await controlAPI.syncConfig(
                 trustedNetworkPrefixes: prefixes,
                 autoConnectUntrusted: autoConnectUntrusted,
+                desiredVPNEnabled: desiredVPNEnabled,
+                desiredGuardEnabled: guardAutomationEnabled,
                 intervalSeconds: intervalSeconds,
                 autoUpGraceSeconds: autoUpGraceSeconds,
                 healthCheckTarget: healthCheckTarget
@@ -682,6 +718,8 @@ class DaemonClient: ObservableObject {
         try? await controlAPI.syncConfig(
             trustedNetworkPrefixes: prefixes,
             autoConnectUntrusted: autoConnectUntrusted,
+            desiredVPNEnabled: desiredVPNEnabled,
+            desiredGuardEnabled: guardAutomationEnabled,
             intervalSeconds: intervalSeconds,
             autoUpGraceSeconds: autoUpGraceSeconds,
             healthCheckTarget: healthCheckTarget

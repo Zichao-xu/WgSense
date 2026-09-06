@@ -84,6 +84,8 @@ struct DaemonControlAPIClient {
     func syncConfig(
         trustedNetworkPrefixes: [String],
         autoConnectUntrusted: Bool,
+        desiredVPNEnabled: Bool,
+        desiredGuardEnabled: Bool,
         intervalSeconds: Int,
         autoUpGraceSeconds: Int,
         healthCheckTarget: String
@@ -91,6 +93,8 @@ struct DaemonControlAPIClient {
         let body: [String: Any] = [
             "trusted_network_prefixes": trustedNetworkPrefixes,
             "home_network_prefixes": trustedNetworkPrefixes,
+            "desired_vpn_enabled": desiredVPNEnabled,
+            "desired_guard_enabled": desiredGuardEnabled,
             "auto_connect_untrusted": autoConnectUntrusted,
             "auto_connect_away": autoConnectUntrusted,
             "interval_seconds": intervalSeconds,

@@ -5,11 +5,18 @@ struct DaemonStatus: Codable {
     var at_home: Bool
     var state: String
     var paused: Bool
+    var desired_vpn_enabled: Bool?
+    var desired_guard_enabled: Bool?
     var service: String
     var passive: Bool?
     var auto_connect_untrusted: Bool?
     var auto_connect_away: Bool?
     var app_owned: Bool?
+    var health_failures: Int?
+    var auto_failures: Int?
+    var next_auto_attempt: String?
+    var last_health_check: String?
+    var last_auto_up: String?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }
 }

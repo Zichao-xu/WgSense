@@ -60,7 +60,6 @@ sed \
 
 plutil -lint "$tmp_daemon" "$tmp_mover" >/dev/null
 
-/usr/bin/curl -fsS -X POST http://127.0.0.1:8765/api/shutdown >/dev/null 2>&1 || true
 launchctl bootout system /Library/LaunchDaemons/com.wgsense.daemon.plist 2>/dev/null || true
 
 install -m 0644 "$tmp_daemon" /Library/LaunchDaemons/com.wgsense.daemon.plist
