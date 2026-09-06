@@ -1,6 +1,13 @@
 // Package config 定义 WgSense 的运行配置。
 package config
 
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+)
+
 // Config 是 WgSense 守护的运行配置。
 type Config struct {
 	// AutoConnectUntrusted controls whether the daemon may connect WireGuard by
@@ -42,8 +49,75 @@ func Default() Config {
 	}
 }
 
+// LoadRuntime reads the daemon's persisted runtime configuration.
+func LoadRuntime(path string) (Config, error) {
+	cfg := Default()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, err
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+	cfg.Normalize()
+	return cfg, nil
+}
+
+// SaveRuntime persists the daemon's runtime configuration atomically.
+func SaveRuntime(path string, cfg Config) error {
+	cfg.Normalize()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write([]byte("\n")); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func IsNotExist(err error) bool {
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // Normalize fills defaults and mirrors deprecated fields for compatibility.
 func (c *Config) Normalize() {
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 10
+	}
+	if c.AutoUpGraceSeconds <= 0 {
+		c.AutoUpGraceSeconds = 20
+	}
+	if c.HealthCheckTarget == "" {
+		c.HealthCheckTarget = "https://www.gstatic.com/generate_204"
+	}
+	if c.HealthCheckIntervalSeconds <= 0 {
+		c.HealthCheckIntervalSeconds = 30
+	}
 	if len(c.TrustedNetworkPrefixes) == 0 && len(c.HomeNetworkPrefixes) > 0 {
 		c.TrustedNetworkPrefixes = append([]string(nil), c.HomeNetworkPrefixes...)
 	}

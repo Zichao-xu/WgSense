@@ -13,9 +13,10 @@
         <string>__WGSENSE_RUNTIME_DIR__</string>
         <string>--download-dir</string>
         <string>__WGSENSE_INCOMING_DIR__</string>
-        <string>--auto-connect-untrusted=false</string>
     </array>
     <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
     <true/>
     <key>ProcessType</key>
     <string>Background</string>

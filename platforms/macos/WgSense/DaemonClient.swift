@@ -106,9 +106,12 @@ class DaemonClient: ObservableObject {
         // 异步快速检测（不阻塞 UI）
         let runningStatus = try? await controlAPI.status(timeout: 1.0)
 
-        if let runningStatus, !requireActive || runningStatus.passive != true {
-            await syncConfigSilently()
-            return true
+        if let runningStatus {
+            let needsSystemService = requireActive && runningStatus.app_owned == true
+            if (!requireActive || runningStatus.passive != true) && !needsSystemService {
+                await syncConfigSilently()
+                return true
+            }
         }
         if runningStatus?.passive == true {
             alertMsg = "当前是被动服务，无法建立 WireGuard；请启动正式网络服务"
@@ -131,8 +134,10 @@ class DaemonClient: ObservableObject {
         defer { isAuthorizingDaemon = false }
         errorMsg = "需要管理员授权以启动网络服务"
 
-        // Daemon 不可达 → 尝试通过 osascript + administrator privileges 启动（弹出 macOS 授权窗口）
-        let started = await startDaemonWithPrivileges()
+        // VPN/守护需要系统服务托管；普通传输/代理面板可用临时后台服务兜底。
+        let started = requireActive
+            ? await startSystemDaemonWithPrivileges()
+            : await startDaemonWithPrivileges()
         if started {
             // 等待 daemon 就绪
             try? await Task.sleep(for: .seconds(2))
@@ -147,6 +152,27 @@ class DaemonClient: ObservableObject {
         lastAuthorizationFailure = Date()
         errorMsg = "Daemon 未启动；可再次点击 VPN 重试授权"
         return false
+    }
+
+    /// 安装并启动 launchd 托管的系统 daemon。这个路径用于 VPN/守护，避免临时进程被系统终止后状态丢失。
+    private func startSystemDaemonWithPrivileges() async -> Bool {
+        guard let scriptPath = Bundle.main.path(forResource: "wgsense-install-services", ofType: "sh", inDirectory: "packaging") else {
+            log("系统服务安装脚本缺失，回退临时 daemon")
+            return await startDaemonWithPrivileges()
+        }
+        let daemonPath = Self.daemonPath
+        guard FileManager.default.isExecutableFile(atPath: daemonPath) else {
+            log("daemon 二进制不可执行，无法安装系统服务")
+            return false
+        }
+        let moverPath = Bundle.main.path(forResource: "wgsense-receive-mover", ofType: "sh", inDirectory: "packaging") ?? ""
+        let command: String
+        if moverPath.isEmpty {
+            command = "\(shellQuote(scriptPath)) \(shellQuote(daemonPath))"
+        } else {
+            command = "\(shellQuote(scriptPath)) \(shellQuote(daemonPath)) \(shellQuote(moverPath))"
+        }
+        return await runAdministratorCommand(command, timeout: 90)
     }
 
     /// 通过 osascript 弹出系统授权窗口，以 root 权限启动 daemon
@@ -189,6 +215,48 @@ class DaemonClient: ObservableObject {
                 }
             }
         }
+    }
+
+    private func runAdministratorCommand(_ command: String, timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let escaped = command
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                let script = "do shell script \"\(escaped)\" with administrator privileges"
+                let task = Process()
+                task.launchPath = "/usr/bin/osascript"
+                task.arguments = ["-e", script]
+                let pipe = Pipe()
+                task.standardOutput = pipe
+                task.standardError = pipe
+                let watchdog = DispatchWorkItem {
+                    if task.isRunning {
+                        task.terminate()
+                    }
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                do {
+                    try task.run()
+                    task.waitUntilExit()
+                    watchdog.cancel()
+                    let success = (task.terminationStatus == 0)
+                    if !success {
+                        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        print("[DaemonClient] 管理员命令失败: \(output)")
+                    }
+                    continuation.resume(returning: success)
+                } catch {
+                    watchdog.cancel()
+                    print("[DaemonClient] 管理员命令异常: \(error.localizedDescription)")
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private func log(_ msg: String) {

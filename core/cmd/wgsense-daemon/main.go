@@ -39,14 +39,28 @@ func main() {
 	appOwned := flag.Bool("app-owned", false, "由当前 GUI App 临时启动；App 退出时允许通过 API 关闭")
 	flag.Parse()
 
-	cfg := config.Default()
-	cfg.AutoConnectUntrusted = *autoConnect || *autoConnectAway
-	cfg.TrustedNetworkPrefixes = splitCommaSeparated(*trustedPrefixes)
-	cfg.Normalize()
-
 	// 运行时状态目录
 	rtDir := runtimeDir(*runtimeDirOverride)
 	pauseFile := filepath.Join(rtDir, "pause-marker")
+	configFile := filepath.Join(rtDir, "settings.json")
+
+	cfg := config.Default()
+	if saved, err := config.LoadRuntime(configFile); err == nil {
+		cfg = saved
+		log.Printf("已加载运行配置: %s", configFile)
+	} else if !config.IsNotExist(err) {
+		log.Printf("读取运行配置失败，使用默认值: %v", err)
+	}
+	explicitFlags := map[string]bool{}
+	flag.Visit(func(item *flag.Flag) { explicitFlags[item.Name] = true })
+	if explicitFlags["auto-connect-untrusted"] || explicitFlags["auto-connect-away"] {
+		cfg.AutoConnectUntrusted = *autoConnect || *autoConnectAway
+	}
+	if explicitFlags["trusted-network-prefixes"] {
+		cfg.TrustedNetworkPrefixes = splitCommaSeparated(*trustedPrefixes)
+		cfg.HomeNetworkPrefixes = nil
+	}
+	cfg.Normalize()
 
 	// 配置目录(放 .conf profile)
 	cDir := *configDir
@@ -59,15 +73,20 @@ func main() {
 	tun := tunnel.New(cDir)
 	hc := healthcheck.New(cfg.HealthCheckTarget)
 	p := pause.New(pauseFile)
-	if *startPaused {
-		_ = p.Pause()
+	if explicitFlags["start-paused"] {
+		if *startPaused {
+			_ = p.Pause()
+		} else {
+			_ = p.Resume()
+		}
 	} else {
-		_ = p.Resume()
+		log.Printf("未指定启动暂停状态，保留已有守护状态 paused=%t", p.IsPaused())
 	}
 	eng := policy.New(cfg, loc, tun, hc, p)
 	eng.SetService("default") // 默认 profile，可从 /api/profiles 选
 	eng.SetPassive(*passive)
 	eng.SetAppOwned(*appOwned)
+	eng.SetConfigPath(configFile)
 
 	// 后台启动策略引擎守护循环
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,8 +113,6 @@ func main() {
 		log.Printf("读取代理设置失败，使用默认值: %v", err)
 		proxyCfg = proxy.DefaultConfig()
 	}
-	explicitFlags := map[string]bool{}
-	flag.Visit(func(item *flag.Flag) { explicitFlags[item.Name] = true })
 	if explicitFlags["mihomo"] {
 		proxyCfg.Address = *mihomoAddr
 	}

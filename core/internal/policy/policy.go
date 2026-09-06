@@ -34,6 +34,7 @@ type Engine struct {
 	healthFailures  int
 	autoFailures    int
 	nextAutoAttempt time.Time
+	configPath      string
 
 	// 日志缓冲（供 /api/logs 使用）
 	LogBuf *logbuf.Buffer
@@ -68,6 +69,9 @@ func (e *Engine) SetPassive(passive bool) { e.passive = passive }
 
 // SetAppOwned marks a daemon that was started for the current GUI app session.
 func (e *Engine) SetAppOwned(appOwned bool) { e.appOwned = appOwned }
+
+// SetConfigPath enables persistence for runtime configuration changes.
+func (e *Engine) SetConfigPath(path string) { e.configPath = path }
 
 // RunOnce 执行一次巡检。
 // 逻辑：
@@ -243,6 +247,15 @@ func (e *Engine) Connect() error {
 	if e.passive {
 		return fmt.Errorf("daemon 处于被动模式，WireGuard 连接需要正式网络服务")
 	}
+	state, _ := e.tun.Status(e.service)
+	if state == tunnel.StateConnected {
+		e.lastAutoUp = time.Now()
+		e.healthFailures = 0
+		e.autoFailures = 0
+		e.nextAutoAttempt = time.Time{}
+		e.Logf("WireGuard 已连接，跳过重复连接")
+		return nil
+	}
 	if err := e.tun.Connect(e.service); err != nil {
 		return err
 	}
@@ -307,18 +320,10 @@ func (e *Engine) GetConfig() config.Config {
 // UpdateConfig 更新运行配置（热更新，不需要重启 daemon）。
 func (e *Engine) UpdateConfig(cfg config.Config) error {
 	cfg.Normalize()
-	// 确保必要字段有合理值
-	if cfg.IntervalSeconds <= 0 {
-		cfg.IntervalSeconds = 10
-	}
-	if cfg.AutoUpGraceSeconds <= 0 {
-		cfg.AutoUpGraceSeconds = 20
-	}
-	if cfg.HealthCheckTarget == "" {
-		cfg.HealthCheckTarget = "https://www.gstatic.com/generate_204"
-	}
-	if cfg.HealthCheckIntervalSeconds <= 0 {
-		cfg.HealthCheckIntervalSeconds = 30
+	if e.configPath != "" {
+		if err := config.SaveRuntime(e.configPath, cfg); err != nil {
+			return err
+		}
 	}
 	e.cfg = cfg
 	e.hc = healthcheck.New(cfg.HealthCheckTarget)

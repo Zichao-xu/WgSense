@@ -7,17 +7,23 @@ struct DaemonDiagnostics {
     var apiSummary: String = "daemon API 未连接"
     var launchDaemonPlistExists: Bool = false
     var launchDaemonLoaded: Bool = false
+    var launchDaemonKeepAlive: Bool = false
     var receiveMoverPlistExists: Bool = false
     var helperInstalled: Bool = false
     var bundledHelperAvailable: Bool = false
+    var persistedConfigExists: Bool = false
     var logFileExists: Bool = false
     var dnsSummary: String = "未检测"
     var processLines: [String] = []
     var routeLines: [String] = []
     var utunLines: [String] = []
+    var recentLifecycleLines: [String] = []
 
     var installedSummary: String {
-        launchDaemonPlistExists ? (launchDaemonLoaded ? "已安装并已加载" : "已安装但未加载") : "未安装"
+        guard launchDaemonPlistExists else { return "未安装" }
+        let loaded = launchDaemonLoaded ? "已加载" : "未加载"
+        let keepAlive = launchDaemonKeepAlive ? "自动拉起" : "不会自动拉起"
+        return "已安装 / \(loaded) / \(keepAlive)"
     }
 
     var permissionSummary: String {
@@ -38,6 +44,7 @@ struct DaemonDiagnostics {
         lines.append("")
         lines.append("API: \(apiSummary)")
         lines.append("System service: \(installedSummary)")
+        lines.append("Persisted config: \(persistedConfigExists ? "present" : "missing")")
         lines.append("Receive mover plist: \(receiveMoverPlistExists ? "present" : "missing")")
         lines.append("Installed helper: \(helperInstalled ? "present" : "missing")")
         lines.append("Bundled helper: \(bundledHelperAvailable ? "present" : "missing")")
@@ -52,6 +59,9 @@ struct DaemonDiagnostics {
         lines.append("")
         lines.append("[utun]")
         lines.append(contentsOf: utunLines.isEmpty ? ["none"] : utunLines)
+        lines.append("")
+        lines.append("[Recent daemon lifecycle]")
+        lines.append(contentsOf: recentLifecycleLines.isEmpty ? ["none"] : recentLifecycleLines)
         return lines.joined(separator: "\n")
     }
 }
@@ -100,15 +110,18 @@ struct DaemonMaintenanceService {
     func diagnostics() async -> DaemonDiagnostics {
         async let api = apiSummary()
         async let plist = fileExists("/Library/LaunchDaemons/com.wgsense.daemon.plist")
+        async let keepAlive = commandHasOutput("/usr/bin/plutil -extract KeepAlive raw -o - /Library/LaunchDaemons/com.wgsense.daemon.plist 2>/dev/null | /usr/bin/grep -qx true && echo yes")
         async let moverPlist = fileExists("\(NSHomeDirectory())/Library/LaunchAgents/com.wgsense.receive-mover.plist")
         async let helper = fileExists("/usr/local/libexec/wgsense-daemon")
         async let bundled = bundledDaemonPath() != nil
+        async let persistedConfig = fileExists("\(NSHomeDirectory())/.local/share/wgsense/settings.json")
         async let logFile = fileExists("/var/log/wgsense-daemon.log")
         async let loaded = commandHasOutput("launchctl print system/com.wgsense.daemon 2>/dev/null | head -1")
         async let dns = ShellCommand.sh("networksetup -getdnsservers Wi-Fi 2>/dev/null || true")
         async let processes = ShellCommand.sh("ps ax -o pid,command | /usr/bin/grep -E 'wgsense|wireguard-go' | /usr/bin/grep -v grep || true")
         async let routes = ShellCommand.sh("netstat -rn -f inet | /usr/bin/grep -E '^(default|0/1|128\\.0/1|10\\.66|198\\.18|198\\.19)' || true")
         async let utuns = ShellCommand.sh("ifconfig | /usr/bin/grep -E '^(utun[0-9]+:|\\tinet )' || true")
+        async let lifecycle = ShellCommand.sh("tail -n 220 /var/log/wgsense-daemon.log 2>/dev/null | /usr/bin/grep -E '收到退出信号|收到信号|WgSense daemon 启动|已加载运行配置|未指定启动暂停状态|配置已更新|自动连接失败|探测失败|命中受信任网络' || true")
 
         let apiResult = await api
         var result = DaemonDiagnostics()
@@ -116,14 +129,17 @@ struct DaemonMaintenanceService {
         result.apiSummary = apiResult.summary
         result.launchDaemonPlistExists = await plist
         result.launchDaemonLoaded = await loaded
+        result.launchDaemonKeepAlive = await keepAlive
         result.receiveMoverPlistExists = await moverPlist
         result.helperInstalled = await helper
         result.bundledHelperAvailable = await bundled
+        result.persistedConfigExists = await persistedConfig
         result.logFileExists = await logFile
         result.dnsSummary = cleanLines((await dns).output).joined(separator: " / ")
         result.processLines = cleanLines((await processes).output)
         result.routeLines = cleanLines((await routes).output)
         result.utunLines = cleanLines((await utuns).output)
+        result.recentLifecycleLines = cleanLines((await lifecycle).output)
         return result
     }
 

@@ -2,6 +2,8 @@ package policy
 
 import (
 	"errors"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -36,6 +38,16 @@ func (m *mockTunnel) SaveProfile(string, string) error          { return nil }
 func (m *mockTunnel) LoadProfileContent(string) (string, error) { return "", nil }
 func (m *mockTunnel) DeleteProfile(string) error                { return nil }
 func (m *mockTunnel) InterfaceBytes(string) (uint64, uint64)    { return 0, 0 }
+
+type countingTunnel struct {
+	mockTunnel
+	connects int
+}
+
+func (m *countingTunnel) Connect(service string) error {
+	m.connects++
+	return m.mockTunnel.Connect(service)
+}
 
 type mockHealth struct{ connected bool }
 
@@ -191,6 +203,43 @@ func TestManualConnectStartsHealthGrace(t *testing.T) {
 	}
 	if eng.healthFailures != 0 {
 		t.Fatalf("宽限期内不应立刻做假连接判定: failures=%d", eng.healthFailures)
+	}
+}
+
+func TestManualConnectDoesNotRestartExistingTunnel(t *testing.T) {
+	tun := &countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}}
+	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: true}, &mockPause{})
+
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.connects != 0 {
+		t.Fatalf("already-connected tunnel should not be reconnected: %d", tun.connects)
+	}
+}
+
+func TestUpdateConfigPersistsRuntimeConfig(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateDisconnected}
+	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
+	path := filepath.Join(t.TempDir(), "settings.json")
+	eng.SetConfigPath(path)
+
+	cfg := config.Default()
+	cfg.AutoConnectUntrusted = true
+	cfg.TrustedNetworkPrefixes = []string{"10.10.1."}
+	cfg.HealthCheckIntervalSeconds = 17
+	if err := eng.UpdateConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.LoadRuntime(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.AutoConnectUntrusted || !reflect.DeepEqual(got.TrustedNetworkPrefixes, []string{"10.10.1."}) {
+		t.Fatalf("persisted config mismatch: %#v", got)
+	}
+	if got.HealthCheckIntervalSeconds != 17 {
+		t.Fatalf("health interval not persisted: %d", got.HealthCheckIntervalSeconds)
 	}
 }
 
