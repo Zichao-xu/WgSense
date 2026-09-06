@@ -21,7 +21,7 @@ type defaultChecker struct {
 	timeout time.Duration
 }
 
-// New 创建连通性探测器，target 是探测目标(如 "https://1.1.1.1")。
+// New 创建连通性探测器，target 是探测目标(如 "https://www.gstatic.com/generate_204")。
 func New(target string) Checker {
 	return defaultChecker{
 		target:  target,

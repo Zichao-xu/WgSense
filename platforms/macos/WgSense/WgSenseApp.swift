@@ -81,7 +81,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        DaemonClient.shutdownAppOwnedDaemonSync()
+        // 不在 App 退出时自动关闭 daemon。网络连接属于用户显式状态，
+        // 只能通过界面里的停止/维护操作关闭，避免菜单栏或窗口生命周期误断 VPN。
     }
 }
 

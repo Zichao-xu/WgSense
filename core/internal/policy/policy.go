@@ -17,6 +17,8 @@ import (
 	"github.com/wgsense/core/internal/tunnel"
 )
 
+const maxHealthFailures = 5
+
 // Engine 智能管理引擎。
 type Engine struct {
 	cfg             config.Config
@@ -133,18 +135,21 @@ func (e *Engine) RunOnce() error {
 		e.lastHealthCheck = time.Now()
 		if e.hc.IsStaleConnected(true) {
 			e.healthFailures++
-			e.Logf("隧道连通性探测失败（%d/3）", e.healthFailures)
+			e.Logf("隧道连通性探测失败（%d/%d）", e.healthFailures, maxHealthFailures)
 		} else {
 			e.healthFailures = 0
 		}
-		if e.healthFailures >= 3 {
-			e.Logf("连续 3 次探测失败，重启隧道")
+		if e.healthFailures >= maxHealthFailures {
+			e.Logf("连续 %d 次探测失败，重启隧道", maxHealthFailures)
 			_ = e.tun.Disconnect(e.service)
 			if err := e.tun.Connect(e.service); err != nil {
+				e.recordAutoFailure()
 				return err
 			}
 			e.lastAutoUp = time.Now()
 			e.healthFailures = 0
+			e.autoFailures = 0
+			e.nextAutoAttempt = time.Time{}
 		}
 	}
 	return nil
@@ -152,14 +157,14 @@ func (e *Engine) RunOnce() error {
 
 func (e *Engine) recordAutoFailure() {
 	e.autoFailures++
-	delay := time.Duration(30) * time.Second
+	delay := time.Duration(10) * time.Second
 	switch {
 	case e.autoFailures >= 5:
-		delay = 10 * time.Minute
+		delay = time.Minute
 	case e.autoFailures >= 3:
-		delay = 5 * time.Minute
+		delay = 30 * time.Second
 	case e.autoFailures >= 2:
-		delay = 2 * time.Minute
+		delay = 20 * time.Second
 	}
 	e.nextAutoAttempt = time.Now().Add(delay)
 	e.Logf("自动连接失败（%d），退避 %s", e.autoFailures, delay)
@@ -238,11 +243,19 @@ func (e *Engine) Connect() error {
 	if e.passive {
 		return fmt.Errorf("daemon 处于被动模式，WireGuard 连接需要正式网络服务")
 	}
-	return e.tun.Connect(e.service)
+	if err := e.tun.Connect(e.service); err != nil {
+		return err
+	}
+	e.lastAutoUp = time.Now()
+	e.healthFailures = 0
+	e.autoFailures = 0
+	e.nextAutoAttempt = time.Time{}
+	return nil
 }
 
 // Disconnect 手动断开隧道。
 func (e *Engine) Disconnect() error {
+	e.healthFailures = 0
 	return e.tun.Disconnect(e.service)
 }
 
@@ -302,7 +315,7 @@ func (e *Engine) UpdateConfig(cfg config.Config) error {
 		cfg.AutoUpGraceSeconds = 20
 	}
 	if cfg.HealthCheckTarget == "" {
-		cfg.HealthCheckTarget = "https://1.1.1.1"
+		cfg.HealthCheckTarget = "https://www.gstatic.com/generate_204"
 	}
 	if cfg.HealthCheckIntervalSeconds <= 0 {
 		cfg.HealthCheckIntervalSeconds = 30

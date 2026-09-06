@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -40,6 +41,7 @@ type darwinManager struct {
 	dnsSnapshot *dnsSnapshot // 已替换 DNS 时的原始设置
 	cleaned     bool         // 防止重复 cleanup
 	hasIPv6     bool         // TUN 是否配置了 IPv6 地址
+	signalOnce  sync.Once
 }
 
 type routeEntry struct {
@@ -60,6 +62,10 @@ func newPlatformManager(configDir string) Manager {
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
 // 需要 root(CreateTUN + ifconfig + route)。
 func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
+	if m.dev != nil || len(m.addedRoutes) > 0 || m.dnsSnapshot != nil {
+		log.Printf("[tunnel] 连接前发现残留隧道状态，先清理旧 TUN")
+		m.cleanup()
+	}
 	// 重置 cleanup 标志，允许新一轮清理
 	m.cleaned = false
 	m.hasIPv6 = false
@@ -328,14 +334,16 @@ func parseUint(s string) (uint64, error) {
 
 // setupSignalHandler 注册信号处理，确保 daemon 被 kill 时清理路由。
 func (m *darwinManager) setupSignalHandler() {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		sig := <-sigCh
-		log.Printf("[tunnel] 收到信号 %v，清理路由...", sig)
-		m.cleanup()
-		os.Exit(1)
-	}()
+	m.signalOnce.Do(func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		go func() {
+			sig := <-sigCh
+			log.Printf("[tunnel] 收到信号 %v，清理路由...", sig)
+			m.cleanup()
+			os.Exit(1)
+		}()
+	})
 }
 
 // cleanup 清理所有资源：先恢复临时 DNS，再删除路由、关闭设备。

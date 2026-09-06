@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -15,9 +16,18 @@ type mockLocation struct{ trusted bool }
 func (m mockLocation) IsHome([]string) bool   { return m.trusted }
 func (m mockLocation) CurrentIPv4s() []string { return nil }
 
-type mockTunnel struct{ state tunnel.State }
+type mockTunnel struct {
+	state      tunnel.State
+	connectErr error
+}
 
-func (m *mockTunnel) Connect(string) error                      { m.state = tunnel.StateConnected; return nil }
+func (m *mockTunnel) Connect(string) error {
+	if m.connectErr != nil {
+		return m.connectErr
+	}
+	m.state = tunnel.StateConnected
+	return nil
+}
 func (m *mockTunnel) Disconnect(string) error                   { m.state = tunnel.StateDisconnected; return nil }
 func (m *mockTunnel) Status(string) (tunnel.State, error)       { return m.state, nil }
 func (m *mockTunnel) DiscoverServices() ([]string, error)       { return nil, nil }
@@ -143,9 +153,9 @@ func TestRunOnceUntrustedPaused(t *testing.T) {
 
 func TestRunOnceStaleConnected(t *testing.T) {
 	tun := &mockTunnel{state: tunnel.StateConnected}
-	// 单次波动不能破坏长连接；连续三次失败才重启。
+	// 单次波动不能破坏长连接；连续多次失败才重启。
 	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
-	for i := 0; i < 2; i++ {
+	for i := 0; i < maxHealthFailures-1; i++ {
 		eng.lastHealthCheck = time.Time{}
 		if err := eng.RunOnce(); err != nil {
 			t.Fatal(err)
@@ -163,6 +173,40 @@ func TestRunOnceStaleConnected(t *testing.T) {
 	}
 	if eng.healthFailures != 0 || eng.lastAutoUp.IsZero() {
 		t.Fatalf("重启后健康状态未复位: failures=%d lastAutoUp=%v", eng.healthFailures, eng.lastAutoUp)
+	}
+}
+
+func TestManualConnectStartsHealthGrace(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateDisconnected}
+	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if eng.lastAutoUp.IsZero() || eng.healthFailures != 0 {
+		t.Fatalf("手动连接后未进入宽限期: lastAutoUp=%v failures=%d", eng.lastAutoUp, eng.healthFailures)
+	}
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if eng.healthFailures != 0 {
+		t.Fatalf("宽限期内不应立刻做假连接判定: failures=%d", eng.healthFailures)
+	}
+}
+
+func TestHealthRestartFailureKeepsRetrySoon(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateConnected, connectErr: errors.New("temporary network down")}
+	eng := New(config.Default(), mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+
+	for i := 0; i < maxHealthFailures; i++ {
+		eng.lastHealthCheck = time.Time{}
+		_ = eng.RunOnce()
+	}
+	if eng.autoFailures != 1 {
+		t.Fatalf("健康重启失败后应计入自动重试: %d", eng.autoFailures)
+	}
+	if eng.nextAutoAttempt.IsZero() || time.Until(eng.nextAutoAttempt) > 11*time.Second {
+		t.Fatalf("首次失败退避不应太久: %v", eng.nextAutoAttempt)
 	}
 }
 

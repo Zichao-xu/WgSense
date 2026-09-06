@@ -28,7 +28,7 @@ class DaemonClient: ObservableObject {
     @AppStorage("pauseMinutes") var pauseMinutes: Int = 5
 
     // 运行配置（AppStorage 本地缓存 + 同步到 daemon）
-    @AppStorage("healthCheckTarget") var healthCheckTarget: String = "https://1.1.1.1"
+    @AppStorage("healthCheckTarget") var healthCheckTarget: String = "https://www.gstatic.com/generate_204"
     @AppStorage("intervalSeconds") var intervalSeconds: Int = 10
     @AppStorage("autoUpGraceSeconds") var autoUpGraceSeconds: Int = 20
     @AppStorage("trustedNetworkPrefixes") var trustedNetworkPrefixes: String = ""

@@ -37,7 +37,7 @@ func Default() Config {
 		HomeNetworkPrefixes:        []string{},
 		IntervalSeconds:            10,
 		AutoUpGraceSeconds:         20,
-		HealthCheckTarget:          "https://1.1.1.1",
+		HealthCheckTarget:          "https://www.gstatic.com/generate_204",
 		HealthCheckIntervalSeconds: 30,
 	}
 }

@@ -128,6 +128,9 @@ func main() {
 		<-sigCh
 		log.Println("收到退出信号")
 		cancel()
+		if err := eng.Disconnect(); err != nil {
+			log.Printf("退出前清理隧道失败: %v", err)
+		}
 		os.Exit(0)
 	}()
 

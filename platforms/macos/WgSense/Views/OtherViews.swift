@@ -228,7 +228,7 @@ struct SettingsView: View {
 
             // 假连接检测
             settingsGroup("假连接检测") {
-                settingField("探测目标", placeholder: "https://1.1.1.1", text: $client.healthCheckTarget)
+                settingField("探测目标", placeholder: "https://www.gstatic.com/generate_204", text: $client.healthCheckTarget)
             }
 
             // 系统
