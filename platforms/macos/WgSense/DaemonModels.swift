@@ -17,6 +17,11 @@ struct DaemonStatus: Codable {
     var next_auto_attempt: String?
     var last_health_check: String?
     var last_auto_up: String?
+    var tunnel_interface: String?
+    var last_handshake: String?
+    var last_handshake_age_seconds: Int?
+    var peer_tx_bytes: UInt64?
+    var peer_rx_bytes: UInt64?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }
 }

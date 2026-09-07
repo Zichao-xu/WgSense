@@ -235,6 +235,32 @@ func (m *darwinManager) Status(service string) (State, error) {
 	return StateConnected, nil
 }
 
+func (m *darwinManager) RuntimeStats(service string) (RuntimeStats, error) {
+	if m.dev == nil {
+		return RuntimeStats{}, nil
+	}
+	ipc, err := m.dev.IpcGet()
+	if err != nil {
+		return RuntimeStats{}, err
+	}
+	stats := RuntimeStats{InterfaceName: m.tunName}
+	for _, line := range strings.Split(ipc, "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "last_handshake_time_sec":
+			_, _ = fmt.Sscan(value, &stats.LastHandshakeUnix)
+		case "tx_bytes":
+			_, _ = fmt.Sscan(value, &stats.PeerTxBytes)
+		case "rx_bytes":
+			_, _ = fmt.Sscan(value, &stats.PeerRxBytes)
+		}
+	}
+	return stats, nil
+}
+
 // DiscoverServices 扫描 configDir 的 .conf 文件，返回 profile 名列表。
 func (m *darwinManager) DiscoverServices() ([]string, error) {
 	entries, err := os.ReadDir(m.configDir)

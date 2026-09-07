@@ -34,6 +34,20 @@ type Manager interface {
 	InterfaceBytes(service string) (tx uint64, rx uint64)
 }
 
+// RuntimeStats describes the live WireGuard device state when the platform
+// manager can expose it. It is intentionally optional so non-darwin and tests
+// can keep the smaller Manager surface.
+type RuntimeStats struct {
+	InterfaceName     string
+	LastHandshakeUnix int64
+	PeerTxBytes       uint64
+	PeerRxBytes       uint64
+}
+
+type RuntimeStatsProvider interface {
+	RuntimeStats(service string) (RuntimeStats, error)
+}
+
 // New 返回当前平台的 Manager。configDir 是 .conf 配置文件目录。
 func New(configDir string) Manager {
 	return newPlatformManager(configDir)

@@ -21,6 +21,8 @@ const maxHealthFailures = 5
 
 // Engine 智能管理引擎。
 type Engine struct {
+	opMu sync.Mutex
+
 	cfg             config.Config
 	loc             location.Locator
 	tun             tunnel.Manager
@@ -87,6 +89,15 @@ func (e *Engine) saveCurrentConfig() error {
 //   - 非受信任网络 + Disconnected + AutoConnectUntrusted → 自动连上
 //   - 非受信任网络 + Connected → 假连接检测，失效则强制 stop/start
 func (e *Engine) RunOnce() error {
+	if !e.opMu.TryLock() {
+		e.Logf("已有连接操作进行中，跳过本轮巡检")
+		return nil
+	}
+	defer e.opMu.Unlock()
+	return e.runOnceLocked()
+}
+
+func (e *Engine) runOnceLocked() error {
 	// 没有任何保持连接的用户意图，或显式暂停时，跳过自动管理。VPN/守护意图仍
 	// 保留，失败只进入等待/重试，不把开关意图改回关闭。
 	if (!e.cfg.DesiredGuardEnabled && !e.cfg.DesiredVPNEnabled && !e.cfg.AutoConnectUntrusted) || e.pause.IsPaused() {
@@ -249,6 +260,11 @@ type StatusSnapshot struct {
 	NextAutoAttempt      string `json:"next_auto_attempt,omitempty"`
 	LastHealthCheck      string `json:"last_health_check,omitempty"`
 	LastAutoUp           string `json:"last_auto_up,omitempty"`
+	TunnelInterface      string `json:"tunnel_interface,omitempty"`
+	LastHandshake        string `json:"last_handshake,omitempty"`
+	LastHandshakeAge     int64  `json:"last_handshake_age_seconds,omitempty"`
+	PeerTxBytes          uint64 `json:"peer_tx_bytes,omitempty"`
+	PeerRxBytes          uint64 `json:"peer_rx_bytes,omitempty"`
 }
 
 // Status 返回当前状态快照。
@@ -279,11 +295,25 @@ func (e *Engine) Status() StatusSnapshot {
 	if !e.lastAutoUp.IsZero() {
 		snapshot.LastAutoUp = e.lastAutoUp.Format(time.RFC3339)
 	}
+	if provider, ok := e.tun.(tunnel.RuntimeStatsProvider); ok {
+		if stats, err := provider.RuntimeStats(e.service); err == nil {
+			snapshot.TunnelInterface = stats.InterfaceName
+			snapshot.PeerTxBytes = stats.PeerTxBytes
+			snapshot.PeerRxBytes = stats.PeerRxBytes
+			if stats.LastHandshakeUnix > 0 {
+				handshake := time.Unix(stats.LastHandshakeUnix, 0)
+				snapshot.LastHandshake = handshake.Format(time.RFC3339)
+				snapshot.LastHandshakeAge = int64(time.Since(handshake).Seconds())
+			}
+		}
+	}
 	return snapshot
 }
 
 // Connect 手动连接隧道。
 func (e *Engine) Connect() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	e.cfg.DesiredVPNEnabled = true
 	if err := e.saveCurrentConfig(); err != nil {
 		return err
@@ -312,6 +342,8 @@ func (e *Engine) Connect() error {
 
 // Disconnect 手动断开隧道。
 func (e *Engine) Disconnect() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	e.cfg.DesiredVPNEnabled = false
 	if err := e.saveCurrentConfig(); err != nil {
 		return err
@@ -324,12 +356,16 @@ func (e *Engine) Disconnect() error {
 // intent. Use it for daemon shutdown/restart paths, not for a user-requested
 // disconnect.
 func (e *Engine) ShutdownCleanup() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	e.healthFailures = 0
 	return e.tun.Disconnect(e.service)
 }
 
 // Pause 暂停自动管理。
 func (e *Engine) Pause() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	e.cfg.DesiredGuardEnabled = false
 	e.cfg.AutoConnectUntrusted = false
 	e.cfg.AutoConnectAway = false
@@ -341,15 +377,19 @@ func (e *Engine) Pause() error {
 
 // Resume 恢复自动管理。
 func (e *Engine) Resume() error {
+	e.opMu.Lock()
 	e.cfg.DesiredGuardEnabled = true
 	e.cfg.AutoConnectUntrusted = true
 	e.cfg.AutoConnectAway = true
 	if err := e.saveCurrentConfig(); err != nil {
+		e.opMu.Unlock()
 		return err
 	}
 	if err := e.pause.Resume(); err != nil {
+		e.opMu.Unlock()
 		return err
 	}
+	e.opMu.Unlock()
 	// 用户重新开启守护后立即应用网络策略，避免等待下一个巡检周期。
 	return e.RunOnce()
 }
@@ -382,11 +422,15 @@ func (e *Engine) DeleteProfile(name string) error {
 
 // GetConfig 返回当前运行配置。
 func (e *Engine) GetConfig() config.Config {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	return e.cfg
 }
 
 // UpdateConfig 更新运行配置（热更新，不需要重启 daemon）。
 func (e *Engine) UpdateConfig(cfg config.Config) error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 	cfg.Normalize()
 	if e.configPath != "" {
 		if err := config.SaveRuntime(e.configPath, cfg); err != nil {

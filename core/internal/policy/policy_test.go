@@ -49,6 +49,19 @@ func (m *countingTunnel) Connect(service string) error {
 	return m.mockTunnel.Connect(service)
 }
 
+type blockingTunnel struct {
+	mockTunnel
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingTunnel) Connect(string) error {
+	close(m.started)
+	<-m.release
+	m.state = tunnel.StateConnected
+	return nil
+}
+
 type mockHealth struct{ connected bool }
 
 func (m mockHealth) CheckConnectivity() bool       { return m.connected }
@@ -254,6 +267,32 @@ func TestManualConnectDoesNotRestartExistingTunnel(t *testing.T) {
 	}
 	if tun.connects != 0 {
 		t.Fatalf("already-connected tunnel should not be reconnected: %d", tun.connects)
+	}
+}
+
+func TestRunOnceSkipsWhileConnectInProgress(t *testing.T) {
+	tun := &blockingTunnel{
+		mockTunnel: mockTunnel{state: tunnel.StateDisconnected},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cfg := config.Default()
+	cfg.AutoConnectUntrusted = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
+
+	done := make(chan error, 1)
+	go func() { done <- eng.RunOnce() }()
+	<-tun.started
+
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	close(tun.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateConnected {
+		t.Fatalf("first connect should finish: %s", tun.state)
 	}
 }
 
