@@ -12,6 +12,8 @@ struct ProfileManagerView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteProfile: String?
     @State private var editProfile: ProfileName?
+    @State private var registeringSystemVPN: String?
+    private let systemVPNManager = SystemVPNManager()
 
 // Wrapper for sheet(item:)
 struct ProfileName: Identifiable {
@@ -153,6 +155,20 @@ struct ProfileName: Identifiable {
                 .controlSize(.small)
             }
 
+            Button {
+                registerSystemVPN(name)
+            } label: {
+                if registeringSystemVPN == name {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "network.badge.shield.half.filled")
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(registeringSystemVPN != nil)
+            .help("注册到系统 VPN")
+
             // 编辑
             Button {
                 editProfile = ProfileName(name: name)
@@ -183,6 +199,25 @@ struct ProfileName: Identifiable {
             .help("删除")
         }
         .padding(.vertical, 4)
+    }
+
+    private func registerSystemVPN(_ name: String) {
+        registeringSystemVPN = name
+        Task {
+            let content = await client.exportProfile(name: name)
+            do {
+                try await systemVPNManager.installProfile(name: name, configuration: content)
+                await MainActor.run {
+                    client.alertMsg = "已注册到系统 VPN：WgSense-\(name)"
+                    registeringSystemVPN = nil
+                }
+            } catch {
+                await MainActor.run {
+                    client.alertMsg = "注册系统 VPN 失败：\(error.localizedDescription)"
+                    registeringSystemVPN = nil
+                }
+            }
+        }
     }
 }
 

@@ -3,10 +3,12 @@
 // 阶段 1 后期迁移到 NetworkExtension 后不再需要 root。
 //
 // 重要设计决策：
-//  1. 只在隧道握手成功后临时应用 profile DNS，cleanup 恢复原 DNS，避免 Fake-IP DNS
-//     在全隧道路由下把域名解析到不可达地址。
+//  1. 不把 profile DNS 写入 Wi-Fi/以太网等物理网络服务。官方 WireGuard
+//     通过 NetworkExtension 把 DNS 绑定到 VPN 配置；本实现还在 wireguard-go
+//     + utun 阶段，写物理网卡 DNS 会在隧道断开后造成解析自锁。
 //  2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
-//  3. cleanup 注册 signal handler — 尽量在进程退出时恢复 DNS 并清理路由。
+//  3. cleanup 注册 signal handler — 尽量在进程退出时清理路由，并恢复旧版本
+//     可能留下的 DNS 快照。
 package tunnel
 
 import (
@@ -116,7 +118,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 		}
 	}
 
-	// 2. 添加本地网段排除路由（DNS 服务器、局域网设备不走隧道）
+	// 2. 添加本地网段排除路由（局域网设备不走隧道）
 	if localNet, err := getLocalNetwork(); err == nil {
 		if err := m.addExclusionRoute(localNet, ""); err != nil {
 			log.Printf("[tunnel] 本地网段排除失败（非致命）: %v", err)
@@ -179,10 +181,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	}
 	log.Printf("[tunnel] 全量隧道路由已添加 (0/1 + 128.0/1 → %s)", m.tunName)
 
-	if err := m.applyProfileDNS(profile.Interface.DNS); err != nil {
-		m.cleanup()
-		return fmt.Errorf("应用 DNS: %w", err)
-	}
+	m.applyProfileDNS(profile.Interface.DNS)
 	return nil
 }
 
@@ -405,36 +404,12 @@ func (m *darwinManager) cleanup() {
 	}
 }
 
-func (m *darwinManager) applyProfileDNS(rawDNS string) error {
+func (m *darwinManager) applyProfileDNS(rawDNS string) {
 	servers := parseDNSServers(rawDNS)
 	if len(servers) == 0 {
-		return nil
+		return
 	}
-	service, err := networkServiceForInterface(m.physIface)
-	if err != nil {
-		return err
-	}
-	current, err := currentDNSServers(service)
-	if err != nil {
-		return err
-	}
-	if stringSlicesEqual(current, servers) {
-		log.Printf("[tunnel] DNS 已是 profile 配置: %s", strings.Join(servers, ", "))
-		return nil
-	}
-	m.dnsSnapshot = &dnsSnapshot{Service: service, Servers: current}
-	if err := storeDNSSnapshot(m.configDir, *m.dnsSnapshot); err != nil {
-		m.dnsSnapshot = nil
-		return err
-	}
-	args := append([]string{"-setdnsservers", service}, servers...)
-	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
-		m.dnsSnapshot = nil
-		_ = removeStoredDNSSnapshot(m.configDir)
-		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
-	}
-	log.Printf("[tunnel] DNS 已切换到 profile: %s → %s", service, strings.Join(servers, ", "))
-	return nil
+	log.Printf("[tunnel] profile DNS 保留在配置中但不写入物理网卡: %s", strings.Join(servers, ", "))
 }
 
 // addExclusionRoute 添加排除路由（不走隧道）。

@@ -129,6 +129,8 @@ struct WireGuardDetailView: View {
     @State private var showExport = false
     @State private var showDeleteConfirm = false
     @State private var deleteProfileName: String?
+    @State private var registeringSystemVPN: String?
+    private let systemVPNManager = SystemVPNManager()
 
     struct PName: Identifiable {
         let name: String
@@ -178,6 +180,20 @@ struct WireGuardDetailView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.up").font(.system(size: 11))
                 }.buttonStyle(.plain).help("导出")
+
+                Button {
+                    registerSystemVPN(name)
+                } label: {
+                    if registeringSystemVPN == name {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "network.badge.shield.half.filled").font(.system(size: 11))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(registeringSystemVPN != nil)
+                .help("注册到系统 VPN")
 
                 Button {
                     deleteProfileName = name
@@ -237,6 +253,25 @@ struct WireGuardDetailView: View {
             if let name = exportProfile {
                 ExportConfView(profileName: name) { _ in showExport = false }
                     .environmentObject(client)
+            }
+        }
+    }
+
+    private func registerSystemVPN(_ name: String) {
+        registeringSystemVPN = name
+        Task {
+            let content = await client.exportProfile(name: name)
+            do {
+                try await systemVPNManager.installProfile(name: name, configuration: content)
+                await MainActor.run {
+                    client.alertMsg = "已注册到系统 VPN：WgSense-\(name)"
+                    registeringSystemVPN = nil
+                }
+            } catch {
+                await MainActor.run {
+                    client.alertMsg = "注册系统 VPN 失败：\(error.localizedDescription)"
+                    registeringSystemVPN = nil
+                }
             }
         }
     }
