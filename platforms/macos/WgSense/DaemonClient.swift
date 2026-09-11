@@ -1,7 +1,8 @@
 import SwiftUI
+import UserNotifications
 
 @MainActor
-class DaemonClient: ObservableObject {
+class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     struct LogLine: Identifiable, Equatable {
         let id: UUID
         let text: String
@@ -12,10 +13,19 @@ class DaemonClient: ObservableObject {
         }
     }
 
+    struct ActionToast: Identifiable, Equatable {
+        let id: UUID
+        let title: String
+        let detail: String
+        let symbol: String
+        let tint: Color
+    }
+
     @Published var status: DaemonStatus?
     @Published var profiles: [String] = []
     @Published var errorMsg: String?
     @Published var alertMsg: String?
+    @Published var actionToast: ActionToast?
     @Published var logLines: [LogLine] = []
     @Published var traffic: TrafficStats?
     @Published private(set) var isAuthorizingDaemon = false
@@ -52,9 +62,24 @@ class DaemonClient: ObservableObject {
         return "/usr/local/libexec/wgsense-daemon"
     }
 
-    init() {
+    override init() {
+        super.init()
+        UNUserNotificationCenter.current().delegate = self
+        requestNotificationAuthorization()
         migrateTrustedNetworkPolicyIfNeeded()
         startPolling()
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    private func requestNotificationAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     private func migrateTrustedNetworkPolicyIfNeeded() {
@@ -469,15 +494,22 @@ class DaemonClient: ObservableObject {
 
     func restartGuardFlow() async {
         setPending(connect: false, guardRunning: false, paused: true)
-        await runDaemonCommand("pause")
-        await runDaemonCommand("disconnect")
+        await runDaemonCommand("pause", showToast: false)
+        await runDaemonCommand("disconnect", showToast: false)
         try? await Task.sleep(for: .seconds(1))
         guardAutomationEnabled = true
         autoConnectUntrusted = true
         setPending(connect: nil, guardRunning: true, paused: false)
         await syncConfigSilently()
-        await runDaemonCommand("resume")
+        await runDaemonCommand("resume", showToast: false)
         await fetchStatus()
+        showActionNotification(
+            title: "守护已重启",
+            detail: "\(networkSummary)。已交给守护按当前网络判断 VPN。",
+            category: "restart",
+            symbol: "arrow.triangle.2.circlepath",
+            tint: .purple
+        )
         clearPendingState()
     }
 
@@ -517,6 +549,7 @@ class DaemonClient: ObservableObject {
             try await controlAPI.command("connect", timeout: 30)
             markDaemonUp()
             await fetchStatus()
+            showToast(for: "connect")
             clearPendingState()
         } catch {
             let message = DaemonAPIClient.connectionMessage(error) == "daemon 未连接"
@@ -528,7 +561,7 @@ class DaemonClient: ObservableObject {
         }
     }
 
-    private func runDaemonCommand(_ endpoint: String) async {
+    private func runDaemonCommand(_ endpoint: String, showToast: Bool = true) async {
         let shouldStartDaemon = endpoint == "connect" || endpoint == "resume"
         setPending(for: endpoint)
         guard await ensureDaemon(requireActive: endpoint == "connect", authorizeIfNeeded: shouldStartDaemon) else {
@@ -542,6 +575,9 @@ class DaemonClient: ObservableObject {
             try await controlAPI.command(endpoint)
             markDaemonUp()
             await fetchStatus()
+            if showToast {
+                self.showToast(for: endpoint)
+            }
             clearPendingState()
         } catch {
             let message = DaemonAPIClient.connectionMessage(error) == "daemon 未连接"
@@ -593,6 +629,87 @@ class DaemonClient: ObservableObject {
             pendingGuardRunning = nil
             pendingPaused = nil
         }
+    }
+
+    private var currentIPText: String {
+        status?.primaryIPv4 ?? "未知"
+    }
+
+    private var networkSummary: String {
+        let network = status?.isTrustedNetwork == true ? "受信任网络" : "非受信任网络"
+        return "\(network) · IP \(currentIPText)"
+    }
+
+    private var guardSummary: String {
+        if status?.paused == true { return "守护已暂停" }
+        if status?.desired_guard_enabled == true { return "守护运行中" }
+        return "守护未开启"
+    }
+
+    private func showToast(for endpoint: String) {
+        switch endpoint {
+        case "connect":
+            showActionNotification(
+                title: "VPN 已开启",
+                detail: networkSummary,
+                category: "vpn-connect",
+                symbol: "network",
+                tint: .green
+            )
+        case "disconnect":
+            showActionNotification(
+                title: "VPN 已关闭",
+                detail: "\(guardSummary)。非信任网络下守护可能自动接管。",
+                category: "vpn-disconnect",
+                symbol: "shield.slash",
+                tint: .red
+            )
+        case "pause":
+            showActionNotification(
+                title: "守护已暂停",
+                detail: "自动开关已停止，VPN 不会被自动拉起。",
+                category: "guard-pause",
+                symbol: "pause.circle.fill",
+                tint: .orange
+            )
+        case "resume":
+            showActionNotification(
+                title: "守护已恢复",
+                detail: "\(networkSummary)。将按规则自动处理 VPN。",
+                category: "guard-resume",
+                symbol: "shield.checkered",
+                tint: .blue
+            )
+        default:
+            break
+        }
+    }
+
+    private func showActionNotification(title: String, detail: String, category: String, symbol: String, tint: Color) {
+        let toast = ActionToast(id: UUID(), title: title, detail: detail, symbol: symbol, tint: tint)
+        withAnimation(.snappy(duration: 0.32, extraBounce: 0.16)) {
+            actionToast = toast
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard self?.actionToast?.id == toast.id else { return }
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.05)) {
+                self?.actionToast = nil
+            }
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = detail
+        content.sound = .default
+        content.categoryIdentifier = "wgsense.\(category)"
+
+        let request = UNNotificationRequest(
+            identifier: "wgsense.action.\(category).\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     /// 乐观更新：点击按钮后立即更新 UI 显示的状态

@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.8-beta.6** — VPN 磁贴交互说明与守护重启修正版：
+**v0.3.8-beta.7** — 执行动作后的系统通知与 Liquid Glass 播报修正版：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
@@ -38,7 +38,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 - [x] 路由修复 — 握手门控 + endpoint 排除 + DNS 不动系统配置
 - [x] daemon 守护策略 — 回到受信任网络自动断开，网络切换后立即处理假连接
 - [x] 多网卡判断 — 有线/Apple USB LAN 优先，任一有效物理网卡命中信任网段即断开 VPN
-- [x] VPN 磁贴交互 — Liquid Glass 悬浮说明 + 紫色守护重启按钮
+- [x] VPN 磁贴交互 — 执行动作后系统通知 + 全局 Liquid Glass 播报 + 紫色守护重启按钮
 - [ ] Windows / Linux / iOS / Android 平台
 
 > 当前没有 Apple Developer 签名与公证。系统 helper 只会在用户从 App

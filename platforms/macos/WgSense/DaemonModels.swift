@@ -22,8 +22,22 @@ struct DaemonStatus: Codable {
     var last_handshake_age_seconds: Int?
     var peer_tx_bytes: UInt64?
     var peer_rx_bytes: UInt64?
+    var network_interfaces: [NetworkInterface]?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }
+
+    var primaryIPv4: String? {
+        network_interfaces?.lazy.compactMap { $0.ipv4s.first }.first
+    }
+}
+
+struct NetworkInterface: Codable {
+    var name: String
+    var hardware_port: String?
+    var ipv4s: [String]
+    var active: Bool
+    var priority: Int?
+    var speed_mbps: Int?
 }
 
 struct TrafficStats: Codable {
