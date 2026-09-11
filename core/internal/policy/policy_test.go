@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wgsense/core/internal/config"
+	"github.com/wgsense/core/internal/location"
 	"github.com/wgsense/core/internal/tunnel"
 )
 
@@ -15,8 +16,13 @@ import (
 
 type mockLocation struct{ trusted bool }
 
-func (m mockLocation) IsHome([]string) bool   { return m.trusted }
-func (m mockLocation) CurrentIPv4s() []string { return nil }
+func (m mockLocation) IsHome([]string) bool { return m.trusted }
+func (m mockLocation) CurrentIPv4s() []string {
+	return nil
+}
+func (m mockLocation) ActiveInterfaces() []location.Interface {
+	return nil
+}
 
 type mockTunnel struct {
 	state      tunnel.State

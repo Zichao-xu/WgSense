@@ -324,27 +324,28 @@ func (e *Engine) Start(ctx context.Context) error {
 
 // StatusSnapshot 是当前状态快照，供 UI 查询。
 type StatusSnapshot struct {
-	TrustedNetwork       bool   `json:"trusted_network"`
-	AtHome               bool   `json:"at_home"`
-	State                string `json:"state"`
-	Paused               bool   `json:"paused"`
-	DesiredVPNEnabled    bool   `json:"desired_vpn_enabled"`
-	DesiredGuardEnabled  bool   `json:"desired_guard_enabled"`
-	Service              string `json:"service"`
-	Passive              bool   `json:"passive"`
-	AutoConnectUntrusted bool   `json:"auto_connect_untrusted"`
-	Auto                 bool   `json:"auto_connect_away"`
-	AppOwned             bool   `json:"app_owned"`
-	HealthFailures       int    `json:"health_failures"`
-	AutoFailures         int    `json:"auto_failures"`
-	NextAutoAttempt      string `json:"next_auto_attempt,omitempty"`
-	LastHealthCheck      string `json:"last_health_check,omitempty"`
-	LastAutoUp           string `json:"last_auto_up,omitempty"`
-	TunnelInterface      string `json:"tunnel_interface,omitempty"`
-	LastHandshake        string `json:"last_handshake,omitempty"`
-	LastHandshakeAge     int64  `json:"last_handshake_age_seconds,omitempty"`
-	PeerTxBytes          uint64 `json:"peer_tx_bytes,omitempty"`
-	PeerRxBytes          uint64 `json:"peer_rx_bytes,omitempty"`
+	TrustedNetwork       bool                 `json:"trusted_network"`
+	AtHome               bool                 `json:"at_home"`
+	State                string               `json:"state"`
+	Paused               bool                 `json:"paused"`
+	DesiredVPNEnabled    bool                 `json:"desired_vpn_enabled"`
+	DesiredGuardEnabled  bool                 `json:"desired_guard_enabled"`
+	Service              string               `json:"service"`
+	Passive              bool                 `json:"passive"`
+	AutoConnectUntrusted bool                 `json:"auto_connect_untrusted"`
+	Auto                 bool                 `json:"auto_connect_away"`
+	AppOwned             bool                 `json:"app_owned"`
+	HealthFailures       int                  `json:"health_failures"`
+	AutoFailures         int                  `json:"auto_failures"`
+	NextAutoAttempt      string               `json:"next_auto_attempt,omitempty"`
+	LastHealthCheck      string               `json:"last_health_check,omitempty"`
+	LastAutoUp           string               `json:"last_auto_up,omitempty"`
+	TunnelInterface      string               `json:"tunnel_interface,omitempty"`
+	LastHandshake        string               `json:"last_handshake,omitempty"`
+	LastHandshakeAge     int64                `json:"last_handshake_age_seconds,omitempty"`
+	PeerTxBytes          uint64               `json:"peer_tx_bytes,omitempty"`
+	PeerRxBytes          uint64               `json:"peer_rx_bytes,omitempty"`
+	NetworkInterfaces    []location.Interface `json:"network_interfaces,omitempty"`
 }
 
 // Status 返回当前状态快照。
@@ -365,6 +366,7 @@ func (e *Engine) Status() StatusSnapshot {
 		AppOwned:             e.appOwned,
 		HealthFailures:       e.healthFailures,
 		AutoFailures:         e.autoFailures,
+		NetworkInterfaces:    e.loc.ActiveInterfaces(),
 	}
 	if !e.nextAutoAttempt.IsZero() {
 		snapshot.NextAutoAttempt = e.nextAutoAttempt.Format(time.RFC3339)
