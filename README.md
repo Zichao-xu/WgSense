@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.8-beta.3** — daemon 守护恢复与网络切换修正版：
+**v0.3.8-beta.4** — daemon 守护恢复与下载签名修正版：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
