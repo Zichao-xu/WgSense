@@ -59,7 +59,10 @@ struct MenuBarView: View {
                 title: "VPN",
                 symbol: "network",
                 isOn: client.isVPNOn,
-                disabled: client.pendingConnected != nil
+                disabled: client.pendingConnected != nil,
+                hint: client.isVPNOn
+                    ? "仅断开当前 VPN；守护仍开启时，非信任网络下会自动重连。"
+                    : "立即连接 VPN，并记录你希望 VPN 保持开启。"
             ) { enabled in
                 Task {
                     await client.post(enabled ? "connect" : "disconnect")
@@ -70,14 +73,25 @@ struct MenuBarView: View {
                 title: "守护",
                 symbol: "shield.checkered",
                 isOn: client.isGuardOn,
-                disabled: client.pendingGuardRunning != nil
+                disabled: client.pendingGuardRunning != nil,
+                hint: client.isGuardOn
+                    ? "关闭守护后，WgSense 不再按信任网段自动开关 VPN。"
+                    : "开启守护后，回家自动断开，离开信任网段自动连接。"
             ) { enabled in
                 Task {
                     await client.setGuardEnabled(enabled)
                     await client.fetchStatus()
                 }
             }
-            menuToggle(title: "暂停", symbol: "pause.circle", isOn: client.isPauseOn, disabled: client.pendingPaused != nil) { enabled in
+            menuToggle(
+                title: "暂停",
+                symbol: "pause.circle",
+                isOn: client.isPauseOn,
+                disabled: client.pendingPaused != nil,
+                hint: client.isPauseOn
+                    ? "恢复守护，并按当前网络重新判断 VPN 状态。"
+                    : "暂停守护；暂停期间不会自动开关 VPN。"
+            ) { enabled in
                 Task {
                     await client.post(enabled ? "pause" : "resume")
                     await client.fetchStatus()
@@ -143,6 +157,7 @@ struct MenuBarView: View {
         symbol: String,
         isOn: Bool,
         disabled: Bool = false,
+        hint: String? = nil,
         action: @escaping (Bool) -> Void
     ) -> some View {
         HStack {
@@ -154,6 +169,7 @@ struct MenuBarView: View {
                 .controlSize(.small)
                 .disabled(disabled)
         }
+        .liquidGlassHint(hint)
     }
 
     private func menuMetric(_ symbol: String, value: String) -> some View {

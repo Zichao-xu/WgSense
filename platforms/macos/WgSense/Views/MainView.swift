@@ -600,6 +600,26 @@ struct SidebarView: View {
                     .padding(8)
             }
         }
+        .liquidGlassHint(controlHint(for: tile.kind, isOn: isOn))
+    }
+
+    private func controlHint(for kind: TileKind, isOn: Bool) -> String {
+        switch kind {
+        case .vpn:
+            return isOn
+                ? "仅断开当前 VPN；守护仍开启时，非信任网络下会自动重连。"
+                : "立即连接 VPN，并记录你希望 VPN 保持开启。"
+        case .guardMode:
+            return isOn
+                ? "关闭守护后，WgSense 不再按信任网段自动开关 VPN。"
+                : "开启守护后，回家自动断开，离开信任网段自动连接。"
+        case .pause:
+            return isOn
+                ? "恢复守护，并按当前网络重新判断 VPN 状态。"
+                : "暂停守护；暂停期间不会自动开关 VPN。"
+        default:
+            return ""
+        }
     }
 
     /// 小磁贴点击处理
@@ -624,9 +644,9 @@ struct SidebarView: View {
         vpnPauseTask?.cancel()
         vpnPauseTask = nil
         Task {
-            await client.post("disconnect")
-            try? await Task.sleep(for: .milliseconds(300))
             await client.post("pause")
+            try? await Task.sleep(for: .milliseconds(300))
+            await client.post("disconnect")
         }
     }
 
@@ -670,6 +690,7 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .help(client.isPauseOn ? "继续并重新连接" : "暂停 \(client.pauseMinutes) 分钟")
+            .liquidGlassHint(client.isPauseOn ? "恢复守护，并重新连接 VPN。" : "暂停守护并断开 VPN，\(client.pauseMinutes) 分钟后恢复守护。")
 
             Button(action: stopAllServices) {
                 Image(systemName: "stop.fill")
@@ -681,6 +702,23 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .help("停止 VPN")
+            .liquidGlassHint("停止守护并断开 VPN；之后不会自动拉起，直到你重新打开守护。")
+
+            Button {
+                vpnPauseTask?.cancel()
+                vpnPauseTask = nil
+                Task { await client.restartGuardFlow() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
+                    .foregroundStyle(.purple)
+                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                    .background(Circle().fill(WgTheme.tileBg))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("重启守护")
+            .liquidGlassHint("先关闭守护和 VPN，稍后恢复守护；恢复后由信任网段自动决定是否开启 VPN。")
         }
     }
 
@@ -699,6 +737,7 @@ struct SidebarView: View {
         } onTap: {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
         }
+        .liquidGlassHint(isConnected ? "仅断开当前 VPN；如果守护仍开启且当前是非信任网络，稍后会自动重连。" : "立即连接 VPN，并记录你希望 VPN 保持开启。")
         .overlay(alignment: .bottomTrailing) {
             if !isEditMode {
                 vpnQuickControls(compact: false)
@@ -720,6 +759,7 @@ struct SidebarView: View {
         } onTap: {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
         }
+        .liquidGlassHint(guardRunning ? "关闭守护后，WgSense 不再按信任网段自动开关 VPN。" : "开启守护后，回家自动断开，离开信任网段自动连接。")
     }
 
     // --- 暂停磁贴 ---
@@ -740,6 +780,7 @@ struct SidebarView: View {
                 await client.post("connect")
             }
         }
+        .liquidGlassHint("临时暂停守护并断开 VPN；倒计时结束后恢复守护，再按当前网络判断。")
     }
 
     // --- 停止磁贴（紧急停止：关闭守护 + 断开 WG）---
@@ -753,6 +794,7 @@ struct SidebarView: View {
             toggleAction: stopAllServices,
             onTap: stopAllServices
         )
+        .liquidGlassHint("停止守护并断开 VPN；这是完整停止，不是一次性断开。")
     }
 
     // --- 接收磁贴（LocalSend 兼容）---
@@ -1849,6 +1891,82 @@ struct ToggleSwitch: View {
                 .padding(padding)
         }
         .animation(.easeInOut(duration: 0.22), value: isOn)
+    }
+}
+
+// MARK: - Liquid Glass 悬浮说明
+
+struct LiquidGlassHintModifier: ViewModifier {
+    let message: String?
+    @State private var isHovering = false
+
+    private var trimmedMessage: String? {
+        guard let message else { return nil }
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard trimmedMessage != nil else { return }
+                withAnimation(.snappy(duration: 0.28, extraBounce: 0.18)) {
+                    isHovering = hovering
+                }
+            }
+            .overlay(alignment: .top) {
+                if isHovering, let trimmedMessage {
+                    hintBubble(trimmedMessage)
+                        .offset(y: -48)
+                        .transition(
+                            .scale(scale: 0.86, anchor: .bottom)
+                                .combined(with: .opacity)
+                        )
+                        .allowsHitTesting(false)
+                }
+            }
+            .zIndex(isHovering ? 50 : 0)
+    }
+
+    @ViewBuilder
+    private func hintBubble(_ text: String) -> some View {
+        let bubble = Text(text)
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(width: 220)
+            .allowsHitTesting(false)
+
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 20) {
+                bubble
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+                    .glassEffectTransition(.materialize)
+                    .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+            }
+        } else {
+            bubble
+                .background {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.regularMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(.white.opacity(0.24), lineWidth: 0.75)
+                        )
+                        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+                }
+        }
+    }
+}
+
+extension View {
+    func liquidGlassHint(_ message: String?) -> some View {
+        modifier(LiquidGlassHintModifier(message: message))
     }
 }
 

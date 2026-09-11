@@ -467,6 +467,20 @@ class DaemonClient: ObservableObject {
         await dispatchDaemonCommand(endpoint)
     }
 
+    func restartGuardFlow() async {
+        setPending(connect: false, guardRunning: false, paused: true)
+        await runDaemonCommand("pause")
+        await runDaemonCommand("disconnect")
+        try? await Task.sleep(for: .seconds(1))
+        guardAutomationEnabled = true
+        autoConnectUntrusted = true
+        setPending(connect: nil, guardRunning: true, paused: false)
+        await syncConfigSilently()
+        await runDaemonCommand("resume")
+        await fetchStatus()
+        clearPendingState()
+    }
+
     private func dispatchDaemonCommand(_ endpoint: String) async {
         if endpoint == "connect" {
             await connectVPN()
