@@ -41,12 +41,18 @@ func (m *mockTunnel) InterfaceBytes(string) (uint64, uint64)    { return 0, 0 }
 
 type countingTunnel struct {
 	mockTunnel
-	connects int
+	connects    int
+	disconnects int
 }
 
 func (m *countingTunnel) Connect(service string) error {
 	m.connects++
 	return m.mockTunnel.Connect(service)
+}
+
+func (m *countingTunnel) Disconnect(service string) error {
+	m.disconnects++
+	return m.mockTunnel.Disconnect(service)
 }
 
 type blockingTunnel struct {
@@ -88,6 +94,41 @@ func TestRunOnceTrustedNetworkDisconnects(t *testing.T) {
 	}
 	if tun.state != tunnel.StateDisconnected {
 		t.Errorf("受信任网络应断开, 实际 %s", tun.state)
+	}
+}
+
+func TestRunOnceTrustedGuardOverridesManualVPNIntent(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateConnected}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	cfg.DesiredGuardEnabled = true
+	eng := New(cfg, mockLocation{trusted: true}, tun, mockHealth{connected: true}, &mockPause{})
+
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateDisconnected {
+		t.Fatalf("守护开启时回到受信任网络应断开, 实际 %s", tun.state)
+	}
+	if eng.Status().DesiredVPNEnabled {
+		t.Fatalf("守护开启且受信任网络下，UI 不应继续显示 VPN 需要保持开启")
+	}
+}
+
+func TestRunOnceTrustedManualVPNWithoutGuardStaysConnected(t *testing.T) {
+	tun := &mockTunnel{state: tunnel.StateConnected}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: true}, tun, mockHealth{connected: true}, &mockPause{})
+
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateConnected {
+		t.Fatalf("未开启守护时，手动 VPN 意图不应被受信任网络抢断: %s", tun.state)
+	}
+	if !eng.Status().DesiredVPNEnabled {
+		t.Fatalf("未开启守护时应保留手动 VPN 意图")
 	}
 }
 
@@ -391,5 +432,56 @@ func TestRunOnceUntrustedConnectedHealthy(t *testing.T) {
 	}
 	if tun.state != tunnel.StateConnected {
 		t.Error("健康连接不应被干扰")
+	}
+}
+
+func TestNetworkChangeRestartsStaleUntrustedTunnelImmediately(t *testing.T) {
+	tun := &countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	network := "ip=en0=192.168.2.20|route=en0@192.168.2.1|dns=192.168.2.1"
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+	eng.SetNetworkSnapshotFunc(func() string { return network })
+
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.connects != 0 || tun.disconnects != 0 {
+		t.Fatalf("first network snapshot should only establish baseline: connects=%d disconnects=%d", tun.connects, tun.disconnects)
+	}
+
+	network = "ip=en0=192.168.3.20|route=en0@192.168.3.1|dns=192.168.3.1"
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.disconnects != 1 || tun.connects != 1 {
+		t.Fatalf("stale tunnel should restart immediately after network change: connects=%d disconnects=%d", tun.connects, tun.disconnects)
+	}
+	if tun.state != tunnel.StateConnected || eng.healthFailures != 0 || eng.lastAutoUp.IsZero() {
+		t.Fatalf("restart did not reset tunnel health state: state=%s failures=%d lastAutoUp=%v", tun.state, eng.healthFailures, eng.lastAutoUp)
+	}
+}
+
+func TestNetworkChangeRunsTrustedDisconnectPolicy(t *testing.T) {
+	tun := &countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	cfg.DesiredGuardEnabled = true
+	network := "ip=en0=192.168.2.20|route=en0@192.168.2.1|dns=192.168.2.1"
+	loc := mockLocation{trusted: false}
+	eng := New(cfg, loc, tun, mockHealth{connected: true}, &mockPause{})
+	eng.SetNetworkSnapshotFunc(func() string { return network })
+
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	loc.trusted = true
+	network = "ip=en0=10.10.1.22|route=en0@10.10.1.1|dns=10.10.1.1"
+	eng.loc = loc
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.disconnects != 1 || tun.state != tunnel.StateDisconnected {
+		t.Fatalf("trusted network change should disconnect guard-managed tunnel: disconnects=%d state=%s", tun.disconnects, tun.state)
 	}
 }

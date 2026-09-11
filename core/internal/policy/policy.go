@@ -13,11 +13,13 @@ import (
 	"github.com/wgsense/core/internal/healthcheck"
 	"github.com/wgsense/core/internal/location"
 	"github.com/wgsense/core/internal/logbuf"
+	"github.com/wgsense/core/internal/netstate"
 	"github.com/wgsense/core/internal/pause"
 	"github.com/wgsense/core/internal/tunnel"
 )
 
 const maxHealthFailures = 5
+const networkPollInterval = 3 * time.Second
 
 // Engine 智能管理引擎。
 type Engine struct {
@@ -37,6 +39,8 @@ type Engine struct {
 	autoFailures    int
 	nextAutoAttempt time.Time
 	configPath      string
+	networkSnapshot func() string
+	lastNetwork     string
 
 	// 日志缓冲（供 /api/logs 使用）
 	LogBuf *logbuf.Buffer
@@ -54,12 +58,13 @@ type Engine struct {
 func New(cfg config.Config, loc location.Locator, tun tunnel.Manager, hc healthcheck.Checker, p pause.Controller) *Engine {
 	cfg.Normalize()
 	return &Engine{
-		cfg:    cfg,
-		loc:    loc,
-		tun:    tun,
-		hc:     hc,
-		pause:  p,
-		LogBuf: logbuf.New(200),
+		cfg:             cfg,
+		loc:             loc,
+		tun:             tun,
+		hc:              hc,
+		pause:           p,
+		networkSnapshot: netstate.Fingerprint,
+		LogBuf:          logbuf.New(200),
 	}
 }
 
@@ -74,6 +79,15 @@ func (e *Engine) SetAppOwned(appOwned bool) { e.appOwned = appOwned }
 
 // SetConfigPath enables persistence for runtime configuration changes.
 func (e *Engine) SetConfigPath(path string) { e.configPath = path }
+
+// SetNetworkSnapshotFunc overrides network fingerprinting for tests.
+func (e *Engine) SetNetworkSnapshotFunc(fn func() string) {
+	if fn == nil {
+		e.networkSnapshot = netstate.Fingerprint
+		return
+	}
+	e.networkSnapshot = fn
+}
 
 func (e *Engine) saveCurrentConfig() error {
 	if e.configPath == "" {
@@ -97,6 +111,62 @@ func (e *Engine) RunOnce() error {
 	return e.runOnceLocked()
 }
 
+// RunOnNetworkChange applies policy immediately when IP, route, or DNS changes.
+func (e *Engine) RunOnNetworkChange() error {
+	if !e.opMu.TryLock() {
+		e.Logf("已有连接操作进行中，跳过本轮网络变化检查")
+		return nil
+	}
+	defer e.opMu.Unlock()
+	return e.runOnNetworkChangeLocked()
+}
+
+func (e *Engine) runOnNetworkChangeLocked() error {
+	current := e.currentNetworkSnapshot()
+	if current == "" {
+		return nil
+	}
+	if e.lastNetwork == "" {
+		e.lastNetwork = current
+		return nil
+	}
+	if current == e.lastNetwork {
+		return nil
+	}
+	e.Logf("检测到网络变化，立即应用隧道策略")
+	e.lastNetwork = current
+	e.lastHealthCheck = time.Time{}
+
+	trusted := e.loc.IsHome(e.cfg.TrustedNetworkPrefixes)
+	state, _ := e.tun.Status(e.service)
+	if !trusted && state == tunnel.StateConnected && e.shouldKeepVPNUp(trusted) {
+		e.Logf("网络变化后验证隧道健康")
+		e.lastHealthCheck = time.Now()
+		if e.hc.IsStaleConnected(true) {
+			e.Logf("网络变化后隧道不可达，立即重启 WireGuard")
+			_ = e.tun.Disconnect(e.service)
+			if err := e.tun.Connect(e.service); err != nil {
+				e.recordAutoFailure()
+				return err
+			}
+			e.lastAutoUp = time.Now()
+			e.healthFailures = 0
+			e.autoFailures = 0
+			e.nextAutoAttempt = time.Time{}
+			return nil
+		}
+		e.healthFailures = 0
+	}
+	return e.runOnceLocked()
+}
+
+func (e *Engine) currentNetworkSnapshot() string {
+	if e.networkSnapshot == nil {
+		return ""
+	}
+	return e.networkSnapshot()
+}
+
 func (e *Engine) runOnceLocked() error {
 	// 没有任何保持连接的用户意图，或显式暂停时，跳过自动管理。VPN/守护意图仍
 	// 保留，失败只进入等待/重试，不把开关意图改回关闭。
@@ -115,9 +185,10 @@ func (e *Engine) runOnceLocked() error {
 	state, _ := e.tun.Status(e.service)
 	e.Logf("巡检 trusted=%v state=%s service=%s", trusted, state, e.service)
 
-	// 受信任网络 → 守护管理的隧道应断开；用户手动要求 VPN 保持开启时不抢断。
+	// 受信任网络 → 守护策略优先断开隧道；未开启守护时，保留用户手动
+	// 要求 VPN 保持开启的意图。
 	if trusted {
-		if state != tunnel.StateDisconnected && !e.cfg.DesiredVPNEnabled {
+		if state != tunnel.StateDisconnected && !e.shouldKeepVPNUp(trusted) {
 			e.Logf("命中受信任网络，断开 WireGuard")
 			return e.tun.Disconnect(e.service)
 		}
@@ -183,6 +254,9 @@ func (e *Engine) runOnceLocked() error {
 }
 
 func (e *Engine) shouldKeepVPNUp(trusted bool) bool {
+	if trusted && e.cfg.DesiredGuardEnabled {
+		return false
+	}
 	if e.cfg.DesiredVPNEnabled {
 		return true
 	}
@@ -224,6 +298,8 @@ func (e *Engine) recentAutoUp() bool {
 func (e *Engine) Start(ctx context.Context) error {
 	ticker := time.NewTicker(time.Duration(e.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
+	networkTicker := time.NewTicker(networkPollInterval)
+	defer networkTicker.Stop()
 
 	// 立即执行一次
 	if err := e.RunOnce(); err != nil {
@@ -235,6 +311,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		case <-ticker.C:
 			if err := e.RunOnce(); err != nil {
 				e.Logf("巡检错误: %v", err)
+			}
+		case <-networkTicker.C:
+			if err := e.RunOnNetworkChange(); err != nil {
+				e.Logf("网络变化处理错误: %v", err)
 			}
 		case <-ctx.Done():
 			return ctx.Err()

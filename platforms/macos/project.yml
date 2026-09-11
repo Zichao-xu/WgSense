@@ -16,6 +16,8 @@ targets:
     platform: macOS
     sources:
       - path: WgSense
+        excludes:
+          - SystemVPNManager.swift
     preBuildScripts:
       - name: Build Bundled Daemon
         basedOnDependencyAnalysis: false
@@ -37,13 +39,11 @@ targets:
     dependencies:
       - target: WgSenseWidget
         embed: true
-      - target: WgSensePacketTunnel
-        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos
         MARKETING_VERSION: "0.3.8"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         INFOPLIST_KEY_CFBundleDisplayName: WgSense
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -54,49 +54,6 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_ENTITLEMENTS: WgSense/WgSense.entitlements
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
-
-  WgSensePacketTunnel:
-    type: app-extension
-    platform: macOS
-    sources:
-      - path: WgSensePacketTunnel
-        excludes:
-          - WireGuardKitGo/*.go
-          - WireGuardKitGo/go.mod
-          - WireGuardKitGo/go.sum
-          - WireGuardKitGo/Makefile
-          - WireGuardKitGo/goruntime-boottime-over-monotonic.diff
-          - WireGuardKit.COPYING
-    preBuildScripts:
-      - name: Build WireGuard Go Backend
-        basedOnDependencyAnalysis: false
-        script: |
-          set -euo pipefail
-          export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-          make -C "$SRCROOT/WgSensePacketTunnel/WireGuardKitGo" \
-            PLATFORM_NAME="$PLATFORM_NAME" \
-            ARCHS="$ARCHS" \
-            SDKROOT="$SDKROOT" \
-            CONFIGURATION_BUILD_DIR="$BUILT_PRODUCTS_DIR" \
-            CONFIGURATION_TEMP_DIR="$PROJECT_TEMP_DIR/WireGuardKitGo"
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos.PacketTunnel
-        PRODUCT_NAME: WgSensePacketTunnel
-        MARKETING_VERSION: "0.3.8"
-        CURRENT_PROJECT_VERSION: "12"
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
-        INFOPLIST_FILE: WgSensePacketTunnel/Info.plist
-        GENERATE_INFOPLIST_FILE: NO
-        SKIP_INSTALL: YES
-        APPLICATION_EXTENSION_API_ONLY: YES
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_ENTITLEMENTS: WgSensePacketTunnel/WgSensePacketTunnel.entitlements
-        SWIFT_OBJC_BRIDGING_HEADER: WgSensePacketTunnel/WgSensePacketTunnel-Bridging-Header.h
-        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/WgSensePacketTunnel/WireGuardKitC $(SRCROOT)/WgSensePacketTunnel/WireGuardKitGo"
-        LIBRARY_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
-        OTHER_LDFLAGS: "$(inherited) -lwg-go"
 
   WgSenseWidget:
     type: app-extension
@@ -110,7 +67,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos.widget
         PRODUCT_NAME: WgSenseWidget
         MARKETING_VERSION: "0.3.8"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         INFOPLIST_FILE: WgSenseWidget/Info.plist
         GENERATE_INFOPLIST_FILE: NO

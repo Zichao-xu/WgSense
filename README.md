@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.3-beta** — macOS 发布资产修正版：
+**v0.3.8-beta.3** — daemon 守护恢复与网络切换修正版：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
@@ -36,11 +36,11 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 - [x] 流量监控 — netstat 自动选活跃接口
 - [x] GitHub Actions CI
 - [x] 路由修复 — 握手门控 + endpoint 排除 + DNS 不动系统配置
-- [ ] NetworkExtension target(等 Apple Developer 账号)
+- [x] daemon 守护策略 — 回到受信任网络自动断开，网络切换后立即处理假连接
 - [ ] Windows / Linux / iOS / Android 平台
 
 > 当前没有 Apple Developer 签名与公证。系统 helper 只会在用户从 App
-> 维护面板明确安装时请求管理员授权；NetworkExtension 尚未实现。
+> 维护面板明确安装时请求管理员授权；当前 macOS 发布版走 daemon 管理路径，不注册系统 VPN。
 
 ## 项目结构
 
