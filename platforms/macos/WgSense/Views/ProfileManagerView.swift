@@ -54,9 +54,7 @@ struct ProfileName: Identifiable {
                     }
                 }
                 .padding(12)
-                .background(WgTheme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+                .wgGlassSurface()
             }
         }
         .sheet(isPresented: $showImport) {
@@ -127,9 +125,7 @@ struct ProfileName: Identifiable {
         }
         .frame(maxWidth: .infinity)
         .padding(30)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .wgGlassSurface()
     }
 
     private func profileRow(_ name: String) -> some View {
@@ -234,8 +230,7 @@ struct ImportConfView: View {
                     }
                     .frame(maxHeight: 150)
                     .padding(8)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .wgSettingsPanelSurface()
 
                     Button("重新选择") {
                         fileContent = ""
@@ -365,8 +360,7 @@ struct ExportConfView: View {
                     }
                     .frame(maxHeight: 200)
                     .padding(8)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .wgSettingsPanelSurface()
 
                     Button("保存到文件") { saveFile() }
                         .buttonStyle(.borderedProminent)
@@ -531,8 +525,7 @@ struct ManualWizardView: View {
                                 reviewRow("Keepalive", "\(profile.keepalive)s")
                             }
                             .padding(16)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .wgSettingsPanelSurface()
                         }
                         .frame(maxWidth: 400)
                     }
@@ -644,8 +637,7 @@ struct EditProfileView: View {
                 TextEditor(text: $content)
                     .font(.system(.body, design: .monospaced))
                     .padding(8)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .wgSettingsPanelSurface()
 
                 if saved {
                     Label("已保存", systemImage: "checkmark.circle.fill")

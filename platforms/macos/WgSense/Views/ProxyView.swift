@@ -549,9 +549,7 @@ private struct ProxyPanel<Content: View>: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(WgTheme.cardBorder))
+        .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
 }
 
@@ -1806,9 +1804,7 @@ private struct ProxyMetric: View {
         }
         .padding(12)
         .frame(minHeight: 64)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+        .wgGlassSurface(cornerRadius: WgTheme.cardRadius, tint: color)
     }
 }
 
@@ -1897,8 +1893,7 @@ private struct ProxyBrowserPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 230, height: 30)
-                    .background(WgTheme.cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .wgFloatingControlSurface(cornerRadius: 8)
 
                     if mode == .groups {
                         Button {
@@ -2093,9 +2088,7 @@ private struct ProxyGroupRow: View {
             }
         }
         .padding(13)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+        .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
 }
 
@@ -2171,9 +2164,7 @@ private struct ProxyNodeCell: View {
         }
         .padding(11)
         .frame(height: 58)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+        .wgGlassSurface()
     }
 }
 
@@ -2225,9 +2216,7 @@ private struct ProxyProviderRow: View {
             .help("更新订阅")
         }
         .padding(13)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+        .wgGlassSurface()
     }
 
     private func run(_ action: String, operation: @escaping () async -> Bool) {
@@ -2275,8 +2264,7 @@ private struct ProxyConnectionsPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 260, height: 30)
-                    .background(WgTheme.cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .wgFloatingControlSurface(cornerRadius: 8)
                     Button {
                         confirmCloseAll = true
                     } label: {
@@ -2419,8 +2407,7 @@ private struct ProxyRulesPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 240, height: 30)
-                    .background(WgTheme.cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .wgFloatingControlSurface(cornerRadius: 8)
                     Button {
                         Task { await refresh() }
                     } label: {
@@ -2526,9 +2513,7 @@ private struct ProxyRuleProviderRow: View {
             .help("更新规则集")
         }
         .padding(13)
-        .background(WgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(WgTheme.cardBorder))
+        .wgGlassSurface()
     }
 }
 
@@ -2576,8 +2561,7 @@ private struct ProxyLogsPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 220, height: 30)
-                    .background(WgTheme.cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .wgFloatingControlSurface(cornerRadius: 8)
                     Toggle("自动刷新", isOn: $autoRefresh)
                         .toggleStyle(.switch)
                         .controlSize(.small)
@@ -3048,9 +3032,7 @@ private struct ProxyActionButton: View {
             }
             .padding(.horizontal, 11)
             .frame(height: 38)
-            .background(WgTheme.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(WgTheme.cardBorder))
+            .wgGlassSurface(cornerRadius: 8, tint: roleColor.opacity(0.8), interactive: true)
         }
         .buttonStyle(.plain)
     }

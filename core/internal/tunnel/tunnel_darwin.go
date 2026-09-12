@@ -3,12 +3,12 @@
 // 阶段 1 后期迁移到 NetworkExtension 后不再需要 root。
 //
 // 重要设计决策：
-//  1. 不把 profile DNS 写入 Wi-Fi/以太网等物理网络服务。官方 WireGuard
-//     通过 NetworkExtension 把 DNS 绑定到 VPN 配置；本实现还在 wireguard-go
-//     + utun 阶段，写物理网卡 DNS 会在隧道断开后造成解析自锁。
+//  1. wireguard-go + utun 无法像 NetworkExtension 一样把 DNS 绑定到 VPN
+//     配置，因此连接成功后临时接管当前物理网络服务的 DNS，并在断开/退出时
+//     恢复原始设置。
 //  2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
-//  3. cleanup 注册 signal handler — 尽量在进程退出时清理路由，并恢复旧版本
-//     可能留下的 DNS 快照。
+//  3. cleanup 注册 signal handler — 尽量在进程退出时清理路由，并恢复可能
+//     留下的 DNS 快照。
 package tunnel
 
 import (
@@ -409,7 +409,35 @@ func (m *darwinManager) applyProfileDNS(rawDNS string) {
 	if len(servers) == 0 {
 		return
 	}
-	log.Printf("[tunnel] profile DNS 保留在配置中但不写入物理网卡: %s", strings.Join(servers, ", "))
+	if m.physIface == "" {
+		log.Printf("[tunnel] 跳过 DNS 接管：物理接口未知")
+		return
+	}
+	service, err := networkServiceForInterface(m.physIface)
+	if err != nil {
+		log.Printf("[tunnel] 查找 DNS 网络服务失败: %v", err)
+		return
+	}
+	current, err := currentDNSServers(service)
+	if err != nil {
+		log.Printf("[tunnel] 读取当前 DNS 失败: %v", err)
+		return
+	}
+
+	snapshot := dnsSnapshot{Service: service, Servers: current}
+	if err := storeDNSSnapshot(m.configDir, snapshot); err != nil {
+		log.Printf("[tunnel] 保存 DNS 快照失败: %v", err)
+		return
+	}
+
+	args := append([]string{"-setdnsservers", service}, servers...)
+	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
+		_ = removeStoredDNSSnapshot(m.configDir)
+		log.Printf("[tunnel] 设置 profile DNS 失败: %v output=%s", err, strings.TrimSpace(string(out)))
+		return
+	}
+	m.dnsSnapshot = &snapshot
+	log.Printf("[tunnel] DNS 已切换到 profile DNS: service=%s servers=%s", service, strings.Join(servers, ", "))
 }
 
 // addExclusionRoute 添加排除路由（不走隧道）。

@@ -18,8 +18,7 @@ struct PlaceholderView: View {
                 .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
-                .background(WgTheme.cardBg)
-                .clipShape(Capsule())
+                .wgFloatingControlSurface(cornerRadius: 14)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -116,9 +115,7 @@ struct LogsView: View {
             }
             .wgTimelineScroller()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(WgTheme.cardBg)
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+            .wgGlassSurface()
             .onChange(of: visibleLogLines.last?.id) {
                 guard autoScroll, let last = visibleLogLines.last else { return }
                 proxy.scrollTo(last.id, anchor: .bottom)
@@ -146,10 +143,73 @@ struct LogsView: View {
 
 // MARK: - 设置页
 
+private enum WgGlassEditTarget: String, CaseIterable, Identifiable {
+    case current
+    case dark
+    case light
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .current: return "当前模式"
+        case .dark: return "深色"
+        case .light: return "浅色"
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var client: DaemonClient
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
+    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
+    @AppStorage("glassEditTarget") private var glassEditTargetRaw = WgGlassEditTarget.current.rawValue
+    @AppStorage("glassDarkPageDepth") private var darkPageDepth = WgGlassDefaults.darkPageDepth
+    @AppStorage("glassLightPageDepth") private var lightPageDepth = WgGlassDefaults.lightPageDepth
+    @AppStorage("glassDarkSidebarDepth") private var darkSidebarDepth = WgGlassDefaults.darkSidebarDepth
+    @AppStorage("glassLightSidebarDepth") private var lightSidebarDepth = WgGlassDefaults.lightSidebarDepth
+    @AppStorage("glassDarkTileDepth") private var darkTileDepth = WgGlassDefaults.darkTileDepth
+    @AppStorage("glassLightTileDepth") private var lightTileDepth = WgGlassDefaults.lightTileDepth
+    @AppStorage("glassDarkContentDepth") private var darkContentDepth = WgGlassDefaults.darkContentDepth
+    @AppStorage("glassLightContentDepth") private var lightContentDepth = WgGlassDefaults.lightContentDepth
+    @AppStorage("glassDarkFloatingDepth") private var darkFloatingDepth = WgGlassDefaults.darkFloatingDepth
+    @AppStorage("glassLightFloatingDepth") private var lightFloatingDepth = WgGlassDefaults.lightFloatingDepth
+    @AppStorage("glassDarkPageMaterial") private var darkPageMaterial = WgGlassDefaults.darkPageMaterial
+    @AppStorage("glassLightPageMaterial") private var lightPageMaterial = WgGlassDefaults.lightPageMaterial
+    @AppStorage("glassDarkSidebarMaterial") private var darkSidebarMaterial = WgGlassDefaults.darkSidebarMaterial
+    @AppStorage("glassLightSidebarMaterial") private var lightSidebarMaterial = WgGlassDefaults.lightSidebarMaterial
+    @AppStorage("glassDarkTileMaterial") private var darkTileMaterial = WgGlassDefaults.darkTileMaterial
+    @AppStorage("glassLightTileMaterial") private var lightTileMaterial = WgGlassDefaults.lightTileMaterial
+    @AppStorage("glassDarkContentMaterial") private var darkContentMaterial = WgGlassDefaults.darkContentMaterial
+    @AppStorage("glassLightContentMaterial") private var lightContentMaterial = WgGlassDefaults.lightContentMaterial
+    @AppStorage("glassDarkFloatingMaterial") private var darkFloatingMaterial = WgGlassDefaults.darkFloatingMaterial
+    @AppStorage("glassLightFloatingMaterial") private var lightFloatingMaterial = WgGlassDefaults.lightFloatingMaterial
+    @AppStorage("glassDarkTint") private var darkTint = WgGlassDefaults.darkTint
+    @AppStorage("glassLightTint") private var lightTint = WgGlassDefaults.lightTint
+    @AppStorage("classicDarkPageDepth") private var classicDarkPageDepth = WgClassicDefaults.darkPageDepth
+    @AppStorage("classicLightPageDepth") private var classicLightPageDepth = WgClassicDefaults.lightPageDepth
+    @AppStorage("classicDarkSidebarDepth") private var classicDarkSidebarDepth = WgClassicDefaults.darkSidebarDepth
+    @AppStorage("classicLightSidebarDepth") private var classicLightSidebarDepth = WgClassicDefaults.lightSidebarDepth
+    @AppStorage("classicDarkTileDepth") private var classicDarkTileDepth = WgClassicDefaults.darkTileDepth
+    @AppStorage("classicLightTileDepth") private var classicLightTileDepth = WgClassicDefaults.lightTileDepth
+    @AppStorage("classicDarkContentDepth") private var classicDarkContentDepth = WgClassicDefaults.darkContentDepth
+    @AppStorage("classicLightContentDepth") private var classicLightContentDepth = WgClassicDefaults.lightContentDepth
+    @AppStorage("classicDarkFloatingDepth") private var classicDarkFloatingDepth = WgClassicDefaults.darkFloatingDepth
+    @AppStorage("classicLightFloatingDepth") private var classicLightFloatingDepth = WgClassicDefaults.lightFloatingDepth
+    @AppStorage("classicDarkPageMaterial") private var classicDarkPageMaterial = WgClassicDefaults.darkPageMaterial
+    @AppStorage("classicLightPageMaterial") private var classicLightPageMaterial = WgClassicDefaults.lightPageMaterial
+    @AppStorage("classicDarkSidebarMaterial") private var classicDarkSidebarMaterial = WgClassicDefaults.darkSidebarMaterial
+    @AppStorage("classicLightSidebarMaterial") private var classicLightSidebarMaterial = WgClassicDefaults.lightSidebarMaterial
+    @AppStorage("classicDarkTileMaterial") private var classicDarkTileMaterial = WgClassicDefaults.darkTileMaterial
+    @AppStorage("classicLightTileMaterial") private var classicLightTileMaterial = WgClassicDefaults.lightTileMaterial
+    @AppStorage("classicDarkContentMaterial") private var classicDarkContentMaterial = WgClassicDefaults.darkContentMaterial
+    @AppStorage("classicLightContentMaterial") private var classicLightContentMaterial = WgClassicDefaults.lightContentMaterial
+    @AppStorage("classicDarkFloatingMaterial") private var classicDarkFloatingMaterial = WgClassicDefaults.darkFloatingMaterial
+    @AppStorage("classicLightFloatingMaterial") private var classicLightFloatingMaterial = WgClassicDefaults.lightFloatingMaterial
+    @AppStorage("classicDarkTint") private var classicDarkTint = WgClassicDefaults.darkTint
+    @AppStorage("classicLightTint") private var classicLightTint = WgClassicDefaults.lightTint
     @State private var applyingConfig = false
     @State private var transferToggling = false
     @State private var settingsMessage: String?
@@ -183,6 +243,25 @@ struct SettingsView: View {
                     }
                     Divider().opacity(0.3)
                     HStack {
+                        Label("主图主题", systemImage: "square.grid.2x2")
+                        Spacer()
+                        Picker("主图主题", selection: Binding(
+                            get: { WgVisualTheme(rawValue: visualThemeRaw) ?? .classic },
+                            set: { newValue in
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    visualThemeRaw = newValue.rawValue
+                                }
+                            }
+                        )) {
+                            ForEach(WgVisualTheme.allCases) { theme in
+                                Text(theme.title).tag(theme)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 180)
+                    }
+                    Divider().opacity(0.3)
+                    HStack {
                         Label("外观模式", systemImage: "circle.lefthalf.filled")
                         Spacer()
                         Picker("外观模式", selection: Binding(
@@ -200,6 +279,90 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(width: 180)
                     }
+                    Divider().opacity(0.3)
+                    Text("\(activeVisualThemeTitle) 调校")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                    HStack {
+                        Picker("编辑对象", selection: Binding(
+                            get: { WgGlassEditTarget(rawValue: glassEditTargetRaw) ?? .current },
+                            set: { glassEditTargetRaw = $0.rawValue }
+                        )) {
+                            ForEach(WgGlassEditTarget.allCases) { target in
+                                Text(target.title).tag(target)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Spacer()
+                        Text("拖动即生效")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    glassTuningHeader("页面", icon: "macwindow")
+                    glassSlider("底板深浅", value: themeBinding(
+                        classicDark: $classicDarkPageDepth,
+                        classicLight: $classicLightPageDepth,
+                        glassDark: $darkPageDepth,
+                        glassLight: $lightPageDepth
+                    ), range: 0.00...0.95)
+                    Divider().opacity(0.3)
+                    glassSlider("材质强度", value: themeBinding(
+                        classicDark: $classicDarkPageMaterial,
+                        classicLight: $classicLightPageMaterial,
+                        glassDark: $darkPageMaterial,
+                        glassLight: $lightPageMaterial
+                    ), range: 0.00...0.75)
+                    Divider().opacity(0.3)
+                    glassTuningHeader("侧栏", icon: "sidebar.leading")
+                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkSidebarDepth, classicLight: $classicLightSidebarDepth, glassDark: $darkSidebarDepth, glassLight: $lightSidebarDepth), range: 0.00...0.95)
+                    Divider().opacity(0.3)
+                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkSidebarMaterial, classicLight: $classicLightSidebarMaterial, glassDark: $darkSidebarMaterial, glassLight: $lightSidebarMaterial), range: 0.00...0.75)
+                    Divider().opacity(0.3)
+                    glassTuningHeader("磁贴", icon: "square.grid.2x2.fill")
+                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkTileDepth, classicLight: $classicLightTileDepth, glassDark: $darkTileDepth, glassLight: $lightTileDepth), range: 0.00...0.95)
+                    Divider().opacity(0.3)
+                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkTileMaterial, classicLight: $classicLightTileMaterial, glassDark: $darkTileMaterial, glassLight: $lightTileMaterial), range: 0.00...0.75)
+                    Divider().opacity(0.3)
+                    glassTuningHeader("内容", icon: "rectangle.inset.filled")
+                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkContentDepth, classicLight: $classicLightContentDepth, glassDark: $darkContentDepth, glassLight: $lightContentDepth), range: 0.00...0.95)
+                    Divider().opacity(0.3)
+                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkContentMaterial, classicLight: $classicLightContentMaterial, glassDark: $darkContentMaterial, glassLight: $lightContentMaterial), range: 0.00...0.75)
+                    Divider().opacity(0.3)
+                    glassTuningHeader("浮层控件", icon: "slider.horizontal.2.square")
+                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkFloatingDepth, classicLight: $classicLightFloatingDepth, glassDark: $darkFloatingDepth, glassLight: $lightFloatingDepth), range: 0.00...0.95)
+                    Divider().opacity(0.3)
+                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkFloatingMaterial, classicLight: $classicLightFloatingMaterial, glassDark: $darkFloatingMaterial, glassLight: $lightFloatingMaterial), range: 0.00...0.75)
+                    Divider().opacity(0.3)
+                    glassTuningHeader("全局状态", icon: "paintpalette")
+                    glassSlider("状态色强度", value: themeBinding(classicDark: $classicDarkTint, classicLight: $classicLightTint, glassDark: $darkTint, glassLight: $lightTint), range: 0.00...0.55)
+                    Divider().opacity(0.3)
+                    HStack(spacing: 8) {
+                        Button {
+                            applyGlassDefaults()
+                        } label: {
+                            Label("恢复默认", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        Button {
+                            applyRecommendedGlass()
+                        } label: {
+                            Label("推荐值", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+
+                        Spacer()
+                        Text("拖动即生效")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
                 }
                 .padding(.vertical, 6)
             }
@@ -461,9 +624,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(WgTheme.cardBg)
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+            .wgSettingsPanelSurface()
         }
     }
 
@@ -476,6 +637,136 @@ struct SettingsView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private func glassTuningHeader(_ title: LocalizedStringKey, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+
+    private func glassBinding(dark: Binding<Double>, light: Binding<Double>) -> Binding<Double> {
+        Binding {
+            glassEditsDarkValues ? dark.wrappedValue : light.wrappedValue
+        } set: { newValue in
+            if glassEditsDarkValues {
+                dark.wrappedValue = newValue
+            } else {
+                light.wrappedValue = newValue
+            }
+        }
+    }
+
+    private var activeVisualTheme: WgVisualTheme {
+        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
+    }
+
+    private var activeVisualThemeTitle: String {
+        switch activeVisualTheme {
+        case .classic:
+            return "经典主题"
+        case .liquidGlass:
+            return "Liquid Glass"
+        }
+    }
+
+    private func themeBinding(
+        classicDark: Binding<Double>,
+        classicLight: Binding<Double>,
+        glassDark: Binding<Double>,
+        glassLight: Binding<Double>
+    ) -> Binding<Double> {
+        switch activeVisualTheme {
+        case .classic:
+            return glassBinding(dark: classicDark, light: classicLight)
+        case .liquidGlass:
+            return glassBinding(dark: glassDark, light: glassLight)
+        }
+    }
+
+    private var glassEditsDarkValues: Bool {
+        switch WgGlassEditTarget(rawValue: glassEditTargetRaw) ?? .current {
+        case .dark:
+            return true
+        case .light:
+            return false
+        case .current:
+            return colorScheme == .dark
+        }
+    }
+
+    private func glassSlider(_ label: LocalizedStringKey, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .frame(width: 92, alignment: .leading)
+            Slider(value: value, in: range)
+            Text("\(Int(value.wrappedValue * 100))")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .trailing)
+        }
+        .padding(.vertical, 7)
+    }
+
+    private func applyGlassDefaults() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            switch activeVisualTheme {
+            case .classic:
+                classicDarkPageDepth = WgClassicDefaults.darkPageDepth
+                classicLightPageDepth = WgClassicDefaults.lightPageDepth
+                classicDarkSidebarDepth = WgClassicDefaults.darkSidebarDepth
+                classicLightSidebarDepth = WgClassicDefaults.lightSidebarDepth
+                classicDarkTileDepth = WgClassicDefaults.darkTileDepth
+                classicLightTileDepth = WgClassicDefaults.lightTileDepth
+                classicDarkContentDepth = WgClassicDefaults.darkContentDepth
+                classicLightContentDepth = WgClassicDefaults.lightContentDepth
+                classicDarkFloatingDepth = WgClassicDefaults.darkFloatingDepth
+                classicLightFloatingDepth = WgClassicDefaults.lightFloatingDepth
+                classicDarkPageMaterial = WgClassicDefaults.darkPageMaterial
+                classicLightPageMaterial = WgClassicDefaults.lightPageMaterial
+                classicDarkSidebarMaterial = WgClassicDefaults.darkSidebarMaterial
+                classicLightSidebarMaterial = WgClassicDefaults.lightSidebarMaterial
+                classicDarkTileMaterial = WgClassicDefaults.darkTileMaterial
+                classicLightTileMaterial = WgClassicDefaults.lightTileMaterial
+                classicDarkContentMaterial = WgClassicDefaults.darkContentMaterial
+                classicLightContentMaterial = WgClassicDefaults.lightContentMaterial
+                classicDarkFloatingMaterial = WgClassicDefaults.darkFloatingMaterial
+                classicLightFloatingMaterial = WgClassicDefaults.lightFloatingMaterial
+                classicDarkTint = WgClassicDefaults.darkTint
+                classicLightTint = WgClassicDefaults.lightTint
+            case .liquidGlass:
+                darkPageDepth = WgGlassDefaults.darkPageDepth
+                lightPageDepth = WgGlassDefaults.lightPageDepth
+                darkSidebarDepth = WgGlassDefaults.darkSidebarDepth
+                lightSidebarDepth = WgGlassDefaults.lightSidebarDepth
+                darkTileDepth = WgGlassDefaults.darkTileDepth
+                lightTileDepth = WgGlassDefaults.lightTileDepth
+                darkContentDepth = WgGlassDefaults.darkContentDepth
+                lightContentDepth = WgGlassDefaults.lightContentDepth
+                darkFloatingDepth = WgGlassDefaults.darkFloatingDepth
+                lightFloatingDepth = WgGlassDefaults.lightFloatingDepth
+                darkPageMaterial = WgGlassDefaults.darkPageMaterial
+                lightPageMaterial = WgGlassDefaults.lightPageMaterial
+                darkSidebarMaterial = WgGlassDefaults.darkSidebarMaterial
+                lightSidebarMaterial = WgGlassDefaults.lightSidebarMaterial
+                darkTileMaterial = WgGlassDefaults.darkTileMaterial
+                lightTileMaterial = WgGlassDefaults.lightTileMaterial
+                darkContentMaterial = WgGlassDefaults.darkContentMaterial
+                lightContentMaterial = WgGlassDefaults.lightContentMaterial
+                darkFloatingMaterial = WgGlassDefaults.darkFloatingMaterial
+                lightFloatingMaterial = WgGlassDefaults.lightFloatingMaterial
+                darkTint = WgGlassDefaults.darkTint
+                lightTint = WgGlassDefaults.lightTint
+            }
+        }
+    }
+
+    private func applyRecommendedGlass() {
+        applyGlassDefaults()
     }
 
     private func maintenanceButton(

@@ -105,9 +105,7 @@ struct OverviewView: View {
                 .foregroundStyle(statusColor.opacity(isConnected ? 0.5 : 0.15))
         }
         .padding(22)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .wgGlassSurface(cornerRadius: WgTheme.controlRadius, tint: statusColor, interactive: true)
     }
 
     private func detailLine(_ label: LocalizedStringKey, _ value: LocalizedStringKey) -> some View {
@@ -139,9 +137,7 @@ struct OverviewView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .wgGlassSurface(tint: color)
     }
 
     // MARK: - 模块区域
@@ -172,9 +168,7 @@ struct OverviewView: View {
                     color: .purple
                 )
             }
-            .background(WgTheme.cardBg)
-            .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+            .wgGlassSurface()
         }
     }
 

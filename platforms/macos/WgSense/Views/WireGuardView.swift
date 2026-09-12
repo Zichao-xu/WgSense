@@ -70,9 +70,7 @@ struct WireGuardDetailView: View {
             }
         }
         .padding(14)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .wgGlassSurface(tint: statusColor, interactive: true)
     }
 
     // MARK: - Profile 列表区域
@@ -113,9 +111,7 @@ struct WireGuardDetailView: View {
                         }
                     }
                 }
-                .background(WgTheme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+                .wgGlassSurface()
             }
         }
     }
@@ -257,9 +253,7 @@ struct WireGuardDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
-        .background(WgTheme.cardBg)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.cardBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius))
+        .wgGlassSurface()
     }
 
     // MARK: -

@@ -28,6 +28,7 @@ struct MenuBarView: View {
                         .frame(width: 26, height: 26)
                 }
                 .buttonStyle(.plain)
+                .wgFloatingControlSurface(cornerRadius: 13)
                 .help("刷新状态")
             }
             if let s = client.status {
@@ -100,8 +101,11 @@ struct MenuBarView: View {
             } label: {
                 Label("打开主窗口", systemImage: "macwindow")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .controlSize(.large)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
+            .wgFloatingControlSurface(tint: WgTheme.accent)
             .frame(maxWidth: .infinity)
 
             Button {
@@ -111,9 +115,13 @@ struct MenuBarView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .wgGlassSurface(cornerRadius: 13)
         }
         .padding(14)
         .frame(width: 286)
+        .wgFloatingControlSurface(cornerRadius: WgTheme.floatingRadius)
         .environment(\.locale, selectedLanguage.locale)
         .preferredColorScheme(selectedAppearance.colorScheme)
         .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
