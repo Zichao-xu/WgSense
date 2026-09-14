@@ -468,7 +468,7 @@ enum TileSize: String, Codable, CaseIterable {
     }
 }
 
-struct TileData: Identifiable, Codable {
+struct TileData: Identifiable, Codable, Equatable {
     let id: UUID
     var kind: TileKind
     var size: TileSize
@@ -502,7 +502,40 @@ struct SidebarView: View {
 
     init(selection: Binding<SidebarTab>) {
         self._selection = selection
-        _tiles = State(initialValue: Self.defaultTiles())
+        _tiles = State(initialValue: Self.loadTiles() ?? Self.defaultTiles())
+    }
+
+    // MARK: 磁贴布局持久化
+
+    private static let tileLayoutKey = "tileLayout"
+
+    /// 逐条解码，跳过无法识别的条目。
+    ///
+    /// 直接 decode 整个数组的话，只要有一条认不出来（比如某个磁贴类型在新版本里
+    /// 被移除了）整个布局就会回退成默认，用户排好的顺序全丢。
+    private struct LenientTile: Decodable {
+        let value: TileData?
+        init(from decoder: Decoder) throws {
+            value = try? TileData(from: decoder)
+        }
+    }
+
+    static func loadTiles() -> [TileData]? {
+        guard
+            let raw = UserDefaults.standard.string(forKey: tileLayoutKey),
+            let data = raw.data(using: .utf8),
+            let decoded = try? JSONDecoder().decode([LenientTile].self, from: data)
+        else { return nil }
+        let tiles = decoded.compactMap(\.value)
+        return tiles.isEmpty ? nil : tiles
+    }
+
+    func saveTiles() {
+        guard
+            let data = try? JSONEncoder().encode(tiles),
+            let raw = String(data: data, encoding: .utf8)
+        else { return }
+        UserDefaults.standard.set(raw, forKey: Self.tileLayoutKey)
     }
 
     static func defaultTiles() -> [TileData] {
@@ -532,6 +565,8 @@ struct SidebarView: View {
 
             Spacer(minLength: 0)
         }
+        // 排序、增删、改大小都会走到这里，落盘一次。
+        .onChange(of: tiles) { _, _ in saveTiles() }
         .sheet(isPresented: $showAddSheet) { AddTileSheet(existingKinds: tiles.map(\.kind)) { kind in
             tiles.append(TileData(kind: kind))
             showAddSheet = false
@@ -836,7 +871,7 @@ struct SidebarView: View {
     private func vpnQuickControls(compact: Bool) -> some View {
         HStack(spacing: compact ? 5 : 7) {
             Button(action: toggleVPNPause) {
-                Image(systemName: client.isPauseOn ? "arrowtriangle.up.fill" : "pause.fill")
+                Image(systemName: client.isPauseOn ? "play.fill" : "pause.fill")
                     .font(.system(size: compact ? 9 : 10, weight: .semibold))
                     .foregroundStyle(client.isPauseOn ? Color.green : Color.orange)
                     .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
