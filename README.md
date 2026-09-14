@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.9-beta.1** — 连接自愈版：网络切换后重建 UDP bind，不再拆隧道：
+**v0.3.10-beta.1** — 外观重做：玻璃只上背景板，内容保持实色：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
@@ -41,8 +41,14 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 - [x] VPN 磁贴交互 — 执行动作后系统通知 + 全局 Liquid Glass 播报 + 紫色守护重启按钮
 - [x] 连接自愈 — 发包地址失效(网络切换/睡眠唤醒)时重建 UDP bind，路由与 DNS 保持不动
 - [x] 日志治理 — wireguard-go 调试日志默认关闭，重复错误折叠计数
+- [x] 背景板三档 — Liquid Glass 标准/通透 + 传统毛玻璃，整窗一块，透出桌面
+- [x] 实体层统一 — 磁贴/卡片/面板实色 + 描边，三级明度同源推导，不再各表面独立取值
+- [x] 外观参数 44 → 5 — 背景模式/浓度 + 内容底色/描边/状态色，全部实时生效
+- [x] 磁贴布局持久化 — 排序、增删、改大小重启后保留，解码逐条容错
 - [ ] Windows / Linux / iOS / Android 平台
 
+> 系统要求 macOS 26 或更新：背景板用的 `NSGlassEffectView` 自 macOS 26 起提供。
+>
 > 当前没有 Apple Developer 签名与公证。系统 helper 只会在用户从 App
 > 维护面板明确安装时请求管理员授权；当前 macOS 发布版走 daemon 管理路径，不注册系统 VPN。
 
