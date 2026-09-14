@@ -177,63 +177,22 @@ private struct WgTileSurfaceModifier: ViewModifier {
     let tint: Color?
     let isSelected: Bool
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkTileDepth") private var darkDepth = WgGlassDefaults.darkTileDepth
-    @AppStorage("glassLightTileDepth") private var lightDepth = WgGlassDefaults.lightTileDepth
-    @AppStorage("glassDarkTileMaterial") private var darkMaterial = WgGlassDefaults.darkTileMaterial
-    @AppStorage("glassLightTileMaterial") private var lightMaterial = WgGlassDefaults.lightTileMaterial
-    @AppStorage("glassDarkTint") private var darkTint = WgGlassDefaults.darkTint
-    @AppStorage("glassLightTint") private var lightTint = WgGlassDefaults.lightTint
-    @AppStorage("classicDarkTileDepth") private var classicDarkDepth = WgClassicDefaults.darkTileDepth
-    @AppStorage("classicLightTileDepth") private var classicLightDepth = WgClassicDefaults.lightTileDepth
-    @AppStorage("classicDarkTileMaterial") private var classicDarkMaterial = WgClassicDefaults.darkTileMaterial
-    @AppStorage("classicLightTileMaterial") private var classicLightMaterial = WgClassicDefaults.lightTileMaterial
-    @AppStorage("classicDarkTint") private var classicDarkTint = WgClassicDefaults.darkTint
-    @AppStorage("classicLightTint") private var classicLightTint = WgClassicDefaults.lightTint
 
+    // 磁贴是浮在玻璃上的实体，不再叠材质。之前四层（底色 + ultraThinMaterial +
+    // 深度 + 色调）互相抵消，调哪一层都会把另一层顶回去。
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
         content
             .background {
                 shape
-                    .fill(visualTheme == .liquidGlass ? liquidSurfaceBase : WgTheme.tileBg)
-                    .overlay(shape.fill(.ultraThinMaterial).opacity(activeMaterial))
-                    .overlay(shape.fill(depthOverlay))
-                    .overlay(shape.fill(tint?.opacity(tintOpacity(selected: isSelected)) ?? neutralTint))
+                    .fill(isSelected ? WgSurface.raised(colorScheme) : WgSurface.solid(colorScheme))
+                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(colorScheme, selected: isSelected)) ?? Color.clear))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
                     .allowsHitTesting(false)
             }
             .clipShape(shape)
             .contentShape(shape)
     }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var liquidSurfaceBase: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)
-    }
-
-    private var depthOverlay: Color {
-        colorScheme == .dark ? Color.black.opacity(activeDepth) : Color.white.opacity(activeDepth)
-    }
-
-    private var neutralTint: Color {
-        colorScheme == .dark ? Color.white.opacity(activeTint * 0.75) : Color.black.opacity(activeTint * 0.75)
-    }
-
-    private func tintOpacity(selected: Bool) -> Double {
-        activeTint * (selected ? 2.2 : 1.2)
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
-    private var classicTint: Double { colorScheme == .dark ? classicDarkTint : classicLightTint }
-    private var activeDepth: Double { visualTheme == .liquidGlass ? depth : classicDepth }
-    private var activeMaterial: Double { visualTheme == .liquidGlass ? material : classicMaterial }
-    private var activeTint: Double { visualTheme == .liquidGlass ? (colorScheme == .dark ? darkTint : lightTint) : classicTint }
 }
 
 private struct WgGlassSurfaceModifier: ViewModifier {
@@ -241,86 +200,23 @@ private struct WgGlassSurfaceModifier: ViewModifier {
     let tint: Color?
     let interactive: Bool
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkContentDepth") private var darkDepth = WgGlassDefaults.darkContentDepth
-    @AppStorage("glassLightContentDepth") private var lightDepth = WgGlassDefaults.lightContentDepth
-    @AppStorage("glassDarkContentMaterial") private var darkMaterial = WgGlassDefaults.darkContentMaterial
-    @AppStorage("glassLightContentMaterial") private var lightMaterial = WgGlassDefaults.lightContentMaterial
-    @AppStorage("glassDarkTint") private var darkTint = WgGlassDefaults.darkTint
-    @AppStorage("glassLightTint") private var lightTint = WgGlassDefaults.lightTint
-    @AppStorage("classicDarkContentDepth") private var classicDarkDepth = WgClassicDefaults.darkContentDepth
-    @AppStorage("classicLightContentDepth") private var classicLightDepth = WgClassicDefaults.lightContentDepth
-    @AppStorage("classicDarkContentMaterial") private var classicDarkMaterial = WgClassicDefaults.darkContentMaterial
-    @AppStorage("classicLightContentMaterial") private var classicLightMaterial = WgClassicDefaults.lightContentMaterial
-    @AppStorage("classicDarkTint") private var classicDarkTint = WgClassicDefaults.darkTint
-    @AppStorage("classicLightTint") private var classicLightTint = WgClassicDefaults.lightTint
 
-    @ViewBuilder
+    // 卡片同理：玻璃只负责背景，内容保持实色才有轮廓。
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if visualTheme != .liquidGlass {
-            content
-                .background {
-                    shape
-                        .fill(WgTheme.cardBg)
-                        .overlay(shape.fill(.regularMaterial).opacity(classicMaterial))
-                        .overlay(shape.fill(colorScheme == .dark ? Color.black.opacity(classicDepth) : Color.white.opacity(classicDepth)))
-                }
-                .overlay {
-                    shape.fill(tint?.opacity(classicTint * (interactive ? 7.2 : 4.8)) ?? Color.clear)
-                }
-                .clipShape(shape)
-        } else if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 12) {
-                content
-                    .background {
-                        shape
-                            .fill(surfaceBase)
-                            .overlay(shape.fill(.ultraThinMaterial).opacity(material))
-                            .overlay(shape.fill(tint?.opacity(tintOpacity) ?? Color.clear))
-                    }
-                    .glassEffect(
-                        .regular
-                            .tint(glassTint),
-                        in: .rect(cornerRadius: cornerRadius)
-                    )
-                    .clipShape(shape)
+        content
+            .background {
+                shape
+                    .fill(WgSurface.solid(colorScheme))
+                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(colorScheme, selected: interactive)) ?? Color.clear))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
+                    .allowsHitTesting(false)
             }
-        } else {
-            content
-                .background {
-                    shape
-                        .fill(surfaceBase)
-                        .overlay(shape.fill(.ultraThinMaterial).opacity(material))
-                        .overlay(shape.fill(tint?.opacity(tintOpacity) ?? Color.clear))
-                }
-                .clipShape(shape)
-        }
-    }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var surfaceBase: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)
-    }
-
-    private var tintOpacity: Double {
-        activeTint * (interactive ? 1.25 : 0.7)
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var activeTint: Double { colorScheme == .dark ? darkTint : lightTint }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
-    private var classicTint: Double { colorScheme == .dark ? classicDarkTint : classicLightTint }
-
-    private var glassTint: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth * 0.42)
+            .clipShape(shape)
+            .contentShape(shape)
     }
 }
+
 
 private struct WgFloatingControlSurfaceModifier: ViewModifier {
     let tint: Color?
@@ -401,176 +297,48 @@ private struct WgFloatingControlSurfaceModifier: ViewModifier {
 }
 
 private struct WgPageSurfaceModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkPageDepth") private var darkDepth = WgGlassDefaults.darkPageDepth
-    @AppStorage("glassLightPageDepth") private var lightDepth = WgGlassDefaults.lightPageDepth
-    @AppStorage("glassDarkPageMaterial") private var darkMaterial = WgGlassDefaults.darkPageMaterial
-    @AppStorage("glassLightPageMaterial") private var lightMaterial = WgGlassDefaults.lightPageMaterial
-    @AppStorage("classicDarkPageDepth") private var classicDarkDepth = WgClassicDefaults.darkPageDepth
-    @AppStorage("classicLightPageDepth") private var classicLightDepth = WgClassicDefaults.lightPageDepth
-    @AppStorage("classicDarkPageMaterial") private var classicDarkMaterial = WgClassicDefaults.darkPageMaterial
-    @AppStorage("classicLightPageMaterial") private var classicLightMaterial = WgClassicDefaults.lightPageMaterial
-
-    @ViewBuilder
+    // 内容区不再自带底色。整窗一块玻璃铺在 MainView 的根视图上，这里保持透明，
+    // 相邻两块背景板因此不可能对不齐。
     func body(content: Content) -> some View {
-        if visualTheme != .liquidGlass {
-            content.background {
-                Rectangle()
-                    .fill(WgTheme.bg)
-                    .overlay(Rectangle().fill(.regularMaterial).opacity(classicMaterial))
-                    .overlay(Rectangle().fill(colorScheme == .dark ? Color.black.opacity(classicDepth) : Color.white.opacity(classicDepth)))
-            }
-        } else if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 0) {
-                content
-                    .background {
-                        Rectangle()
-                            .fill(baseColor)
-                            .overlay(Rectangle().fill(.ultraThinMaterial).opacity(material))
-                            .overlay(Rectangle().fill(pageTint))
-                    }
-                    .glassEffect(
-                        .regular
-                            .tint(pageTint),
-                        in: .rect
-                    )
-            }
-        } else {
-            content
-                .background {
-                    Rectangle()
-                        .fill(baseColor)
-                        .overlay(Rectangle().fill(.regularMaterial).opacity(material))
-                        .overlay(Rectangle().fill(pageTint))
-                }
-        }
+        content
     }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var baseColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.045, green: 0.048, blue: 0.055)
-            : Color(red: 0.955, green: 0.965, blue: 0.975)
-    }
-
-    private var pageTint: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
 }
 
 private struct WgSidebarSurfaceModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkSidebarDepth") private var darkDepth = WgGlassDefaults.darkSidebarDepth
-    @AppStorage("glassLightSidebarDepth") private var lightDepth = WgGlassDefaults.lightSidebarDepth
-    @AppStorage("glassDarkSidebarMaterial") private var darkMaterial = WgGlassDefaults.darkSidebarMaterial
-    @AppStorage("glassLightSidebarMaterial") private var lightMaterial = WgGlassDefaults.lightSidebarMaterial
-    @AppStorage("classicDarkSidebarDepth") private var classicDarkDepth = WgClassicDefaults.darkSidebarDepth
-    @AppStorage("classicLightSidebarDepth") private var classicLightDepth = WgClassicDefaults.lightSidebarDepth
-    @AppStorage("classicDarkSidebarMaterial") private var classicDarkMaterial = WgClassicDefaults.darkSidebarMaterial
-    @AppStorage("classicLightSidebarMaterial") private var classicLightMaterial = WgClassicDefaults.lightSidebarMaterial
 
-    @ViewBuilder
+    // 侧栏与内容区共用同一块玻璃，只用右缘一条 hairline 分隔，不再靠明度差。
     func body(content: Content) -> some View {
-        if visualTheme != .liquidGlass {
-            content.background {
+        content
+            .overlay(alignment: .trailing) {
                 Rectangle()
-                    .fill(WgTheme.sidebarBg)
-                    .overlay(Rectangle().fill(.regularMaterial).opacity(classicMaterial))
-                    .overlay(Rectangle().fill(colorScheme == .dark ? Color.black.opacity(classicDepth) : Color.white.opacity(classicDepth)))
+                    .fill(WgSurface.hairline(colorScheme))
+                    .frame(width: 1)
             }
-        } else if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 0) {
-                content
-                    .background {
-                        Rectangle()
-                            .fill(sidebarBaseColor)
-                            .overlay(Rectangle().fill(.ultraThinMaterial).opacity(material))
-                            .overlay(Rectangle().fill(tint))
-                    }
-                    .glassEffect(.regular.tint(tint), in: .rect)
-            }
-        } else {
-            content
-                .background {
-                        Rectangle()
-                        .fill(sidebarBaseColor)
-                        .overlay(Rectangle().fill(.regularMaterial).opacity(material))
-                        .overlay(Rectangle().fill(tint))
-                }
-        }
     }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var sidebarBaseColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.045, green: 0.048, blue: 0.055)
-            : Color(red: 0.90, green: 0.915, blue: 0.935)
-    }
-
-    private var tint: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
 }
+
 
 private struct WgSettingsPanelSurfaceModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkContentDepth") private var darkDepth = WgGlassDefaults.darkContentDepth
-    @AppStorage("glassLightContentDepth") private var lightDepth = WgGlassDefaults.lightContentDepth
-    @AppStorage("glassDarkContentMaterial") private var darkMaterial = WgGlassDefaults.darkContentMaterial
-    @AppStorage("glassLightContentMaterial") private var lightMaterial = WgGlassDefaults.lightContentMaterial
-    @AppStorage("classicDarkContentDepth") private var classicDarkDepth = WgClassicDefaults.darkContentDepth
-    @AppStorage("classicLightContentDepth") private var classicLightDepth = WgClassicDefaults.lightContentDepth
-    @AppStorage("classicDarkContentMaterial") private var classicDarkMaterial = WgClassicDefaults.darkContentMaterial
-    @AppStorage("classicLightContentMaterial") private var classicLightMaterial = WgClassicDefaults.lightContentMaterial
 
+    // 设置面板与磁贴、卡片同属实体层，用同一档色阶，避免又多出一种深浅。
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
         content
             .background {
                 shape
-                    .fill(visualTheme == .liquidGlass ? liquidSurfaceBase : WgTheme.cardBg)
-                    .overlay(shape.fill(.regularMaterial).opacity(visualTheme == .liquidGlass ? material : classicMaterial))
-                    .overlay(shape.fill(visualTheme == .liquidGlass ? Color.clear : (colorScheme == .dark ? Color.black.opacity(classicDepth) : Color.white.opacity(classicDepth))))
+                    .fill(WgSurface.solid(colorScheme))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
             }
             .clipShape(shape)
     }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
-
-    private var liquidSurfaceBase: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)
-    }
 }
 
-// MARK: - 主窗口
 
 struct MainView: View {
+    @AppStorage("glassStyle") private var glassStyleRaw = WgGlassStyle.regular.rawValue
+    @AppStorage("glassTintStrength") private var glassTintStrength = 0.55
     @EnvironmentObject var client: DaemonClient
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
@@ -592,7 +360,6 @@ struct MainView: View {
                 maximumWidth: sidebarMaxWidth
             )
             .frame(width: 7)
-            .background(WgTheme.bg.opacity(0.72))
 
             ScrollView {
                 Group {
@@ -611,6 +378,15 @@ struct MainView: View {
             }
             .wgPageSurface()
         }
+        // 整窗一块玻璃：侧栏与内容区都坐在它上面，不再各自铺底色。
+        .background {
+            WgGlassBackdrop(
+                style: WgGlassStyle(rawValue: glassStyleRaw) ?? .regular,
+                tintStrength: glassTintStrength
+            )
+                .ignoresSafeArea()
+        }
+        .background(WgTransparentWindow())
         .frame(minWidth: 780, minHeight: 500)
         .overlay(alignment: .bottom) {
             if let toast = client.actionToast {

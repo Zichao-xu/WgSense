@@ -166,6 +166,8 @@ struct SettingsView: View {
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
     @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
     @AppStorage("glassEditTarget") private var glassEditTargetRaw = WgGlassEditTarget.current.rawValue
+    @AppStorage("glassStyle") private var glassStyleRaw = WgGlassStyle.regular.rawValue
+    @AppStorage("glassTintStrength") private var glassTintStrength = 0.55
     @AppStorage("glassDarkPageDepth") private var darkPageDepth = WgGlassDefaults.darkPageDepth
     @AppStorage("glassLightPageDepth") private var lightPageDepth = WgGlassDefaults.lightPageDepth
     @AppStorage("glassDarkSidebarDepth") private var darkSidebarDepth = WgGlassDefaults.darkSidebarDepth
@@ -243,22 +245,33 @@ struct SettingsView: View {
                     }
                     Divider().opacity(0.3)
                     HStack {
-                        Label("主图主题", systemImage: "square.grid.2x2")
+                        Label("玻璃档位", systemImage: "square.grid.2x2")
                         Spacer()
-                        Picker("主图主题", selection: Binding(
-                            get: { WgVisualTheme(rawValue: visualThemeRaw) ?? .classic },
+                        Picker("玻璃档位", selection: Binding(
+                            get: { WgGlassStyle(rawValue: glassStyleRaw) ?? .regular },
                             set: { newValue in
                                 withAnimation(.easeInOut(duration: 0.25)) {
-                                    visualThemeRaw = newValue.rawValue
+                                    glassStyleRaw = newValue.rawValue
                                 }
                             }
                         )) {
-                            ForEach(WgVisualTheme.allCases) { theme in
-                                Text(theme.title).tag(theme)
+                            ForEach(WgGlassStyle.allCases) { style in
+                                Text(style.title).tag(style)
                             }
                         }
                         .labelsHidden()
                         .frame(width: 180)
+                    }
+                    Divider().opacity(0.3)
+                    HStack {
+                        Label("玻璃浓度", systemImage: "circle.righthalf.filled")
+                        Spacer()
+                        Slider(value: $glassTintStrength, in: 0.0...0.85)
+                            .frame(width: 140)
+                        Text(String(format: "%.2f", glassTintStrength))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 36, alignment: .trailing)
                     }
                     Divider().opacity(0.3)
                     HStack {
@@ -280,89 +293,6 @@ struct SettingsView: View {
                         .frame(width: 180)
                     }
                     Divider().opacity(0.3)
-                    Text("\(activeVisualThemeTitle) 调校")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                    HStack {
-                        Picker("编辑对象", selection: Binding(
-                            get: { WgGlassEditTarget(rawValue: glassEditTargetRaw) ?? .current },
-                            set: { glassEditTargetRaw = $0.rawValue }
-                        )) {
-                            ForEach(WgGlassEditTarget.allCases) { target in
-                                Text(target.title).tag(target)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        Spacer()
-                        Text("拖动即生效")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    glassTuningHeader("页面", icon: "macwindow")
-                    glassSlider("底板深浅", value: themeBinding(
-                        classicDark: $classicDarkPageDepth,
-                        classicLight: $classicLightPageDepth,
-                        glassDark: $darkPageDepth,
-                        glassLight: $lightPageDepth
-                    ), range: 0.00...0.95)
-                    Divider().opacity(0.3)
-                    glassSlider("材质强度", value: themeBinding(
-                        classicDark: $classicDarkPageMaterial,
-                        classicLight: $classicLightPageMaterial,
-                        glassDark: $darkPageMaterial,
-                        glassLight: $lightPageMaterial
-                    ), range: 0.00...0.75)
-                    Divider().opacity(0.3)
-                    glassTuningHeader("侧栏", icon: "sidebar.leading")
-                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkSidebarDepth, classicLight: $classicLightSidebarDepth, glassDark: $darkSidebarDepth, glassLight: $lightSidebarDepth), range: 0.00...0.95)
-                    Divider().opacity(0.3)
-                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkSidebarMaterial, classicLight: $classicLightSidebarMaterial, glassDark: $darkSidebarMaterial, glassLight: $lightSidebarMaterial), range: 0.00...0.75)
-                    Divider().opacity(0.3)
-                    glassTuningHeader("磁贴", icon: "square.grid.2x2.fill")
-                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkTileDepth, classicLight: $classicLightTileDepth, glassDark: $darkTileDepth, glassLight: $lightTileDepth), range: 0.00...0.95)
-                    Divider().opacity(0.3)
-                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkTileMaterial, classicLight: $classicLightTileMaterial, glassDark: $darkTileMaterial, glassLight: $lightTileMaterial), range: 0.00...0.75)
-                    Divider().opacity(0.3)
-                    glassTuningHeader("内容", icon: "rectangle.inset.filled")
-                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkContentDepth, classicLight: $classicLightContentDepth, glassDark: $darkContentDepth, glassLight: $lightContentDepth), range: 0.00...0.95)
-                    Divider().opacity(0.3)
-                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkContentMaterial, classicLight: $classicLightContentMaterial, glassDark: $darkContentMaterial, glassLight: $lightContentMaterial), range: 0.00...0.75)
-                    Divider().opacity(0.3)
-                    glassTuningHeader("浮层控件", icon: "slider.horizontal.2.square")
-                    glassSlider("底板深浅", value: themeBinding(classicDark: $classicDarkFloatingDepth, classicLight: $classicLightFloatingDepth, glassDark: $darkFloatingDepth, glassLight: $lightFloatingDepth), range: 0.00...0.95)
-                    Divider().opacity(0.3)
-                    glassSlider("材质强度", value: themeBinding(classicDark: $classicDarkFloatingMaterial, classicLight: $classicLightFloatingMaterial, glassDark: $darkFloatingMaterial, glassLight: $lightFloatingMaterial), range: 0.00...0.75)
-                    Divider().opacity(0.3)
-                    glassTuningHeader("全局状态", icon: "paintpalette")
-                    glassSlider("状态色强度", value: themeBinding(classicDark: $classicDarkTint, classicLight: $classicLightTint, glassDark: $darkTint, glassLight: $lightTint), range: 0.00...0.55)
-                    Divider().opacity(0.3)
-                    HStack(spacing: 8) {
-                        Button {
-                            applyGlassDefaults()
-                        } label: {
-                            Label("恢复默认", systemImage: "arrow.counterclockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-
-                        Button {
-                            applyRecommendedGlass()
-                        } label: {
-                            Label("推荐值", systemImage: "sparkles")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-
-                        Spacer()
-                        Text("拖动即生效")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 8)
                 }
                 .padding(.vertical, 6)
             }
