@@ -392,7 +392,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
 // MARK: - 磁贴数据模型
 
 enum TileKind: String, CaseIterable, Identifiable, Codable {
-    case vpn, guardMode, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
+    case vpn, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
     var id: String { rawValue }
 
     var isAddable: Bool {
@@ -402,7 +402,6 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
     var title: LocalizedStringKey {
         switch self {
         case .vpn: return "VPN"
-        case .guardMode: return "守护"
         case .pause: return "暂停"
         case .stop: return "停止"
         case .transferReceive: return "接收"
@@ -418,7 +417,6 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
     var icon: String {
         switch self {
         case .vpn: return "network"
-        case .guardMode: return "shield.checkered"
         case .pause: return "pause.circle.fill"
         case .stop: return "stop.circle.fill"
         case .transferReceive: return "arrow.down.circle.fill"
@@ -434,7 +432,6 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
     var activeColor: Color {
         switch self {
         case .vpn: return .green
-        case .guardMode: return .blue
         case .pause: return .orange
         case .stop: return .red
         case .transferReceive: return .blue
@@ -511,7 +508,6 @@ struct SidebarView: View {
     static func defaultTiles() -> [TileData] {
         [
             TileData(kind: .vpn),
-            TileData(kind: .guardMode),
             TileData(kind: .transferReceive),
             TileData(kind: .transferSend),
             TileData(kind: .proxy),
@@ -640,7 +636,6 @@ struct SidebarView: View {
         let content = Group {
             switch tile.kind {
             case .vpn: vpnTile(tile)
-            case .guardMode: guardTile(tile)
             case .pause: pauseTile(tile)
             case .stop: stopTile(tile)
             case .transferReceive: receiveTile(tile)
@@ -671,7 +666,7 @@ struct SidebarView: View {
         let iconColor = tile.kind.activeColor
 
         // 控制类磁贴：显示操作按钮
-        if tile.kind == .vpn || tile.kind == .guardMode || tile.kind == .pause {
+        if tile.kind == .vpn || tile.kind == .pause {
             return AnyView(smallControlTile(tile, iconColor: iconColor))
         }
 
@@ -723,8 +718,6 @@ struct SidebarView: View {
         switch tile.kind {
         case .vpn:
             isOn = isConnected; tintColor = .green
-        case .guardMode:
-            isOn = guardRunning; tintColor = .blue
         case .pause:
             isOn = client.isPauseOn; tintColor = .orange
         default:
@@ -735,8 +728,6 @@ struct SidebarView: View {
             switch tile.kind {
             case .vpn:
                 Task { await client.post(isConnected ? "disconnect" : "connect") }
-            case .guardMode:
-                Task { await client.setGuardEnabled(!guardRunning) }
             case .pause:
                 Task { await client.post(client.isPauseOn ? "resume" : "pause") }
             default: break
@@ -798,7 +789,6 @@ struct SidebarView: View {
             case .transferSend: selection = .transferSend
             case .logs: selection = .logs
             case .about: selection = .about
-            case .guardMode: selection = .settings
             case .stop: stopAllServices()
             case .pause: break
             }
@@ -868,6 +858,19 @@ struct SidebarView: View {
             .help("停止 VPN")
 
             Button {
+                Task { await client.setGuardEnabled(!guardRunning) }
+            } label: {
+                Image(systemName: guardRunning ? "shield.fill" : "shield.slash")
+                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
+                    .foregroundStyle(guardRunning ? Color.blue : Color.secondary)
+                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .wgFloatingControlSurface(tint: guardRunning ? .blue : nil, cornerRadius: compact ? 11 : 13)
+            .help(guardRunning ? "关闭守护" : "开启守护")
+
+            Button {
                 vpnPauseTask?.cancel()
                 vpnPauseTask = nil
                 Task { await client.restartGuardFlow() }
@@ -904,21 +907,6 @@ struct SidebarView: View {
                 vpnQuickControls(compact: false)
                     .padding(tilePadding(tile.size))
             }
-        }
-    }
-
-    // --- 守护磁贴 ---
-    private func guardTile(_ tile: TileData) -> some View {
-        controlTile(
-            tile: tile,
-            icon: tile.kind.icon,
-            color: tile.kind.activeColor,
-            subtitle: guardRunning ? "运行中" : "暂停",
-            isOn: guardRunning
-        ) {
-            Task { await client.setGuardEnabled(!guardRunning) }
-        } onTap: {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
         }
     }
 
