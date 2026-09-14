@@ -44,6 +44,7 @@ type darwinManager struct {
 	cleaned     bool         // 防止重复 cleanup
 	hasIPv6     bool         // TUN 是否配置了 IPv6 地址
 	signalOnce  sync.Once
+	bindWatch   *bindWatchdog // 发包地址失效时重建 UDP bind，见 rebind_darwin.go
 }
 
 type routeEntry struct {
@@ -58,7 +59,7 @@ type dnsSnapshot struct {
 }
 
 func newPlatformManager(configDir string) Manager {
-	return &darwinManager{configDir: configDir}
+	return &darwinManager{configDir: configDir, bindWatch: newBindWatchdog()}
 }
 
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
@@ -136,9 +137,9 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	m.tunName, _ = tunDev.Name()
 	log.Printf("[tunnel] TUN=%s 已创建", m.tunName)
 
-	// 4. 创建 WG 设备
-	logger := device.NewLogger(device.LogLevelVerbose, "wgsense")
-	m.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
+	// 4. 创建 WG 设备。日志器同时承担发包失效的探测，见 rebind_darwin.go。
+	m.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), newDeviceLogger(m.bindWatch))
+	m.bindWatch.attach(m.dev)
 
 	// 5. IPC 配置（IpcSet 内部会触发 BindUpdate + 握手发起，不需要再显式调用 BindUpdate）
 	uapi := buildUAPI(profile)
@@ -242,7 +243,7 @@ func (m *darwinManager) RuntimeStats(service string) (RuntimeStats, error) {
 	if err != nil {
 		return RuntimeStats{}, err
 	}
-	stats := RuntimeStats{InterfaceName: m.tunName}
+	stats := RuntimeStats{InterfaceName: m.tunName, BindRebinds: m.bindWatch.rebindCount()}
 	for _, line := range strings.Split(ipc, "\n") {
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
@@ -397,7 +398,8 @@ func (m *darwinManager) cleanup() {
 	}
 	m.addedRoutes = nil
 
-	// 关闭 WG 设备（销毁 utun）
+	// 关闭 WG 设备（销毁 utun）。先摘掉看门狗，避免它对正在销毁的设备重建 bind。
+	m.bindWatch.detach()
 	if m.dev != nil {
 		m.dev.Close()
 		m.dev = nil

@@ -42,6 +42,9 @@ type RuntimeStats struct {
 	LastHandshakeUnix int64
 	PeerTxBytes       uint64
 	PeerRxBytes       uint64
+	// BindRebinds 是发包地址失效后重建 UDP bind 的累计次数。持续增长说明
+	// 当前网络频繁切换；始终为 0 说明没有遇到过该故障。
+	BindRebinds int
 }
 
 type RuntimeStatsProvider interface {

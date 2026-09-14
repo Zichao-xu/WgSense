@@ -345,6 +345,7 @@ type StatusSnapshot struct {
 	LastHandshakeAge     int64                `json:"last_handshake_age_seconds,omitempty"`
 	PeerTxBytes          uint64               `json:"peer_tx_bytes,omitempty"`
 	PeerRxBytes          uint64               `json:"peer_rx_bytes,omitempty"`
+	BindRebinds          int                  `json:"bind_rebinds,omitempty"`
 	NetworkInterfaces    []location.Interface `json:"network_interfaces,omitempty"`
 }
 
@@ -382,6 +383,7 @@ func (e *Engine) Status() StatusSnapshot {
 			snapshot.TunnelInterface = stats.InterfaceName
 			snapshot.PeerTxBytes = stats.PeerTxBytes
 			snapshot.PeerRxBytes = stats.PeerRxBytes
+			snapshot.BindRebinds = stats.BindRebinds
 			if stats.LastHandshakeUnix > 0 {
 				handshake := time.Unix(stats.LastHandshakeUnix, 0)
 				snapshot.LastHandshake = handshake.Format(time.RFC3339)
