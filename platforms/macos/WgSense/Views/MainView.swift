@@ -53,85 +53,8 @@ enum WgTheme {
     }
 }
 
-enum WgVisualTheme: String, CaseIterable, Identifiable {
-    case classic
-    case liquidGlass
 
-    var id: String { rawValue }
 
-    var title: LocalizedStringKey {
-        switch self {
-        case .classic: return "经典"
-        case .liquidGlass: return "Liquid Glass"
-        }
-    }
-}
-
-enum WgGlassDefaults {
-    static let tileDepth = darkTileDepth
-    static let contentDepth = darkContentDepth
-    static let pageDepth = darkPageDepth
-    static let materialStrength = darkContentMaterial
-    static let tintStrength = darkTint
-    static let floatingStrength = darkFloatingDepth
-
-    static let darkPageDepth = 0.22
-    static let darkSidebarDepth = 0.22
-    static let darkTileDepth = 0.38
-    static let darkContentDepth = 0.36
-    static let darkFloatingDepth = 0.14
-    static let darkPageMaterial = 0.10
-    static let darkSidebarMaterial = 0.12
-    static let darkTileMaterial = 0.14
-    static let darkContentMaterial = 0.08
-    static let darkFloatingMaterial = 0.12
-    static let darkTint = 0.02
-
-    static let lightPageDepth = 0.18
-    static let lightSidebarDepth = 0.22
-    static let lightTileDepth = 0.64
-    static let lightContentDepth = 0.72
-    static let lightFloatingDepth = 0.30
-    static let lightPageMaterial = 0.10
-    static let lightSidebarMaterial = 0.12
-    static let lightTileMaterial = 0.12
-    static let lightContentMaterial = 0.10
-    static let lightFloatingMaterial = 0.12
-    static let lightTint = 0.025
-
-    static let recommendedTileDepth = darkTileDepth
-    static let recommendedContentDepth = darkContentDepth
-    static let recommendedPageDepth = darkPageDepth
-    static let recommendedMaterialStrength = darkContentMaterial
-    static let recommendedTintStrength = darkTint
-    static let recommendedFloatingStrength = darkFloatingDepth
-}
-
-enum WgClassicDefaults {
-    static let darkPageDepth = 0.00
-    static let darkSidebarDepth = 0.00
-    static let darkTileDepth = 0.00
-    static let darkContentDepth = 0.00
-    static let darkFloatingDepth = 0.00
-    static let darkPageMaterial = 0.00
-    static let darkSidebarMaterial = 0.00
-    static let darkTileMaterial = 0.00
-    static let darkContentMaterial = 0.00
-    static let darkFloatingMaterial = 0.00
-    static let darkTint = 0.025
-
-    static let lightPageDepth = 0.00
-    static let lightSidebarDepth = 0.00
-    static let lightTileDepth = 0.00
-    static let lightContentDepth = 0.00
-    static let lightFloatingDepth = 0.00
-    static let lightPageMaterial = 0.00
-    static let lightSidebarMaterial = 0.00
-    static let lightTileMaterial = 0.00
-    static let lightContentMaterial = 0.00
-    static let lightFloatingMaterial = 0.00
-    static let lightTint = 0.025
-}
 
 extension View {
     func wgTileSurface(
@@ -177,6 +100,13 @@ private struct WgTileSurfaceModifier: ViewModifier {
     let tint: Color?
     let isSelected: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
+    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
+    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
+
+    private var tuning: WgSurfaceTuning {
+        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
+    }
 
     // 磁贴是浮在玻璃上的实体，不再叠材质。之前四层（底色 + ultraThinMaterial +
     // 深度 + 色调）互相抵消，调哪一层都会把另一层顶回去。
@@ -185,9 +115,9 @@ private struct WgTileSurfaceModifier: ViewModifier {
         content
             .background {
                 shape
-                    .fill(isSelected ? WgSurface.raised(colorScheme) : WgSurface.solid(colorScheme))
-                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(colorScheme, selected: isSelected)) ?? Color.clear))
-                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
+                    .fill(isSelected ? WgSurface.raised(colorScheme, tuning) : WgSurface.solid(colorScheme, tuning))
+                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(tuning, selected: isSelected)) ?? Color.clear))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
                     .allowsHitTesting(false)
             }
             .clipShape(shape)
@@ -200,6 +130,13 @@ private struct WgGlassSurfaceModifier: ViewModifier {
     let tint: Color?
     let interactive: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
+    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
+    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
+
+    private var tuning: WgSurfaceTuning {
+        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
+    }
 
     // 卡片同理：玻璃只负责背景，内容保持实色才有轮廓。
     func body(content: Content) -> some View {
@@ -207,9 +144,9 @@ private struct WgGlassSurfaceModifier: ViewModifier {
         content
             .background {
                 shape
-                    .fill(WgSurface.solid(colorScheme))
-                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(colorScheme, selected: interactive)) ?? Color.clear))
-                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
+                    .fill(WgSurface.solid(colorScheme, tuning))
+                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(tuning, selected: interactive)) ?? Color.clear))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
                     .allowsHitTesting(false)
             }
             .clipShape(shape)
@@ -217,82 +154,48 @@ private struct WgGlassSurfaceModifier: ViewModifier {
     }
 }
 
-
 private struct WgFloatingControlSurfaceModifier: ViewModifier {
     let tint: Color?
     let cornerRadius: CGFloat
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("visualTheme") private var visualThemeRaw = WgVisualTheme.classic.rawValue
-    @AppStorage("glassDarkFloatingDepth") private var darkDepth = WgGlassDefaults.darkFloatingDepth
-    @AppStorage("glassLightFloatingDepth") private var lightDepth = WgGlassDefaults.lightFloatingDepth
-    @AppStorage("glassDarkFloatingMaterial") private var darkMaterial = WgGlassDefaults.darkFloatingMaterial
-    @AppStorage("glassLightFloatingMaterial") private var lightMaterial = WgGlassDefaults.lightFloatingMaterial
-    @AppStorage("glassDarkTint") private var darkTint = WgGlassDefaults.darkTint
-    @AppStorage("glassLightTint") private var lightTint = WgGlassDefaults.lightTint
-    @AppStorage("classicDarkFloatingDepth") private var classicDarkDepth = WgClassicDefaults.darkFloatingDepth
-    @AppStorage("classicLightFloatingDepth") private var classicLightDepth = WgClassicDefaults.lightFloatingDepth
-    @AppStorage("classicDarkFloatingMaterial") private var classicDarkMaterial = WgClassicDefaults.darkFloatingMaterial
-    @AppStorage("classicLightFloatingMaterial") private var classicLightMaterial = WgClassicDefaults.lightFloatingMaterial
-    @AppStorage("classicDarkTint") private var classicDarkTint = WgClassicDefaults.darkTint
-    @AppStorage("classicLightTint") private var classicLightTint = WgClassicDefaults.lightTint
+    @AppStorage("backdropMode") private var backdropModeRaw = WgBackdropMode.liquidRegular.rawValue
+    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
+    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
+    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
 
+    private var tuning: WgSurfaceTuning {
+        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
+    }
+
+    private var mode: WgBackdropMode {
+        WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular
+    }
+
+    // 浮动小控件（菜单栏、侧栏顶部的圆形按钮）是 Liquid Glass 真正该去的地方：
+    // 尺寸小、浮在内容之上，折射与镜面边缘都成立。毛玻璃档位下退回实色，
+    // 以免出现背景是 vibrancy、控件却是 Liquid Glass 的混搭。
     @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if visualTheme != .liquidGlass {
+        if mode == .vibrancy {
             content
                 .background {
                     shape
-                        .fill(.regularMaterial)
-                        .overlay(shape.fill(.ultraThinMaterial).opacity(classicMaterial))
-                        .overlay(shape.fill(colorScheme == .dark ? Color.black.opacity(classicDepth) : Color.white.opacity(classicDepth)))
-                        .overlay(shape.fill(tint?.opacity(classicTint * 5.6) ?? Color.clear))
+                        .fill(WgSurface.raised(colorScheme, tuning))
+                        .overlay(shape.fill(tint?.opacity(WgSurface.tint(tuning, selected: true)) ?? Color.clear))
+                        .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
+                        .allowsHitTesting(false)
                 }
                 .clipShape(shape)
                 .contentShape(shape)
-        } else if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 8) {
-                content
-                    .background {
-                        shape
-                            .fill(colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth))
-                            .overlay(shape.fill(.ultraThinMaterial).opacity(material))
-                            .overlay(shape.fill(tint?.opacity(activeTint * 2.4) ?? Color.clear))
-                    }
-                    .glassEffect(
-                        .regular
-                            .tint(tint?.opacity(activeTint * 2.0) ?? glassTint)
-                            .interactive(),
-                        in: .rect(cornerRadius: cornerRadius)
-                    )
-                    .contentShape(shape)
-            }
         } else {
             content
-                .background {
-                    shape
-                        .fill(.regularMaterial)
-                        .overlay(shape.fill(colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth)))
-                        .overlay(shape.fill(tint?.opacity(activeTint * 2.0) ?? Color.clear))
-                }
-                .clipShape(shape)
+                .glassEffect(
+                    .regular.tint(tint?.opacity(WgSurface.tint(tuning, selected: true))),
+                    in: shape
+                )
                 .contentShape(shape)
         }
-    }
-
-    private var visualTheme: WgVisualTheme {
-        WgVisualTheme(rawValue: visualThemeRaw) ?? .classic
-    }
-
-    private var depth: Double { colorScheme == .dark ? darkDepth : lightDepth }
-    private var material: Double { colorScheme == .dark ? darkMaterial : lightMaterial }
-    private var activeTint: Double { colorScheme == .dark ? darkTint : lightTint }
-    private var classicDepth: Double { colorScheme == .dark ? classicDarkDepth : classicLightDepth }
-    private var classicMaterial: Double { colorScheme == .dark ? classicDarkMaterial : classicLightMaterial }
-    private var classicTint: Double { colorScheme == .dark ? classicDarkTint : classicLightTint }
-
-    private var glassTint: Color {
-        colorScheme == .dark ? Color.black.opacity(depth) : Color.white.opacity(depth * 0.5)
     }
 }
 
@@ -306,30 +209,43 @@ private struct WgPageSurfaceModifier: ViewModifier {
 
 private struct WgSidebarSurfaceModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
+    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
+    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
+
+    private var tuning: WgSurfaceTuning {
+        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
+    }
 
     // 侧栏与内容区共用同一块玻璃，只用右缘一条 hairline 分隔，不再靠明度差。
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .trailing) {
                 Rectangle()
-                    .fill(WgSurface.hairline(colorScheme))
+                    .fill(WgSurface.hairline(colorScheme, tuning))
                     .frame(width: 1)
             }
     }
 }
 
-
 private struct WgSettingsPanelSurfaceModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
+    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
+    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
 
-    // 设置面板与磁贴、卡片同属实体层，用同一档色阶，避免又多出一种深浅。
+    private var tuning: WgSurfaceTuning {
+        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
+    }
+
+    // 设置面板与磁贴、卡片同属实体层，用同一档色阶。
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
         content
             .background {
                 shape
-                    .fill(WgSurface.solid(colorScheme))
-                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme), lineWidth: 1))
+                    .fill(WgSurface.solid(colorScheme, tuning))
+                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
             }
             .clipShape(shape)
     }
@@ -337,7 +253,7 @@ private struct WgSettingsPanelSurfaceModifier: ViewModifier {
 
 
 struct MainView: View {
-    @AppStorage("glassStyle") private var glassStyleRaw = WgGlassStyle.regular.rawValue
+    @AppStorage("backdropMode") private var backdropModeRaw = WgBackdropMode.liquidRegular.rawValue
     @AppStorage("glassTintStrength") private var glassTintStrength = 0.55
     @EnvironmentObject var client: DaemonClient
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
@@ -380,8 +296,8 @@ struct MainView: View {
         }
         // 整窗一块玻璃：侧栏与内容区都坐在它上面，不再各自铺底色。
         .background {
-            WgGlassBackdrop(
-                style: WgGlassStyle(rawValue: glassStyleRaw) ?? .regular,
+            WgBackdrop(
+                mode: WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular,
                 tintStrength: glassTintStrength
             )
                 .ignoresSafeArea()
