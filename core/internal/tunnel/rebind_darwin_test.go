@@ -114,6 +114,59 @@ func TestRebindFailureBacksOff(t *testing.T) {
 	}
 }
 
+func TestRebindRetriesAfterFailureWithoutAnotherSendError(t *testing.T) {
+	w := newTestWatchdog()
+	var calls atomic.Int32
+	w.attachFunc(func() error {
+		if calls.Add(1) == 1 {
+			return errors.New("listen udp4: bind: address already in use")
+		}
+		return nil
+	})
+	defer w.detach()
+
+	// After a failed BindUpdate wireguard-go has no socket. Recovery must not
+	// depend on another EADDRNOTAVAIL arriving from the now-closed socket.
+	w.notify()
+	if !waitFor(t, 300*time.Millisecond, func() bool { return calls.Load() >= 2 }) {
+		t.Fatalf("failed bind was never retried without another send error: calls=%d", calls.Load())
+	}
+}
+
+func TestDetachWaitsForInFlightRebind(t *testing.T) {
+	w := newTestWatchdog()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	w.attachFunc(func() error {
+		close(entered)
+		<-release
+		return nil
+	})
+	w.notify()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		close(release)
+		w.detach()
+		t.Fatal("rebind did not start")
+	}
+
+	detached := make(chan struct{})
+	go func() { w.detach(); close(detached) }()
+	select {
+	case <-detached:
+		close(release)
+		t.Fatal("detach returned while BindUpdate was still using the device")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-detached:
+	case <-time.After(time.Second):
+		t.Fatal("detach did not finish after BindUpdate returned")
+	}
+}
+
 func TestDetachStopsRebinding(t *testing.T) {
 	w := newTestWatchdog()
 	var calls int64

@@ -1,7 +1,11 @@
 package tunnel
 
 import (
+	"errors"
+	"net"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -9,6 +13,76 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
+
+// failOnceBind preserves the real UDP bind and injects the observed Open
+// failure after BindUpdate has closed its old sockets.
+type failOnceBind struct {
+	conn.Bind
+	failNext atomic.Bool
+	opens    atomic.Int32
+	failed   chan error
+}
+
+func (b *failOnceBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
+	b.opens.Add(1)
+	if b.failNext.Swap(false) {
+		ep, _ := b.ParseEndpoint("127.0.0.1:9")
+		b.failed <- b.Send([][]byte{[]byte("closed socket probe")}, ep)
+		return nil, 0, syscall.EADDRINUSE
+	}
+	return b.Bind.Open(port)
+}
+
+func TestWatchdogRestoresUDPSendAfterBindOpenFailure(t *testing.T) {
+	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer receiver.Close()
+	w := newTestWatchdog()
+	b := &failOnceBind{Bind: conn.NewDefaultBind(), failed: make(chan error, 1)}
+	dev := device.NewDevice(tuntest.NewChannelTUN().TUN(), b, newDeviceLogger(w))
+	defer dev.Close()
+	if err := dev.Up(); err != nil {
+		t.Fatal(err)
+	}
+	w.attach(dev)
+	defer w.detach()
+	b.failNext.Store(true)
+	w.notify()
+
+	select {
+	case err := <-b.failed:
+		// This is the exact secondary error from the incident, with an IPv4
+		// loopback endpoint: it signifies absent sockets, not IPv6 selection.
+		if !errors.Is(err, syscall.EAFNOSUPPORT) {
+			t.Fatalf("send on closed bind = %v, want EAFNOSUPPORT", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("did not reach injected bind failure")
+	}
+	if !waitFor(t, time.Second, func() bool { return b.opens.Load() >= 3 }) {
+		t.Fatalf("Open was not retried: opens=%d", b.opens.Load())
+	}
+	ep, err := b.ParseEndpoint(receiver.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Open starts before it finishes; send until it has completed, then prove
+	// real loopback UDP delivery rather than merely successful IPC access.
+	payload := []byte("recovered UDP transport")
+	if !waitFor(t, time.Second, func() bool { return b.Send([][]byte{payload}, ep) == nil }) {
+		t.Fatal("UDP send never recovered")
+	}
+	if err := receiver.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 128)
+	n, _, err := receiver.ReadFromUDP(buf)
+	if err != nil || string(buf[:n]) != string(payload) {
+		t.Fatalf("recovered UDP payload = %q, err=%v", buf[:n], err)
+	}
+}
 
 // 这组测试把看门狗接到真实的 wireguard-go 设备上：内存 TUN + 真实 UDP bind，
 // 不需要 root，也不碰系统路由和 DNS。它们验证的是自愈手段本身安全——BindUpdate

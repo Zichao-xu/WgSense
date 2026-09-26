@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/wgsense/core/internal/service"
 	"log"
+	"net"
 	"net/http"
+	"os"
 
 	"github.com/wgsense/core/internal/config"
 	"github.com/wgsense/core/internal/policy"
@@ -18,11 +21,18 @@ import (
 
 // Server 是本地 HTTP API 服务。
 type Server struct {
-	eng      *policy.Engine
-	addr     string
-	transSvc *transfer.Service
-	proxySvc *proxy.Service
-	shutdown func()
+	eng            *policy.Engine
+	addr           string
+	transSvc       *transfer.Service
+	proxySvc       *proxy.Service
+	shutdown       func()
+	serviceInfo    func() service.Info
+	updateService  func(context.Context, service.Request) (service.Request, error)
+	restartService func()
+}
+
+func (s *Server) SetService(info func() service.Info, update func(context.Context, service.Request) (service.Request, error), restart func()) {
+	s.serviceInfo, s.updateService, s.restartService = info, update, restart
 }
 
 // New 创建 API 服务。addr 如 "127.0.0.1:8765"。
@@ -36,6 +46,16 @@ func (s *Server) SetShutdown(fn func()) {
 
 // Start 启动 HTTP server（阻塞）。
 func (s *Server) Start() error {
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(listener)
+}
+
+// Serve uses an already-bound listener so the daemon can reserve its control
+// endpoint before starting anything that may change routes or DNS.
+func (s *Server) Serve(listener net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/connect", s.handleConnect)
@@ -51,6 +71,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/traffic", s.handleTraffic)
 	mux.HandleFunc("/api/shutdown", s.handleShutdown)
+	mux.HandleFunc("/api/service", s.handleServiceInfo)
+	mux.HandleFunc("/api/service/update", s.handleServiceUpdate)
+	mux.HandleFunc("/api/service/restart", s.handleServiceRestart)
 	mux.HandleFunc("/api/transfer/devices", s.handleTransferDevices)
 	mux.HandleFunc("/api/transfer/scan", s.handleTransferScan)
 	mux.HandleFunc("/api/transfer/add-device", s.handleTransferAddDevice)
@@ -85,10 +108,74 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/proxy/dns-query", proxy.DNSQueryHandler(s.proxySvc))
 	mux.HandleFunc("/api/proxy/logs", proxy.ProxyLogsHandler(s.proxySvc))
 	srv := &http.Server{
-		Addr:    s.addr,
-		Handler: mux,
+		Addr: s.addr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// During staging/health verification a newly installed service must
+			// answer identity checks without acting on any network commands.
+			if s.serviceInfo != nil && !s.serviceInfo().Ready && (r.URL.Path == "/api/connect" || r.URL.Path == "/api/resume" || r.URL.Path == "/api/config") {
+				http.Error(w, "系统服务安装尚未完成，请稍后重试", http.StatusServiceUnavailable)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		}),
 	}
-	return srv.ListenAndServe()
+	return srv.Serve(listener)
+}
+
+func (s *Server) handleServiceInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.serviceInfo == nil {
+		writeJSON(w, service.Info{Protocol: service.Protocol, Managed: false, PID: os.Getpid()})
+		return
+	}
+	writeJSON(w, s.serviceInfo())
+}
+func (s *Server) handleServiceUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.updateService == nil {
+		http.Error(w, "需要先安装持久系统服务", http.StatusConflict)
+		return
+	}
+	var req service.Request
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.eng.BeginServiceMaintenance(); err != nil {
+		http.Error(w, "请先断开当前 WgSense VPN，或等待当前安装完成: "+err.Error(), http.StatusConflict)
+		return
+	}
+	result, err := s.updateService(r.Context(), req)
+	if err != nil {
+		s.eng.EndServiceMaintenance()
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, map[string]string{"operation_id": result.OperationID, "binary_sha256": result.BinarySHA256})
+}
+func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.restartService == nil {
+		http.Error(w, "当前不是持久系统服务", http.StatusConflict)
+		return
+	}
+	if s.serviceInfo != nil && !s.serviceInfo().Ready {
+		http.Error(w, "系统服务事务尚未完成", http.StatusConflict)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+	go s.restartService()
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {

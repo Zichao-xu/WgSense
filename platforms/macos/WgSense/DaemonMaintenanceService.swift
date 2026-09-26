@@ -92,7 +92,7 @@ enum MaintenanceAction: String, Identifiable {
         case .restartSystemHelper:
             return "会重启 com.wgsense.daemon。若当前正在连接 WireGuard，连接会短暂中断。"
         case .cleanupNetworkState:
-            return "会请求 WgSense 断开、清理 WgSense 相关进程、移除 10.66.66.1 DNS 和可识别的 WgSense host route。不会删除 Clash/其他 VPN 的 Fake-IP 路由。"
+            return "会请求在线的 WgSense 服务断开并清理它管理的隧道、DNS 和路由。服务不在线时只报告诊断，不改动系统网络设置。"
         }
     }
 
@@ -148,12 +148,10 @@ struct DaemonMaintenanceService {
         case .installSystemHelper:
             return await installSystemHelper()
         case .uninstallSystemHelper:
-            return await runPackagedScript("wgsense-uninstall-services.sh", timeout: 60)
+            return await runPackagedScript("wgsense-uninstall-services.sh", userArgument: true, timeout: 60)
         case .restartSystemHelper:
-            return await ShellCommand.administrator(
-                "launchctl kickstart -k system/com.wgsense.daemon",
-                timeout: 30
-            )
+            let outcome = await DaemonServiceCoordinator.shared.restart()
+            return ShellCommandResult(status: outcome.ok ? 0 : -1, output: outcome.message)
         case .cleanupNetworkState:
             return await cleanupNetworkState()
         }
@@ -176,43 +174,39 @@ struct DaemonMaintenanceService {
     }
 
     private func installSystemHelper() async -> ShellCommandResult {
-        guard let daemon = bundledDaemonPath() else {
-            return ShellCommandResult(status: -1, output: "App bundle 内缺少 wgsense-daemon")
-        }
-        guard let script = packagedScriptPath("wgsense-install-services.sh") else {
-            return ShellCommandResult(status: -1, output: "App bundle 内缺少安装脚本")
-        }
-        guard let mover = packagedScriptPath("wgsense-receive-mover.sh") else {
-            return ShellCommandResult(status: -1, output: "App bundle 内缺少接收搬运脚本")
-        }
-        let command = "\(ShellCommand.quote(script)) \(ShellCommand.quote(daemon)) \(ShellCommand.quote(mover))"
-        return await ShellCommand.administrator(command, timeout: 90)
+        let outcome = await DaemonServiceCoordinator.shared.ensure(.maintenance)
+        return ShellCommandResult(status: outcome.ok ? 0 : -1, output: outcome.message)
     }
 
     private func cleanupNetworkState() async -> ShellCommandResult {
-        let command = """
-        set -u
-        /usr/bin/curl -fsS -X POST http://127.0.0.1:8765/api/disconnect >/dev/null 2>&1 || true
-        /usr/bin/pkill -TERM -f '/usr/local/libexec/wgsense-daemon' 2>/dev/null || true
-        /usr/bin/pkill -TERM -f 'wgsense-daemon.*--app-owned=true' 2>/dev/null || true
-        /sbin/route -n delete -host 10.66.66.1 >/dev/null 2>&1 || true
-        while IFS= read -r service; do
-          [[ -z "$service" ]] && continue
-          dns="$(/usr/sbin/networksetup -getdnsservers "$service" 2>/dev/null || true)"
-          if printf '%s\\n' "$dns" | /usr/bin/grep -qx '10.66.66.1'; then
-            /usr/sbin/networksetup -setdnsservers "$service" Empty
-          fi
-        done < <(/usr/sbin/networksetup -listallnetworkservices 2>/dev/null | /usr/bin/sed '/^An asterisk/d')
-        echo "WgSense cleanup completed. Review diagnostics for any remaining split routes."
-        """
-        return await ShellCommand.administrator(command, timeout: 60)
+        let verified = await DaemonServiceCoordinator.shared.ensure(.stopOnly)
+        guard verified.ok else {
+            return ShellCommandResult(
+                status: -1,
+                output: "WgSense 服务不在线，未触碰系统 DNS 或路由；请导出诊断后单独处理：\(verified.message)"
+            )
+        }
+        do {
+            try await controlAPI.command("disconnect", timeout: 30)
+            return ShellCommandResult(status: 0, output: "已请求 WgSense 清理它自身管理的隧道、DNS 和路由")
+        } catch {
+            return ShellCommandResult(status: -1, output: "WgSense 清理失败；未执行通用 DNS/路由删除：\(error.localizedDescription)")
+        }
     }
 
-    private func runPackagedScript(_ name: String, timeout: TimeInterval) async -> ShellCommandResult {
+    private func runPackagedScript(_ name: String, userArgument: Bool = false, timeout: TimeInterval) async -> ShellCommandResult {
         guard let script = packagedScriptPath(name) else {
             return ShellCommandResult(status: -1, output: "App bundle 内缺少 \(name)")
         }
-        return await ShellCommand.administrator(ShellCommand.quote(script), timeout: timeout)
+        var command = ShellCommand.quote(script)
+        if userArgument {
+            let username = NSUserName()
+            guard !username.isEmpty && username != "root" else {
+                return ShellCommandResult(status: -1, output: "无法确定登录用户")
+            }
+            command += " \(ShellCommand.quote(username))"
+        }
+        return await ShellCommand.administrator(command, timeout: timeout)
     }
 
     private func apiSummary() async -> (reachable: Bool, summary: String) {

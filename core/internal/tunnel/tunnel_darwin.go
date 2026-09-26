@@ -7,8 +7,7 @@
 //     配置，因此连接成功后临时接管当前物理网络服务的 DNS，并在断开/退出时
 //     恢复原始设置。
 //  2. endpoint 排除路由在 BindUpdate 之前添加 — 确保 WG UDP 握手包走物理接口。
-//  3. cleanup 注册 signal handler — 尽量在进程退出时清理路由，并恢复可能
-//     留下的 DNS 快照。
+//  3. daemon 统一处理退出信号，通过策略引擎串行清理路由和 DNS。
 package tunnel
 
 import (
@@ -19,11 +18,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
-	"syscall"
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -37,13 +33,12 @@ type darwinManager struct {
 	dev         *device.Device
 	tunName     string
 	configDir   string
-	origGateway string       // 建隧道前的物理网关
-	physIface   string       // 物理接口名（en0/en1）
-	addedRoutes []routeEntry // 已添加的路由（断开时清理）
-	dnsSnapshot *dnsSnapshot // 已替换 DNS 时的原始设置
-	cleaned     bool         // 防止重复 cleanup
-	hasIPv6     bool         // TUN 是否配置了 IPv6 地址
-	signalOnce  sync.Once
+	origGateway string        // 建隧道前的物理网关
+	physIface   string        // 物理接口名（en0/en1）
+	addedRoutes []routeEntry  // 已添加的路由（断开时清理）
+	dnsSnapshot *dnsSnapshot  // 已替换 DNS 时的原始设置
+	cleaned     bool          // 防止重复 cleanup
+	hasIPv6     bool          // TUN 是否配置了 IPv6 地址
 	bindWatch   *bindWatchdog // 发包地址失效时重建 UDP bind，见 rebind_darwin.go
 }
 
@@ -65,6 +60,11 @@ func newPlatformManager(configDir string) Manager {
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
 // 需要 root(CreateTUN + ifconfig + route)。
 func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
+	// Check before cleanup or DNS restoration: an existing system VPN owns
+	// its network state even if its imported profile is named WgSense-default.
+	if err := ensureNoActiveSystemVPN(); err != nil {
+		return err
+	}
 	if m.dev != nil || len(m.addedRoutes) > 0 || m.dnsSnapshot != nil {
 		log.Printf("[tunnel] 连接前发现残留隧道状态，先清理旧 TUN")
 		m.cleanup()
@@ -89,9 +89,6 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	}
 	m.physIface = iface
 	log.Printf("[tunnel] 物理接口=%s 网关=%s", iface, gw)
-
-	// 0.5 注册 signal handler，确保异常退出时清理路由
-	m.setupSignalHandler()
 
 	// 1. 解析 endpoint IP 并添加排除路由（在创建 TUN 之前，确保后续 UDP 包走物理接口）
 	var endpointIP string
@@ -356,20 +353,6 @@ func parseUint(s string) (uint64, error) {
 	var v uint64
 	_, err := fmt.Sscanln(s, &v)
 	return v, err
-}
-
-// setupSignalHandler 注册信号处理，确保 daemon 被 kill 时清理路由。
-func (m *darwinManager) setupSignalHandler() {
-	m.signalOnce.Do(func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-		go func() {
-			sig := <-sigCh
-			log.Printf("[tunnel] 收到信号 %v，清理路由...", sig)
-			m.cleanup()
-			os.Exit(1)
-		}()
-	})
 }
 
 // cleanup 清理所有资源：先恢复临时 DNS，再删除路由、关闭设备。

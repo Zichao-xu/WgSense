@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -72,6 +73,44 @@ func (m *blockingTunnel) Connect(string) error {
 	<-m.release
 	m.state = tunnel.StateConnected
 	return nil
+}
+
+type blockingCleanupTunnel struct {
+	countingTunnel
+	started    chan struct{}
+	release    chan struct{}
+	cleanupErr error
+}
+
+func (m *blockingCleanupTunnel) Disconnect(service string) error {
+	m.disconnects++
+	if m.started != nil && m.disconnects == 1 {
+		close(m.started)
+	}
+	if m.release != nil {
+		<-m.release
+	}
+	if m.cleanupErr != nil {
+		return m.cleanupErr
+	}
+	return m.mockTunnel.Disconnect(service)
+}
+
+type maintenanceStatusTunnel struct {
+	countingTunnel
+	started     chan struct{}
+	release     chan struct{}
+	statusErr   error
+	statusCalls int
+}
+
+func (m *maintenanceStatusTunnel) Status(service string) (tunnel.State, error) {
+	m.statusCalls++
+	if m.started != nil && m.statusCalls == 1 {
+		close(m.started)
+		<-m.release
+	}
+	return m.state, m.statusErr
 }
 
 type mockHealth struct{ connected bool }
@@ -214,6 +253,37 @@ func TestPassiveEngineRejectsManualConnect(t *testing.T) {
 	}
 	if !eng.Status().DesiredVPNEnabled {
 		t.Fatal("连接失败也应保留用户开启 VPN 的意图")
+	}
+}
+
+func TestManualVPNIntentRestoresAfterRestartWithPreviousPause(t *testing.T) {
+	paused := &mockPause{paused: true}
+	tun := &mockTunnel{state: tunnel.StateDisconnected}
+	eng := New(config.Default(), mockLocation{}, tun, mockHealth{connected: true}, paused)
+	path := filepath.Join(t.TempDir(), "settings.json")
+	eng.SetConfigPath(path)
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if paused.IsPaused() {
+		t.Fatal("explicit VPN connect left an old pause marker active")
+	}
+	if err := eng.ShutdownCleanup(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadRuntime(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(cfg, mockLocation{}, tun, mockHealth{connected: true}, paused)
+	if err := restarted.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateConnected {
+		t.Fatal("persisted manual VPN intent did not reconnect after daemon restart")
+	}
+	if restarted.GetConfig().DesiredGuardEnabled {
+		t.Fatal("manual VPN enabled automatic guard")
 	}
 }
 
@@ -362,6 +432,291 @@ func TestShutdownCleanupPreservesDesiredVPNIntent(t *testing.T) {
 	}
 	if _, err := config.LoadRuntime(path); !config.IsNotExist(err) {
 		t.Fatalf("shutdown cleanup should not rewrite runtime config, err=%v", err)
+	}
+}
+
+func TestShutdownCleanupRejectsConcurrentReconnects(t *testing.T) {
+	tun := &blockingCleanupTunnel{
+		countingTunnel: countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}},
+		started:        make(chan struct{}),
+		release:        make(chan struct{}),
+	}
+	t.Cleanup(func() {
+		select {
+		case <-tun.release:
+		default:
+			close(tun.release)
+		}
+	})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	p := &mockPause{}
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{}, p)
+	before := eng.GetConfig()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	eng.SetConfigPath(path)
+	eng.lastNetwork = "before"
+	networkReads := 0
+	eng.SetNetworkSnapshotFunc(func() string {
+		networkReads++
+		return "after"
+	})
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- eng.ShutdownCleanup() }()
+	select {
+	case <-tun.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not enter tunnel cleanup")
+	}
+
+	// Submit manual operations while cleanup owns opMu. Both must remain
+	// rejected when they eventually acquire the lock, after the tunnel is down.
+	ready := make(chan struct{}, 2)
+	operationDone := make(chan error, 2)
+	for _, operation := range []func() error{eng.Connect, eng.Resume} {
+		go func() {
+			ready <- struct{}{}
+			operationDone <- operation()
+		}()
+	}
+	<-ready
+	<-ready
+	repeatedDone := make(chan error, 1)
+	go func() { repeatedDone <- eng.ShutdownCleanup() }()
+
+	// Polls that arrive during cleanup skip the busy lock; polls arriving after
+	// it finishes must also do nothing, even though desired VPN stays enabled.
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	close(tun.release)
+	for range 2 {
+		if err := waitForPolicyResult(t, operationDone); !errors.Is(err, ErrShuttingDown) {
+			t.Fatalf("queued operation should reject shutdown, got %v", err)
+		}
+	}
+	if err := waitForPolicyResult(t, shutdownDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForPolicyResult(t, repeatedDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.RunOnNetworkChange(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.connects != 0 || tun.disconnects != 1 || tun.state != tunnel.StateDisconnected {
+		t.Fatalf("shutdown was not final: connects=%d disconnects=%d state=%s", tun.connects, tun.disconnects, tun.state)
+	}
+	if networkReads != 0 || eng.lastNetwork != "before" {
+		t.Fatalf("shutdown polls still inspected the network: reads=%d snapshot=%s", networkReads, eng.lastNetwork)
+	}
+	if got := eng.GetConfig(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("shutdown operations changed desired intent: got %#v, want %#v", got, before)
+	}
+	if _, err := config.LoadRuntime(path); !config.IsNotExist(err) {
+		t.Fatalf("shutdown operations rewrote settings: %v", err)
+	}
+	p.paused = true
+	if err := eng.Resume(); !errors.Is(err, ErrShuttingDown) || !p.paused {
+		t.Fatalf("shutdown resume changed pause state: err=%v paused=%t", err, p.paused)
+	}
+}
+
+func TestShutdownCleanupFailureRemainsTerminal(t *testing.T) {
+	cleanupErr := errors.New("cleanup failed")
+	tun := &blockingCleanupTunnel{cleanupErr: cleanupErr}
+	eng := New(config.Default(), mockLocation{}, tun, mockHealth{}, &mockPause{})
+	for range 2 {
+		if err := eng.ShutdownCleanup(); !errors.Is(err, cleanupErr) {
+			t.Fatalf("cleanup should retain its result, got %v", err)
+		}
+	}
+	if err := eng.Connect(); !errors.Is(err, ErrShuttingDown) {
+		t.Fatalf("failed cleanup must still prohibit reconnect, got %v", err)
+	}
+	if tun.disconnects != 1 || tun.connects != 0 {
+		t.Fatalf("unexpected tunnel calls: disconnects=%d connects=%d", tun.disconnects, tun.connects)
+	}
+}
+
+func TestStartWithCanceledContextDoesNotRunInitialPolicy(t *testing.T) {
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	tun := &countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateDisconnected}}
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{}, &mockPause{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := eng.Start(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start should report canceled context, got %v", err)
+	}
+	if tun.connects != 0 || tun.disconnects != 0 {
+		t.Fatalf("canceled Start touched tunnel: connects=%d disconnects=%d", tun.connects, tun.disconnects)
+	}
+}
+
+func TestServiceMaintenanceBlocksQueuedOperationsAndResumesIntent(t *testing.T) {
+	tun := &maintenanceStatusTunnel{
+		countingTunnel: countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateDisconnected}},
+		started:        make(chan struct{}),
+		release:        make(chan struct{}),
+	}
+	t.Cleanup(func() {
+		select {
+		case <-tun.release:
+		default:
+			close(tun.release)
+		}
+	})
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	p := &mockPause{}
+	eng := New(cfg, mockLocation{}, tun, mockHealth{}, p)
+	before := eng.GetConfig()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	eng.SetConfigPath(path)
+	networkReads := 0
+	eng.SetNetworkSnapshotFunc(func() string {
+		networkReads++
+		return "must-not-read-during-maintenance"
+	})
+	beginDone := make(chan error, 1)
+	go func() { beginDone <- eng.BeginServiceMaintenance() }()
+	select {
+	case <-tun.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("maintenance did not begin checking tunnel state")
+	}
+
+	// Begin owns opMu while verifying disconnection. Operations submitted in
+	// that window must see maintenance when they eventually acquire the lock.
+	ready := make(chan struct{}, 2)
+	operationDone := make(chan error, 2)
+	for _, operation := range []func() error{eng.Connect, eng.Resume} {
+		go func() {
+			ready <- struct{}{}
+			operationDone <- operation()
+		}()
+	}
+	<-ready
+	<-ready
+	for _, poll := range []func() error{eng.RunOnce, eng.RunOnNetworkChange} {
+		if err := poll(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(tun.release)
+	if err := waitForPolicyResult(t, beginDone); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := waitForPolicyResult(t, operationDone); !errors.Is(err, ErrServiceMaintenance) {
+			t.Fatalf("queued operation bypassed maintenance: %v", err)
+		}
+	}
+	if err := eng.BeginServiceMaintenance(); !errors.Is(err, ErrServiceMaintenance) {
+		t.Fatalf("overlapping maintenance was accepted: %v", err)
+	}
+	for _, poll := range []func() error{eng.RunOnce, eng.RunOnNetworkChange} {
+		if err := poll(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tun.connects != 0 || tun.disconnects != 0 || tun.statusCalls != 1 || networkReads != 0 {
+		t.Fatalf("maintenance touched network: connects=%d disconnects=%d status=%d snapshots=%d", tun.connects, tun.disconnects, tun.statusCalls, networkReads)
+	}
+	if got := eng.GetConfig(); !reflect.DeepEqual(got, before) || p.paused {
+		t.Fatalf("maintenance changed intent or pause: cfg=%#v paused=%t", got, p.paused)
+	}
+	if _, err := config.LoadRuntime(path); !config.IsNotExist(err) {
+		t.Fatalf("maintenance rewrote settings: %v", err)
+	}
+
+	eng.EndServiceMaintenance()
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.connects != 1 || tun.state != tunnel.StateConnected {
+		t.Fatalf("ending maintenance did not restore existing VPN intent: connects=%d state=%s", tun.connects, tun.state)
+	}
+}
+
+func TestServiceMaintenanceRequiresConfirmedDisconnection(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state tunnel.State
+		err   error
+	}{
+		{"connected", tunnel.StateConnected, nil},
+		{"connecting", tunnel.StateConnecting, nil},
+		{"unknown", tunnel.StateUnknown, nil},
+		{"status_error", tunnel.StateDisconnected, errors.New("status unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tun := &maintenanceStatusTunnel{
+				countingTunnel: countingTunnel{mockTunnel: mockTunnel{state: tc.state}},
+				statusErr:      tc.err,
+			}
+			p := &mockPause{paused: true}
+			eng := New(config.Default(), mockLocation{}, tun, mockHealth{}, p)
+			before := eng.GetConfig()
+			if err := eng.BeginServiceMaintenance(); err == nil {
+				t.Fatal("maintenance accepted an unconfirmed disconnected state")
+			}
+			if tun.connects != 0 || tun.disconnects != 0 || !p.paused || !reflect.DeepEqual(eng.GetConfig(), before) {
+				t.Fatal("rejected maintenance changed tunnel or user intent")
+			}
+			tun.state, tun.statusErr = tunnel.StateDisconnected, nil
+			if err := eng.BeginServiceMaintenance(); err != nil {
+				t.Fatalf("failed begin left maintenance locked: %v", err)
+			}
+			eng.EndServiceMaintenance()
+			if !p.paused || !reflect.DeepEqual(eng.GetConfig(), before) {
+				t.Fatal("maintenance cycle changed paused user intent")
+			}
+		})
+	}
+}
+
+func TestShutdownRemainsTerminalAfterServiceMaintenanceEnds(t *testing.T) {
+	tun := &countingTunnel{mockTunnel: mockTunnel{state: tunnel.StateDisconnected}}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{}, tun, mockHealth{}, &mockPause{})
+	if err := eng.BeginServiceMaintenance(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.ShutdownCleanup(); err != nil {
+		t.Fatal(err)
+	}
+	eng.EndServiceMaintenance()
+	for _, operation := range []func() error{eng.Connect, eng.Resume, eng.BeginServiceMaintenance} {
+		if err := operation(); !errors.Is(err, ErrShuttingDown) {
+			t.Fatalf("maintenance end reopened a shutting-down engine: %v", err)
+		}
+	}
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.connects != 0 || tun.disconnects != 1 || !eng.GetConfig().DesiredVPNEnabled {
+		t.Fatalf("shutdown after maintenance lost its boundary: connects=%d disconnects=%d", tun.connects, tun.disconnects)
+	}
+}
+
+func waitForPolicyResult(t *testing.T, result <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("policy operation did not finish")
+		return nil
 	}
 }
 

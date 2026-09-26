@@ -1,16 +1,10 @@
-// macOS 上 wireguard-go 的 UDP socket 绑定在 0.0.0.0，并为每个 peer 缓存发包
-// 时使用的源地址。Wi-Fi 重连、睡眠唤醒或地址变更之后，那个源地址可能已经不在
-// 任何网卡上，内核于是对每一个发包返回 EADDRNOTAVAIL：
+// macOS 网络变化时，wireguard-go 的 UDP 发包可能返回 EADDRNOTAVAIL：
 //
 //	write udp4 0.0.0.0:54569->203.88.44.108:51820: sendmsg: can't assign requested address
 //
-// 此时收包方向仍然可用——对端发起的握手照常被接收并回应——所以设备对象还在、
-// last_handshake 还在刷新，出方向却已经完全中断，表现为"显示已连接但流量为零"。
-//
-// 官方 macOS 客户端的处理是在 NWPathMonitor 回调里调用 wgBumpSockets，也就是
-// device.BindUpdate()：关闭旧 socket、按原端口重开、清除每个 peer 缓存的源地址。
-// 这里用同一手段，但触发信号直接取自发包错误本身，不必猜测网络何时变化，也不必
-// 拆掉整条隧道重建。
+// BindUpdate 关闭并重开 UDP socket。它不能证明物理网络已经恢复；失败时旧
+// socket 已经关闭，必须定时重试，不能继续等旧 socket 的发包错误来唤醒恢复。
+// 当前 Darwin bind 不使用 peer 源地址缓存，因此不能把这类错误一律归因为缓存。
 package tunnel
 
 import (
@@ -45,10 +39,12 @@ const (
 // bindWatchdog 监听发包失效信号并重建 UDP bind。它挂在设备的生命周期上：
 // attach 随设备创建，detach 随 cleanup 结束。
 type bindWatchdog struct {
-	mu       sync.Mutex
-	rebindFn func() error
-	done     chan struct{}
-	trigger  chan struct{}
+	lifecycle sync.Mutex // attach/detach wait for the previous loop to finish
+	mu        sync.Mutex
+	rebindFn  func() error
+	done      chan struct{}
+	stopped   chan struct{}
+	trigger   chan struct{}
 
 	backoff time.Duration
 	lastAt  time.Time
@@ -79,7 +75,9 @@ func (w *bindWatchdog) attach(dev *device.Device) {
 
 // attachFunc 是 attach 的可注入形式，便于在没有真实设备的情况下测试。
 func (w *bindWatchdog) attachFunc(rebind func() error) {
-	w.detach()
+	w.lifecycle.Lock()
+	defer w.lifecycle.Unlock()
+	w.detachLocked()
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -87,21 +85,33 @@ func (w *bindWatchdog) attachFunc(rebind func() error) {
 	w.backoff = w.minInterval
 	w.lastAt = time.Time{}
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	w.done = done
-	go w.loop(done)
+	w.stopped = stopped
+	w.drainTrigger()
+	go w.loop(done, stopped)
 }
 
 // detach 停止后台循环并解绑设备，供 cleanup 调用。解绑后即使仍有信号在途，
-// 重建函数已置空，后台循环会直接放弃，不会碰到正在销毁的设备。
+// 重建函数已置空，并等待已经开始的 BindUpdate 完成后才允许销毁设备。
 func (w *bindWatchdog) detach() {
+	w.lifecycle.Lock()
+	defer w.lifecycle.Unlock()
+	w.detachLocked()
+}
+
+func (w *bindWatchdog) detachLocked() {
 	w.mu.Lock()
 	done := w.done
+	stopped := w.stopped
 	w.done = nil
+	w.stopped = nil
 	w.rebindFn = nil
 	w.mu.Unlock()
 
 	if done != nil {
 		close(done)
+		<-stopped
 	}
 	w.folder.flush()
 }
@@ -116,20 +126,28 @@ func (w *bindWatchdog) notify() {
 	}
 }
 
-func (w *bindWatchdog) loop(done chan struct{}) {
+func (w *bindWatchdog) loop(done, stopped chan struct{}) {
+	defer close(stopped)
 	for {
 		select {
 		case <-done:
 			return
 		case <-w.trigger:
-			w.rebind()
-			// 冷却期内吸收掉同一轮爆发的剩余信号。
-			select {
-			case <-done:
-				return
-			case <-time.After(w.currentBackoff()):
+			for {
+				retry := w.rebind()
+				// 冷却期间合并错误，但 Open 失败后必须独立于发包错误重试。
+				timer := time.NewTimer(w.currentBackoff())
+				select {
+				case <-done:
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				w.drainTrigger()
+				if !retry {
+					break
+				}
 			}
-			w.drainTrigger()
 		}
 	}
 }
@@ -148,12 +166,12 @@ func (w *bindWatchdog) currentBackoff() time.Duration {
 }
 
 // rebind 执行一次 BindUpdate，并按结果调整退避。
-func (w *bindWatchdog) rebind() {
+func (w *bindWatchdog) rebind() bool {
 	w.mu.Lock()
 	rebind := w.rebindFn
 	if rebind == nil {
 		w.mu.Unlock()
-		return
+		return false
 	}
 	// 距上次重建足够久，说明上一轮故障已经过去，退避重置。
 	if !w.lastAt.IsZero() && time.Since(w.lastAt) > w.settleDelay {
@@ -174,9 +192,10 @@ func (w *bindWatchdog) rebind() {
 		next := w.backoff
 		w.mu.Unlock()
 		log.Printf("[tunnel] UDP bind 重建失败（第 %d 次）: %v，%s 后重试", attempt, err, next)
-		return
+		return true
 	}
-	log.Printf("[tunnel] 检测到发包地址失效，已重建 UDP bind（第 %d 次）", attempt)
+	log.Printf("[tunnel] UDP bind 已重建（第 %d 次），等待实际握手/流量验证", attempt)
+	return false
 }
 
 // rebindCount 返回累计重建次数，供状态快照使用。

@@ -21,7 +21,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: core/go.mod
+
+      - name: Verify Go core
+        working-directory: core
+        run: |
+          go vet ./...
+          go test -race ./...
 
       - name: Build macOS app
         working-directory: platforms/macos
@@ -35,6 +41,8 @@ jobs:
             -derivedDataPath build
 
       - name: Verify app bundle
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           app="platforms/macos/build/Build/Products/Release/WgSense.app"
           test -x "$app/Contents/Resources/libexec/wgsense-daemon"
@@ -42,6 +50,8 @@ jobs:
           test -x "$app/Contents/Resources/packaging/wgsense-uninstall-services.sh"
           test -f "$app/Contents/Resources/AppIcon.icns"
           plutil -lint "$app/Contents/Info.plist"
+          tag="${REQUESTED_TAG:-$GITHUB_REF_NAME}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${tag#v}"
           codesign --verify --deep --strict "$app"
 
       - name: Create install DMG
@@ -89,20 +99,27 @@ jobs:
           body: |
             ## WgSense ${{ steps.tag.outputs.tag }}
 
+            ### 更新内容
+
+            - 首次授权安装常驻系统服务；日常开关 VPN、重开 App 和服务自动拉起使用已安装服务。
+            - 后台服务版本核验、可回滚升级与卸载重装状态处理。
+            - 网络变化后的 WireGuard 数据通道重新绑定，并在连接前检查其他正在运行的系统 VPN。
+
             ### 安装
 
             1. 下载并打开 `WgSense-macOS.dmg`
             2. 将 `WgSense.app` 拖入 `Applications`
-            3. 启动 WgSense；需要系统 helper 时由 App 内的维护面板安装
+            3. 首次启动时批准一次系统服务安装；以后重开 App 和开关 VPN 使用已安装服务
 
-            > 此构建使用临时签名且尚未公证。首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
+            此构建使用临时签名且尚未公证。首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
 
-            ### 注意
+            ### 验证范围
 
-            - 请确保已备份现有 WG 配置
-            - 测试期间如断网，恢复 DNS：`sudo networksetup -setdnsservers Wi-Fi empty`
+            本版本通过 macOS 构建和隔离测试。管理员弹窗次数、Mac 冷重启、真实网络切换与断网恢复尚未在目标机器上验收；使用前请备份现有 WireGuard 配置。
+            当前官方 WireGuard 正在使用的 DNS 和路由不应作为 WgSense 残留清理。
+            常驻后台服务的本机 HTTP API 尚未完成调用者认证，仅适合已接受该安全取舍的个人环境。
           files: |
             artifacts/WgSense-macOS.dmg
             artifacts/SHA256SUMS.txt
           draft: false
-          prerelease: true
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}

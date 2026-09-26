@@ -4,6 +4,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -21,9 +22,20 @@ import (
 const maxHealthFailures = 5
 const networkPollInterval = 3 * time.Second
 
+// ErrShuttingDown rejects new user operations after shutdown has begun.
+var ErrShuttingDown = errors.New("daemon 正在退出，无法启动网络操作")
+
+// ErrServiceMaintenance rejects new connections while the installer takes over.
+var ErrServiceMaintenance = errors.New("系统服务正在维护，暂时无法启动网络操作")
+
 // Engine 智能管理引擎。
 type Engine struct {
 	opMu sync.Mutex
+	// These fields are protected by opMu. Shutdown is terminal; maintenance is
+	// temporary and never changes the persisted connection or pause intent.
+	shuttingDown       bool
+	shutdownErr        error
+	serviceMaintenance bool
 
 	cfg             config.Config
 	loc             location.Locator
@@ -108,6 +120,9 @@ func (e *Engine) RunOnce() error {
 		return nil
 	}
 	defer e.opMu.Unlock()
+	if e.shuttingDown || e.serviceMaintenance {
+		return nil
+	}
 	return e.runOnceLocked()
 }
 
@@ -118,6 +133,9 @@ func (e *Engine) RunOnNetworkChange() error {
 		return nil
 	}
 	defer e.opMu.Unlock()
+	if e.shuttingDown || e.serviceMaintenance {
+		return nil
+	}
 	return e.runOnNetworkChangeLocked()
 }
 
@@ -296,12 +314,18 @@ func (e *Engine) recentAutoUp() bool {
 
 // Start 启动守护循环，每 IntervalSeconds 秒巡检一次。
 func (e *Engine) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(time.Duration(e.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
 	networkTicker := time.NewTicker(networkPollInterval)
 	defer networkTicker.Stop()
 
 	// 立即执行一次
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := e.RunOnce(); err != nil {
 		e.Logf("巡检错误: %v", err)
 	}
@@ -309,10 +333,16 @@ func (e *Engine) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ticker.C:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := e.RunOnce(); err != nil {
 				e.Logf("巡检错误: %v", err)
 			}
 		case <-networkTicker.C:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := e.RunOnNetworkChange(); err != nil {
 				e.Logf("网络变化处理错误: %v", err)
 			}
@@ -398,12 +428,24 @@ func (e *Engine) Status() StatusSnapshot {
 func (e *Engine) Connect() error {
 	e.opMu.Lock()
 	defer e.opMu.Unlock()
+	if e.shuttingDown {
+		return ErrShuttingDown
+	}
+	if e.serviceMaintenance {
+		return ErrServiceMaintenance
+	}
 	e.cfg.DesiredVPNEnabled = true
 	if err := e.saveCurrentConfig(); err != nil {
 		return err
 	}
 	if e.passive {
 		return fmt.Errorf("daemon 处于被动模式，WireGuard 连接需要正式网络服务")
+	}
+	// Explicitly enabling VPN supersedes a previous automation pause. Without
+	// clearing its marker, a daemon restart kept the VPN intent but skipped every
+	// reconnect forever while the UI continued to show it enabled.
+	if err := e.pause.Resume(); err != nil {
+		return err
 	}
 	state, _ := e.tun.Status(e.service)
 	if state == tunnel.StateConnected {
@@ -436,14 +478,51 @@ func (e *Engine) Disconnect() error {
 	return e.tun.Disconnect(e.service)
 }
 
+// BeginServiceMaintenance reserves a disconnected engine for an installer.
+// Checking the tunnel and closing connection entry points under the same lock
+// prevents a queued connect or policy tick from starting VPN during handoff.
+func (e *Engine) BeginServiceMaintenance() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
+	if e.shuttingDown {
+		return ErrShuttingDown
+	}
+	if e.serviceMaintenance {
+		return ErrServiceMaintenance
+	}
+	state, err := e.tun.Status(e.service)
+	if err != nil {
+		return fmt.Errorf("无法确认 VPN 已断开: %w", err)
+	}
+	if state != tunnel.StateDisconnected {
+		return fmt.Errorf("请先关闭 VPN 再维护系统服务（当前状态: %s）", state)
+	}
+	e.serviceMaintenance = true
+	return nil
+}
+
+// EndServiceMaintenance lets later policy ticks use the existing user intent.
+// It does not reopen an engine that has already begun shutting down.
+func (e *Engine) EndServiceMaintenance() {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
+	e.serviceMaintenance = false
+}
+
 // ShutdownCleanup disconnects the underlying tunnel while preserving user
-// intent. Use it for daemon shutdown/restart paths, not for a user-requested
-// disconnect.
+// intent. This engine cannot connect again after cleanup begins. Repeated calls
+// wait for the first cleanup and return its result without running it again.
+// Use it for daemon shutdown/restart paths, not a user-requested disconnect.
 func (e *Engine) ShutdownCleanup() error {
 	e.opMu.Lock()
 	defer e.opMu.Unlock()
+	if e.shuttingDown {
+		return e.shutdownErr
+	}
+	e.shuttingDown = true
 	e.healthFailures = 0
-	return e.tun.Disconnect(e.service)
+	e.shutdownErr = e.tun.Disconnect(e.service)
+	return e.shutdownErr
 }
 
 // Pause 暂停自动管理。
@@ -462,6 +541,14 @@ func (e *Engine) Pause() error {
 // Resume 恢复自动管理。
 func (e *Engine) Resume() error {
 	e.opMu.Lock()
+	if e.shuttingDown {
+		e.opMu.Unlock()
+		return ErrShuttingDown
+	}
+	if e.serviceMaintenance {
+		e.opMu.Unlock()
+		return ErrServiceMaintenance
+	}
 	e.cfg.DesiredGuardEnabled = true
 	e.cfg.AutoConnectUntrusted = true
 	e.cfg.AutoConnectAway = true

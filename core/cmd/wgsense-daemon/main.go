@@ -4,12 +4,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 	"github.com/wgsense/core/internal/pause"
 	"github.com/wgsense/core/internal/policy"
 	"github.com/wgsense/core/internal/proxy"
+	"github.com/wgsense/core/internal/service"
 	"github.com/wgsense/core/internal/transfer"
 	"github.com/wgsense/core/internal/tunnel"
 )
@@ -37,7 +41,85 @@ func main() {
 	trustedPrefixes := flag.String("trusted-network-prefixes", "", "逗号分隔的受信任 IPv4 前缀")
 	startPaused := flag.Bool("start-paused", true, "启动时暂停自动网络策略")
 	appOwned := flag.Bool("app-owned", false, "由当前 GUI App 临时启动；App 退出时允许通过 API 关闭")
+	managed := flag.Bool("managed-service", false, "已安装的持久系统服务")
+	ownerName := flag.String("service-owner", "", "持久服务所属登录用户")
+	installService := flag.Bool("install-service", false, "提交独立系统安装事务")
+	uninstallService := flag.Bool("uninstall-service", false, "卸载持久系统服务并保留用户配置")
+	installTask := flag.String("run-install-task", "", "执行持久安装事务请求")
+	buildInfo := flag.Bool("service-build-info", false, "仅输出 helper 构建身份，不启动服务")
+	sourceDaemon := flag.String("source-daemon", "", "待安装 daemon 路径")
+	sourceMover := flag.String("source-mover", "", "待安装 mover 路径")
+	targetUser := flag.String("target-user", "", "安装目标登录用户")
 	flag.Parse()
+	if *buildInfo {
+		path, err := os.Executable()
+		if err != nil {
+			log.Fatal(err)
+		}
+		hash, err := service.Fingerprint(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		json.NewEncoder(os.Stdout).Encode(service.Info{Protocol: service.Protocol, BinarySHA256: hash})
+		return
+	}
+	if *installService || *uninstallService || *installTask != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		manager := service.NewManager()
+		if *installTask != "" {
+			if err := manager.RunTask(ctx, *installTask); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+		owner, err := service.LookupAccount(*targetUser)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if *uninstallService {
+			if err := manager.Uninstall(ctx, owner); err != nil {
+				log.Fatal(err)
+			}
+			json.NewEncoder(os.Stdout).Encode(map[string]bool{"ok": true})
+			return
+		}
+		req, err := manager.Schedule(ctx, service.Request{SourceDaemon: *sourceDaemon, SourceMover: *sourceMover, Owner: owner})
+		if err != nil {
+			log.Fatal(err)
+		}
+		json.NewEncoder(os.Stdout).Encode(map[string]string{"operation_id": req.OperationID, "binary_sha256": req.BinarySHA256})
+		return
+	}
+	var managedOwner service.Account
+	var binaryHash string
+	if *managed {
+		if os.Geteuid() != 0 {
+			log.Fatal("持久系统服务需要由 root launchd 启动")
+		}
+		var err error
+		managedOwner, err = service.LookupAccount(*ownerName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		path, err := os.Executable()
+		if err != nil {
+			log.Fatal(err)
+		}
+		binaryHash, err = service.Fingerprint(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Claim the control endpoint before touching runtime state, starting LAN
+	// services, or running network policy. A launchd retry must never create a
+	// second tunnel when an old daemon or another application owns the port.
+	apiListener, err := net.Listen("tcp", *apiAddr)
+	if err != nil {
+		log.Fatalf("无法监听 daemon API，未启动网络服务: %v", err)
+	}
+	defer apiListener.Close()
 
 	// 运行时状态目录
 	rtDir := runtimeDir(*runtimeDirOverride)
@@ -127,9 +209,40 @@ func main() {
 		log.Printf("代理服务启动失败(非致命): %v", err)
 	}
 
-	// 后台启动策略引擎守护循环
+	// 信号处理
+	var shutdownOnce sync.Once
+	stopDaemon := func(code int) {
+		shutdownOnce.Do(func() {
+			cancel()
+			apiListener.Close()
+			if err := eng.ShutdownCleanup(); err != nil {
+				log.Printf("退出前清理隧道失败: %v", err)
+			}
+			os.Exit(code)
+		})
+	}
+	sigCh := make(chan os.Signal, 1)
+	// This is the only signal-driven cleanup owner. A second handler in the
+	// tunnel manager could exit while this handler was still restoring DNS.
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigCh
+		log.Println("收到退出信号")
+		stopDaemon(0)
+	}()
+
+	// Install the cleanup owner before policy can create its first tunnel.
 	if !*passive {
 		go func() {
+			if *managed {
+				for !service.RuntimeInfo(managedOwner, binaryHash).Ready {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(200 * time.Millisecond):
+					}
+				}
+			}
 			if err := eng.Start(ctx); err != nil {
 				log.Printf("引擎退出: %v", err)
 			}
@@ -138,35 +251,37 @@ func main() {
 		log.Println("被动模式已启用：WireGuard 策略未启动；Mihomo 仅启用远程控制器客户端")
 	}
 
-	// 信号处理
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Println("收到退出信号")
-		cancel()
-		if err := eng.ShutdownCleanup(); err != nil {
-			log.Printf("退出前清理隧道失败: %v", err)
-		}
-		os.Exit(0)
-	}()
-
 	// 前台启动 API server
 	log.Printf("WgSense daemon 启动 interval=%ds api=%s mihomo=%s passive=%t auto_connect_untrusted=%t app_owned=%t", cfg.IntervalSeconds, *apiAddr, proxyCfg.Address, *passive, cfg.AutoConnectUntrusted, *appOwned)
 	apiSrv := api.New(*apiAddr, eng, transSvc, proxySvc)
+	if *managed {
+		apiSrv.SetService(func() service.Info { return service.RuntimeInfo(managedOwner, binaryHash) }, func(_ context.Context, req service.Request) (service.Request, error) {
+			req.Owner = managedOwner
+			submitCtx, done := context.WithTimeout(ctx, 30*time.Second)
+			defer done()
+			submission, err := service.NewManager().Schedule(submitCtx, req)
+			if err == nil {
+				go func() {
+					service.WaitForResult(ctx, submission.OperationID)
+					if ctx.Err() == nil {
+						eng.EndServiceMaintenance()
+					}
+				}()
+			}
+			return submission, err
+		}, func() { time.Sleep(100 * time.Millisecond); stopDaemon(0) })
+	}
 	if *appOwned {
 		apiSrv.SetShutdown(func() {
-			cancel()
-			_ = eng.ShutdownCleanup()
-			go func() {
-				// Give the HTTP response a moment to flush before exiting.
-				time.Sleep(200 * time.Millisecond)
-				os.Exit(0)
-			}()
+			// Close the listener and enter the engine's terminal state before
+			// exiting; launchd handles managed restarts independently.
+			time.Sleep(100 * time.Millisecond)
+			stopDaemon(0)
 		})
 	}
-	if err := apiSrv.Start(); err != nil {
-		log.Fatal(err)
+	if err := apiSrv.Serve(apiListener); err != nil {
+		log.Printf("API 已退出: %v", err)
+		stopDaemon(1)
 	}
 }
 

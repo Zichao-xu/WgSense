@@ -24,7 +24,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v0.3.10-beta.1** — 外观重做：玻璃只上背景板，内容保持实色：
+**v1.0.0** — macOS 常驻服务与网络恢复：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过
@@ -49,8 +49,9 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 > 系统要求 macOS 26 或更新：背景板用的 `NSGlassEffectView` 自 macOS 26 起提供。
 >
-> 当前没有 Apple Developer 签名与公证。系统 helper 只会在用户从 App
-> 维护面板明确安装时请求管理员授权；当前 macOS 发布版走 daemon 管理路径，不注册系统 VPN。
+> 当前没有 Apple Developer 签名与公证。个人使用候选版会在 App 首次运行时请求一次
+> 管理员授权安装常驻系统服务；之后启动 App、开关 VPN 与服务自动恢复使用已安装服务。
+> 当前 macOS 发布版走 daemon 管理路径，不注册系统 VPN。
 
 ## 项目结构
 
@@ -96,6 +97,10 @@ open WgSense.xcodeproj
 从 [Releases](../../releases) 下载 `WgSense-macOS.dmg`，打开后将
 `WgSense.app` 拖入 `Applications`。DMG 已内置 daemon 和维护脚本，不需要
 单独下载后台组件。未经公证的首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
+
+v1.0.0 实现首次授权安装常驻服务、后续免密码控制、版本核验、升级与失败回滚。
+构建及隔离测试已通过；真实管理员弹窗次数、Mac 冷重启、VPN 握手与网络切换尚未验收。
+已知验收边界见 [v1.0.0 验证记录](docs/release-validation-v1.0.0.md)。
 
 自行编译：
 

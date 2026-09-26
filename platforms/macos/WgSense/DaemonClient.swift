@@ -1,5 +1,7 @@
 import SwiftUI
 import UserNotifications
+import CryptoKit
+import Darwin
 
 @MainActor
 class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
@@ -29,10 +31,10 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     @Published var logLines: [LogLine] = []
     @Published var traffic: TrafficStats?
     @Published private(set) var isAuthorizingDaemon = false
+    @Published private(set) var serviceLifecycleError: String?
     @Published private(set) var pendingConnected: Bool?
     @Published private(set) var pendingGuardRunning: Bool?
     @Published private(set) var pendingPaused: Bool?
-    private var lastAuthorizationFailure: Date?
 
     /// 暂停时长（分钟），可在设置页修改，默认 5
     @AppStorage("pauseMinutes") var pauseMinutes: Int = 5
@@ -54,20 +56,21 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     private var baseURL: URL { api.baseURL }
     private var pollTimer: Timer?
 
-    /// Daemon 二进制路径（需 sudo 启动）。Release/Debug 优先使用 App bundle 内嵌 helper。
-    private static var daemonPath: String {
-        if let bundled = Bundle.main.path(forResource: "wgsense-daemon", ofType: nil, inDirectory: "libexec") {
-            return bundled
-        }
-        return "/usr/local/libexec/wgsense-daemon"
-    }
-
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
         requestNotificationAuthorization()
         migrateTrustedNetworkPolicyIfNeeded()
         startPolling()
+        Task { [weak self] in
+            self?.isAuthorizingDaemon = true
+            let result = await DaemonServiceCoordinator.shared.ensure(.firstLaunch)
+            self?.isAuthorizingDaemon = false
+            if !result.ok {
+                self?.serviceLifecycleError = result.message
+                self?.errorMsg = result.message
+            }
+        }
     }
 
     nonisolated func userNotificationCenter(
@@ -127,180 +130,21 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         return reachable
     }
 
-    /// 确保 daemon 在线：先快速检测，不可达则自动弹出授权窗口启动 daemon（root）
-    func ensureDaemon(requireActive: Bool = false, authorizeIfNeeded: Bool = false) async -> Bool {
-        // 异步快速检测（不阻塞 UI）
-        let runningStatus = try? await controlAPI.status(timeout: 1.0)
-
-        if let runningStatus {
-            let needsSystemService = requireActive && runningStatus.app_owned == true
-            if (!requireActive || runningStatus.passive != true) && !needsSystemService {
-                await syncConfigSilently()
-                return true
-            }
-            if needsSystemService, runningStatus.passive != true {
-                await syncConfigSilently()
-                log("当前为临时 daemon，先保持可用；系统服务迁移不阻断本次操作")
-                return true
-            }
-        }
-        if runningStatus?.passive == true {
-            alertMsg = "当前是被动服务，无法建立 WireGuard；请启动正式网络服务"
-            return false
-        }
-
-        guard authorizeIfNeeded else {
-            errorMsg = "daemon 未连接"
-            return false
-        }
-        if let lastAuthorizationFailure, Date().timeIntervalSince(lastAuthorizationFailure) < 8 {
-            errorMsg = "daemon 未启动；稍后再试"
-            return false
-        }
-        guard !isAuthorizingDaemon else {
-            errorMsg = "正在等待管理员授权..."
-            return false
-        }
-        isAuthorizingDaemon = true
+    /// Verify the persistent helper before any network control. Installation
+    /// and updates are coalesced by one app-wide coordinator.
+    func ensureDaemon(requireActive: Bool = false, authorizeIfNeeded: Bool = false, allowOldForStop: Bool = false) async -> Bool {
+        let mode: DaemonServiceCoordinator.Mode = allowOldForStop ? .stopOnly : (authorizeIfNeeded ? .userAction : .readOnly)
+        isAuthorizingDaemon = authorizeIfNeeded
         defer { isAuthorizingDaemon = false }
-        errorMsg = "需要管理员授权以启动网络服务"
-
-        // VPN/守护需要系统服务托管；普通传输/代理面板可用临时后台服务兜底。
-        let started = requireActive
-            ? await startSystemDaemonWithPrivileges()
-            : await startDaemonWithPrivileges()
-        if started {
-            // 等待 daemon 就绪
-            try? await Task.sleep(for: .seconds(2))
-            let retryReachable = (try? await controlAPI.status(timeout: 2.0)) != nil
-            if retryReachable {
-                await syncConfigSilently()
-                markDaemonUp()
-                return true
-            }
-        }
-
-        if requireActive {
-            log("系统服务启动失败，回退临时 daemon")
-            let fallbackStarted = await startDaemonWithPrivileges()
-            if fallbackStarted {
-                try? await Task.sleep(for: .seconds(2))
-                if (try? await controlAPI.status(timeout: 2.0)) != nil {
-                    await syncConfigSilently()
-                    markDaemonUp()
-                    return true
-                }
-            }
-        }
-
-        lastAuthorizationFailure = Date()
-        errorMsg = "Daemon 未启动；可再次点击 VPN 重试授权"
-        return false
-    }
-
-    /// 安装并启动 launchd 托管的系统 daemon。这个路径用于 VPN/守护，避免临时进程被系统终止后状态丢失。
-    private func startSystemDaemonWithPrivileges() async -> Bool {
-        guard let scriptPath = Bundle.main.path(forResource: "wgsense-install-services", ofType: "sh", inDirectory: "packaging") else {
-            log("系统服务安装脚本缺失，回退临时 daemon")
-            return await startDaemonWithPrivileges()
-        }
-        let daemonPath = Self.daemonPath
-        guard FileManager.default.isExecutableFile(atPath: daemonPath) else {
-            log("daemon 二进制不可执行，无法安装系统服务")
-            return false
-        }
-        let moverPath = Bundle.main.path(forResource: "wgsense-receive-mover", ofType: "sh", inDirectory: "packaging") ?? ""
-        let command: String
-        if moverPath.isEmpty {
-            command = "\(shellQuote(scriptPath)) \(shellQuote(daemonPath))"
+        let result = await DaemonServiceCoordinator.shared.ensure(mode)
+        if result.ok {
+            serviceLifecycleError = nil
+            markDaemonUp()
         } else {
-            command = "\(shellQuote(scriptPath)) \(shellQuote(daemonPath)) \(shellQuote(moverPath))"
+            serviceLifecycleError = result.message
+            errorMsg = result.message
         }
-        return await runAdministratorCommand(command, timeout: 90)
-    }
-
-    /// 通过 osascript 弹出系统授权窗口，以 root 权限启动 daemon
-    private func startDaemonWithPrivileges() async -> Bool {
-        let daemonPath = Self.daemonPath
-        let runtimePath = NSHomeDirectory() + "/.local/share/wgsense"
-        let downloadPath = NSHomeDirectory() + "/.local/share/wgsense/incoming"
-        let autoConnect = autoConnectUntrusted ? "true" : "false"
-        let startPaused = guardAutomationEnabled ? "false" : "true"
-        let trustedPrefixes = trustedNetworkPrefixes
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let daemon = daemonPath.replacingOccurrences(of: "'", with: "'\\''")
-                let runtime = runtimePath.replacingOccurrences(of: "'", with: "'\\''")
-                let downloads = downloadPath.replacingOccurrences(of: "'", with: "'\\''")
-                let prefixes = trustedPrefixes.replacingOccurrences(of: "'", with: "'\\''")
-                let shellCmd = "'\(daemon)' --api 127.0.0.1:8765 --runtime-dir '\(runtime)' --download-dir '\(downloads)' --trusted-network-prefixes '\(prefixes)' --auto-connect-untrusted=\(autoConnect) --start-paused=\(startPaused) --app-owned=true </dev/null >>/var/log/wgsense-daemon.log 2>&1 &"
-                let escaped = shellCmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                let script = "do shell script \"\(escaped)\" with administrator privileges"
-
-                let task = Process()
-                task.launchPath = "/usr/bin/osascript"
-                task.arguments = ["-e", script]
-                let pipe = Pipe()
-                task.standardOutput = pipe
-                task.standardError = pipe
-
-                do {
-                    try task.run()
-                    task.waitUntilExit()
-                    let success = (task.terminationStatus == 0)
-                    if !success {
-                        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                        print("[DaemonClient] daemon 启动失败: \(output)")
-                    }
-                    continuation.resume(returning: success)
-                } catch {
-                    print("[DaemonClient] osascript 异常: \(error.localizedDescription)")
-                    continuation.resume(returning: false)
-                }
-            }
-        }
-    }
-
-    private func runAdministratorCommand(_ command: String, timeout: TimeInterval) async -> Bool {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let escaped = command
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-                let script = "do shell script \"\(escaped)\" with administrator privileges"
-                let task = Process()
-                task.launchPath = "/usr/bin/osascript"
-                task.arguments = ["-e", script]
-                let pipe = Pipe()
-                task.standardOutput = pipe
-                task.standardError = pipe
-                let watchdog = DispatchWorkItem {
-                    if task.isRunning {
-                        task.terminate()
-                    }
-                }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
-                do {
-                    try task.run()
-                    task.waitUntilExit()
-                    watchdog.cancel()
-                    let success = (task.terminationStatus == 0)
-                    if !success {
-                        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                        print("[DaemonClient] 管理员命令失败: \(output)")
-                    }
-                    continuation.resume(returning: success)
-                } catch {
-                    watchdog.cancel()
-                    print("[DaemonClient] 管理员命令异常: \(error.localizedDescription)")
-                    continuation.resume(returning: false)
-                }
-            }
-        }
-    }
-
-    private func shellQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+        return result.ok
     }
 
     private func log(_ msg: String) {
@@ -309,7 +153,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
 
     /// 重置可达状态（供轮询成功后调用）
     func markDaemonUp() {
-        errorMsg = nil
+        if serviceLifecycleError == nil { errorMsg = nil }
     }
 
     deinit {
@@ -357,7 +201,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         } catch {
             status = nil
             transferState = nil
-            errorMsg = "daemon 未连接"
+            errorMsg = serviceLifecycleError ?? "daemon 未连接"
         }
     }
 
@@ -564,7 +408,11 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     private func runDaemonCommand(_ endpoint: String, showToast: Bool = true) async {
         let shouldStartDaemon = endpoint == "connect" || endpoint == "resume"
         setPending(for: endpoint)
-        guard await ensureDaemon(requireActive: endpoint == "connect", authorizeIfNeeded: shouldStartDaemon) else {
+        guard await ensureDaemon(
+            requireActive: endpoint == "connect",
+            authorizeIfNeeded: shouldStartDaemon,
+            allowOldForStop: endpoint == "disconnect" || endpoint == "pause"
+        ) else {
             clearPendingState()
             return
         }
@@ -1345,5 +1193,278 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         } catch {
             proxyFailure(error, prefix: "读取 Mihomo 日志失败")
         }
+    }
+}
+
+// Coordinates the single privileged installation attempt for this App process.
+// User-triggered retries remain possible after cancellation or a failed install.
+@MainActor
+final class DaemonServiceCoordinator {
+    static let shared = DaemonServiceCoordinator()
+
+    enum Mode { case firstLaunch, userAction, maintenance, readOnly, stopOnly, restart }
+
+    struct Outcome {
+        let ok: Bool
+        let message: String
+        static let ready = Outcome(ok: true, message: "系统服务已就绪")
+        static func failure(_ message: String) -> Outcome { Outcome(ok: false, message: message) }
+    }
+
+    private struct ServiceIdentity: Decodable {
+        let `protocol`: Int
+        let managed: Bool
+        let owner_uid: Int
+        let binary_sha256: String
+        let ready: Bool
+        let pid: Int?
+    }
+
+    private struct Submission: Decodable {
+        let operation_id: String
+        let binary_sha256: String
+    }
+
+    private struct InstallResult: Decodable {
+        let operation_id: String
+        let status: String
+        let message: String?
+        let binary_sha256: String?
+    }
+
+    private let api = DaemonAPIClient()
+    private let controlAPI = DaemonControlAPIClient()
+    private let plistPath = "/Library/LaunchDaemons/com.wgsense.daemon.plist"
+    private let resultPath = "/Library/Application Support/WgSense/install-result.json"
+    private var operation: Task<Outcome, Never>?
+    private var operationMode: Mode?
+    private var operationGeneration = 0
+    private var firstLaunchStarted = false
+    private var firstLaunchOutcome: Outcome?
+
+    func ensure(_ mode: Mode) async -> Outcome {
+        if case .firstLaunch = mode {
+            if firstLaunchStarted {
+                if let operation, operationMode == .firstLaunch { return await operation.value }
+                return firstLaunchOutcome ?? .failure("首次安装正在检查")
+            }
+            firstLaunchStarted = true
+        }
+        let outcome = await performCoalesced(mode)
+        if case .firstLaunch = mode { firstLaunchOutcome = outcome }
+        return outcome
+    }
+
+    private func performCoalesced(_ mode: Mode) async -> Outcome {
+        if let operation {
+            let joinedMode = operationMode
+            let generation = operationGeneration
+            let outcome = await operation.value
+            clearOperation(ifGeneration: generation)
+            if joinedMode == mode || !outcome.ok { return outcome }
+            // A successful stop-only or read-only result never authorizes a
+            // different action; run that action's own identity/version check.
+            return await performCoalesced(mode)
+        }
+        operationGeneration += 1
+        let generation = operationGeneration
+        operationMode = mode
+        let task = Task { mode == .restart ? await performRestart() : await perform(mode) }
+        operation = task
+        let outcome = await task.value
+        clearOperation(ifGeneration: generation)
+        return outcome
+    }
+
+    private func clearOperation(ifGeneration generation: Int) {
+        guard operationGeneration == generation else { return }
+        operation = nil
+        operationMode = nil
+    }
+
+    func restart() async -> Outcome {
+        await performCoalesced(.restart)
+    }
+
+    private func performRestart() async -> Outcome {
+        let checked = await perform(.readOnly)
+        guard checked.ok else { return checked }
+        guard let before = await serviceIdentity() else { return .failure("无法读取重启前的系统服务状态") }
+        var requestError: Error?
+        do {
+            _ = try await api.request("api/service/restart", method: "POST", timeout: 5)
+        } catch {
+            // The daemon may exit after accepting the request but before the
+            // HTTP response reaches us. Judge completion by the new process.
+            requestError = error
+        }
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .seconds(1))
+            if let after = await serviceIdentity(), identityProblem(after) == nil,
+               after.ready && after.binary_sha256 == before.binary_sha256,
+               after.pid != before.pid { return .ready }
+        }
+        if let requestError {
+            return .failure("无法确认系统服务已重启：\(requestError.localizedDescription)")
+        }
+        return .failure("系统服务重启后未按时就绪；请查看维护诊断")
+    }
+
+    private func perform(_ mode: Mode) async -> Outcome {
+        guard let daemon = Bundle.main.path(forResource: "wgsense-daemon", ofType: nil, inDirectory: "libexec"),
+              let mover = Bundle.main.path(forResource: "wgsense-receive-mover", ofType: "sh", inDirectory: "packaging"),
+              FileManager.default.isExecutableFile(atPath: daemon) else {
+            return .failure("安装包缺少后台服务文件，请重新安装完整的 WgSense App")
+        }
+        let expectedHash: String
+        do {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: daemon))
+            expectedHash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        } catch {
+            return .failure("无法校验后台服务文件：\(error.localizedDescription)")
+        }
+
+        if let identity = await serviceIdentity() {
+            if let mismatch = identityProblem(identity) { return .failure(mismatch) }
+            if mode == .stopOnly {
+                return identity.ready ? .ready : .failure("WgSense 服务尚未就绪，无法安全断开")
+            }
+            if identity.binary_sha256.lowercased() == expectedHash && identity.ready { return .ready }
+            if identity.binary_sha256.lowercased() != expectedHash {
+                if mode == .readOnly { return .failure("系统服务版本与 App 不一致；请先完成升级") }
+                if let running = try? await controlAPI.status(timeout: 1.5), running.state == "Connected" {
+                    return .failure("旧版 WgSense 隧道仍在运行；请先断开，再升级后台服务")
+                }
+                return await submitUpdate(daemon: daemon, mover: mover, expectedHash: expectedHash)
+            }
+            if await waitForIdentity(expectedHash: expectedHash, seconds: 10) { return .ready }
+            return .failure("系统服务未就绪；请在维护面板查看诊断")
+        }
+
+        let hasPlist = FileManager.default.fileExists(atPath: plistPath)
+        if mode == .stopOnly, let old = try? await controlAPI.status(timeout: 1.5),
+           old.app_owned == true || (hasPlist && old.app_owned == false) {
+            return .ready
+        }
+        if hasPlist {
+            if await waitForIdentity(expectedHash: expectedHash, seconds: 10) { return .ready }
+            // An old daemon can be migrated by the installer; an offline
+            // registered job should be diagnosed rather than repeatedly prompting.
+            if (try? await controlAPI.status(timeout: 1.5)) == nil && mode != .maintenance {
+                return .failure("系统服务已安装但未运行；请在维护面板检查或明确选择修复")
+            }
+        }
+        if let legacy = try? await controlAPI.status(timeout: 1.5),
+           legacy.app_owned == true && legacy.state == "Connected" {
+            return .failure("旧版临时 VPN 正在运行；请先在旧版中断开，再安装常驻服务")
+        }
+
+        guard mode != .readOnly && mode != .stopOnly else { return .failure("系统服务尚未安装或无法识别") }
+        return await submitInstall(daemon: daemon, mover: mover, expectedHash: expectedHash)
+    }
+
+    private func identityProblem(_ identity: ServiceIdentity) -> String? {
+        if identity.`protocol` != 1 || !identity.managed || identity.owner_uid != Int(getuid()) {
+            return "当前端口不是本用户可用的 WgSense 系统服务；请检查是否有旧进程占用"
+        }
+        return nil
+    }
+
+    private func serviceIdentity() async -> ServiceIdentity? {
+        try? await api.decode(ServiceIdentity.self, path: "api/service", timeout: 1.5)
+    }
+
+    private func submitUpdate(daemon: String, mover: String, expectedHash: String) async -> Outcome {
+        let previousOperationID = readInstallResult()?.operation_id
+        do {
+            let submission = try await api.decode(
+                Submission.self,
+                path: "api/service/update",
+                method: "POST",
+                body: ["source_daemon": daemon, "source_mover": mover, "binary_sha256": expectedHash],
+                timeout: 10
+            )
+            guard submission.binary_sha256.lowercased() == expectedHash else {
+                return .failure("后台服务升级任务的版本校验不匹配")
+            }
+            return await waitForOperation(submission, expectedHash: expectedHash)
+        } catch {
+            // The old daemon can exit after accepting the upgrade but before
+            // its HTTP response reaches the App. Verify the new service or the
+            // newly written operation receipt before reporting failure.
+            if let identity = await serviceIdentity(), identityProblem(identity) == nil,
+               identity.ready && identity.binary_sha256.lowercased() == expectedHash {
+                return .ready
+            }
+            if let receipt = readInstallResult(), !receipt.operation_id.isEmpty,
+               receipt.operation_id != previousOperationID,
+               receipt.binary_sha256?.lowercased() == expectedHash {
+                if receipt.status == "running" || receipt.status == "success" {
+                    return await waitForOperation(
+                        Submission(operation_id: receipt.operation_id, binary_sha256: expectedHash),
+                        expectedHash: expectedHash
+                    )
+                }
+                if receipt.status == "error" {
+                    return .failure(receipt.message ?? "后台服务升级失败，旧服务已保留")
+                }
+            }
+            return .failure("后台服务升级未提交：\(error.localizedDescription)")
+        }
+    }
+
+    private func submitInstall(daemon: String, mover: String, expectedHash: String) async -> Outcome {
+        guard let script = Bundle.main.path(forResource: "wgsense-install-services", ofType: "sh", inDirectory: "packaging") else {
+            return .failure("安装包缺少系统服务安装脚本")
+        }
+        let username = NSUserName()
+        guard !username.isEmpty && username != "root" else { return .failure("无法确定登录用户") }
+        let command = [script, daemon, mover, username].map(ShellCommand.quote).joined(separator: " ")
+        let result = await ShellCommand.administrator(command, timeout: 120)
+        guard result.succeeded else {
+            return .failure("系统服务安装被取消或失败：\(result.output.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        guard let submission = try? JSONDecoder().decode(Submission.self, from: Data(result.output.utf8)),
+              submission.binary_sha256.lowercased() == expectedHash else {
+            return .failure("安装程序未返回可验证的任务编号；请查看维护诊断")
+        }
+        return await waitForOperation(submission, expectedHash: expectedHash)
+    }
+
+    private func waitForIdentity(expectedHash: String, seconds: Int) async -> Bool {
+        let deadline = Date().addingTimeInterval(TimeInterval(seconds))
+        while Date() < deadline {
+            if let identity = await serviceIdentity(), identityProblem(identity) == nil,
+               identity.ready && identity.binary_sha256.lowercased() == expectedHash { return true }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        return false
+    }
+
+    private func waitForOperation(_ submission: Submission, expectedHash: String) async -> Outcome {
+        var committed = false
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline {
+            if let receipt = readInstallResult(), receipt.operation_id == submission.operation_id {
+                if receipt.status == "error" {
+                    return .failure(receipt.message ?? "后台服务安装或升级失败，旧服务已保留")
+                }
+                if receipt.status == "success" {
+                    guard receipt.binary_sha256?.lowercased() == expectedHash else {
+                        return .failure("安装记录的版本与 App 不一致")
+                    }
+                    committed = true
+                }
+            }
+            if committed, let identity = await serviceIdentity(), identityProblem(identity) == nil,
+               identity.ready && identity.binary_sha256.lowercased() == expectedHash { return .ready }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        return .failure("等待后台服务就绪超时；请在维护面板查看安装结果")
+    }
+
+    private func readInstallResult() -> InstallResult? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: resultPath)) else { return nil }
+        return try? JSONDecoder().decode(InstallResult.self, from: data)
     }
 }
