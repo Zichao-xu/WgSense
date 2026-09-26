@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
@@ -28,6 +29,10 @@ jobs:
         working-directory: platforms/macos
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
       - run: brew install xcodegen
       - run: xcodegen generate
       - run: xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Debug build -destination 'platform=macOS' CODE_SIGN_IDENTITY="-"
