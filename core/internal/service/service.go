@@ -422,7 +422,12 @@ func (m *Manager) install(ctx context.Context, req Request) (err error) {
 		tx.LegacyPassive = status.Passive
 		legacyCopy := filepath.Join(filepath.Dir(req.SourceDaemon), "previous-app-daemon")
 		if e = copyFile(tx.LegacyBinary, legacyCopy, 0755); e != nil {
-			return fmt.Errorf("无法备份旧临时服务: %w", e)
+			// 旧 App 已被删除或移动时，进程仍在但程序文件不存在。它已断开，
+			// 迁移继续；只是失败回滚时无法再拉起旧临时服务。
+			if !errors.Is(e, os.ErrNotExist) {
+				return fmt.Errorf("无法备份旧临时服务: %w", e)
+			}
+			legacyCopy = ""
 		}
 		tx.LegacyBinary = legacyCopy
 	}
@@ -596,7 +601,7 @@ func (m *Manager) rollback(tx transaction) error {
 		if out, err := m.Run(ctx, "/bin/launchctl", "bootstrap", "system", m.Paths.Plist); err != nil {
 			return fmt.Errorf("恢复旧系统服务: %s: %w", out, err)
 		}
-	} else if tx.LegacyPID != 0 {
+	} else if tx.LegacyPID != 0 && tx.LegacyBinary != "" {
 		// If the original process survived the shutdown request, do not spawn a
 		// competing copy. Otherwise restore its executable under launchd so it
 		// survives this installer process exiting.
@@ -618,7 +623,7 @@ func (m *Manager) rollback(tx transaction) error {
 			return fmt.Errorf("恢复接收服务: %s: %w", out, err)
 		}
 	}
-	if tx.OldLoaded || tx.LegacyPID != 0 {
+	if tx.OldLoaded || (tx.LegacyPID != 0 && tx.LegacyBinary != "") {
 		var old Request
 		if readJSON(filepath.Join(m.Paths.Root, "installed.json"), &old) == nil {
 			if err := m.waitIdentity(ctx, old); err != nil {

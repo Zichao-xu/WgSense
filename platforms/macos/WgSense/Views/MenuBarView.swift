@@ -60,7 +60,7 @@ struct MenuBarView: View {
                 title: "VPN",
                 symbol: "network",
                 isOn: client.isVPNOn,
-                disabled: client.pendingConnected != nil
+                disabled: client.pendingConnected != nil || client.isGuardBlockingVPN
             ) { enabled in
                 Task {
                     await client.post(enabled ? "connect" : "disconnect")

@@ -106,6 +106,11 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         status?.state == "Connected"
     }
 
+    /// 设计规则：受信任网络（在家）且守护开启时，VPN 由守护保持断开，不允许手动打开。
+    var isGuardBlockingVPN: Bool {
+        (status?.isTrustedNetwork ?? false) && isGuardOn && !isTunnelUp
+    }
+
     var isGuardOn: Bool {
         pendingGuardRunning ?? status?.desired_guard_enabled ?? guardAutomationEnabled
     }
@@ -365,6 +370,17 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
 
     private func dispatchDaemonCommand(_ endpoint: String) async {
         if endpoint == "connect" {
+            // 所有连接入口统一拦截，避免连上后被守护立即断开。
+            if isGuardBlockingVPN {
+                showActionNotification(
+                    title: "在家由守护保持断开",
+                    detail: "受信任网络下守护不允许连接 VPN；需要时先关闭守护。",
+                    category: "guard-block",
+                    symbol: "shield.checkered",
+                    tint: .orange
+                )
+                return
+            }
             await connectVPN()
             return
         }

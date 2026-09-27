@@ -640,3 +640,37 @@ func TestUninstallRejectsAnotherOwnersReceipt(t *testing.T) {
 	f.assertNoServiceMutation()
 	f.assertFilesEqual(before)
 }
+
+// 旧 App 被删除后，旧临时 daemon 仍在运行但程序文件已不存在；迁移应继续完成。
+func TestLegacyMigrationWithDeletedLegacyBinary(t *testing.T) {
+	f := newServiceFixture(t)
+	f.seedIntent()
+	f.legacyPID = 98765
+	f.legacyBinary = filepath.Join(f.dir, "deleted-app", "wgsense-daemon")
+	appOwned := true
+	f.stopEndpoint()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/status":
+			_ = json.NewEncoder(w).Encode(Status{State: "Disconnected", Service: "default", AppOwned: &appOwned})
+		case "/api/shutdown":
+			server.Listener.Close() // 停止接受新连接，模拟旧 daemon 退出释放端口
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	f.server = server
+	f.m.BaseURL = server.URL
+
+	if err := f.m.RunTask(context.Background(), f.requestPath); err != nil {
+		t.Fatal(err)
+	}
+	if result := f.result(); result.Status != "success" {
+		t.Fatalf("deleted legacy binary should not block migration: %#v", result)
+	}
+	if !f.loaded {
+		t.Fatal("new service was not loaded")
+	}
+}

@@ -66,7 +66,8 @@ struct WireGuardDetailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(client.isAuthorizingDaemon)
+                .disabled(client.isAuthorizingDaemon || client.isGuardBlockingVPN)
+                .help(client.isGuardBlockingVPN ? "在家由守护保持断开；关闭守护后可手动连接" : "")
             }
         }
         .padding(14)

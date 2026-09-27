@@ -170,7 +170,6 @@ struct OverviewView: View {
         let wantVPN = s.desired_vpn_enabled ?? false
         switch s.state {
         case "Connected":
-            if s.isTrustedNetwork && guardOn { return "受信任网络，手动连接优先；换网络或手动断开后交还守护" }
             return "隧道已建立"
         case "Connecting":
             return "正在连接…"
@@ -181,7 +180,7 @@ struct OverviewView: View {
                 if let failures = s.auto_failures, failures > 0 { return "连接失败，正在自动重试（第 \(failures) 次）" }
                 return "正在尝试连接…"
             }
-            if s.isTrustedNetwork && guardOn { return "受信任网络，守护保持断开" }
+            if s.isTrustedNetwork && guardOn { return "在家（受信任网络），守护保持断开；需要时先关闭守护" }
             if !guardOn { return "守护已关闭，需要时手动连接" }
             return "未连接"
         }

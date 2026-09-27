@@ -931,7 +931,7 @@ struct SidebarView: View {
             tile: tile,
             icon: tile.kind.icon,
             color: tile.kind.activeColor,
-            subtitle: isConnected ? (isTunnelUp ? "已连" : "连接中") : "断开",
+            subtitle: isConnected ? (isTunnelUp ? "已连" : "连接中") : (client.isGuardBlockingVPN ? "在家 · 守护断开" : "断开"),
             isOn: isConnected
         ) {
             Task { await client.post(isConnected ? "disconnect" : "connect") }
@@ -941,6 +941,13 @@ struct SidebarView: View {
         .overlay(alignment: .bottomTrailing) {
             if !isEditMode {
                 vpnQuickControls(compact: false)
+                    .padding(tilePadding(tile.size))
+            }
+        }
+        // 放在 overlay 而不是磁贴 Button 的 label 里：嵌套 Button 的点击会被外层吃掉。
+        .overlay(alignment: .bottomLeading) {
+            if !isEditMode && tile.size == .large {
+                vpnActionButton()
                     .padding(tilePadding(tile.size))
             }
         }
@@ -1268,7 +1275,6 @@ struct SidebarView: View {
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        vpnActionButton()
                     }
                 }
             }
@@ -1278,6 +1284,12 @@ struct SidebarView: View {
             .wgTileSurface(tint: .orange, isSelected: selection == .profile)
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .bottomTrailing) {
+            if !isEditMode && tile.size == .large {
+                vpnActionButton()
+                    .padding(tilePadding(tile.size))
+            }
+        }
     }
 
     // --- 导航小卡（日志/关于）---
@@ -1475,18 +1487,20 @@ struct SidebarView: View {
     /// 连接只发 connect：不再顺带开启守护，否则在受信任网络会被守护立即断开。
     private func vpnActionButton() -> some View {
         let connected = isConnected
+        let blocked = !connected && client.isGuardBlockingVPN
         return Button {
             Task { await client.post(connected ? "disconnect" : "connect") }
         } label: {
             Text(connected ? "断开" : "连接")
                 .font(.caption2).fontWeight(.semibold)
                 .padding(.horizontal, 12).padding(.vertical, 4)
-                .background((connected ? Color.red : Color.green).opacity(0.85))
-                .foregroundStyle(.white)
+                .background((blocked ? Color.gray : (connected ? Color.red : Color.green)).opacity(blocked ? 0.35 : 0.85))
+                .foregroundStyle(.white.opacity(blocked ? 0.6 : 1))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
-        .disabled(client.pendingConnected != nil)
+        .disabled(client.pendingConnected != nil || blocked)
+        .help(blocked ? "在家由守护保持断开；关闭守护后可手动连接" : "")
     }
 
     private func connDetailRow(_ label: LocalizedStringKey, value: String, color: Color? = nil) -> some View {
@@ -1541,11 +1555,8 @@ struct SidebarView: View {
                         }
                     }
 
-                    // 大尺寸：显示操作按钮
-                    if tile.size == .large {
-                        vpnActionButton()
-                            .padding(.top, 6)
-                    }
+                    // 大尺寸留出底部空间给 VPN 磁贴叠加的动作按钮。
+                    if tile.size == .large { Spacer().frame(height: 30) }
                 }
             }
             .padding(tilePadding(tile.size))

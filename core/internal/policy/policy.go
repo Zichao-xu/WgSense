@@ -54,12 +54,6 @@ type Engine struct {
 	networkSnapshot func() string
 	lastNetwork     string
 
-	// 手动优先：用户在受信任网络里手动连接后，守护暂时让路。只存内存，
-	// 记录连接时的物理网络；手动断开、重新开启守护或物理网络变化即失效。
-	physicalSnapshot  func() string
-	manualOverride    bool
-	manualOverrideNet string
-
 	// 巡检日志去重：状态不变时只按心跳间隔记一行，防止日志无限膨胀。
 	lastTickKey string
 	lastTickLog time.Time
@@ -85,9 +79,8 @@ func New(cfg config.Config, loc location.Locator, tun tunnel.Manager, hc healthc
 		tun:             tun,
 		hc:              hc,
 		pause:           p,
-		networkSnapshot:  netstate.Fingerprint,
-		physicalSnapshot: location.NetworkFingerprint,
-		LogBuf:           logbuf.New(200),
+		networkSnapshot: netstate.Fingerprint,
+		LogBuf:          logbuf.New(200),
 	}
 }
 
@@ -110,49 +103,6 @@ func (e *Engine) SetNetworkSnapshotFunc(fn func() string) {
 		return
 	}
 	e.networkSnapshot = fn
-}
-
-// SetPhysicalSnapshotFunc overrides physical network fingerprinting for tests.
-func (e *Engine) SetPhysicalSnapshotFunc(fn func() string) {
-	if fn == nil {
-		e.physicalSnapshot = location.NetworkFingerprint
-		return
-	}
-	e.physicalSnapshot = fn
-}
-
-func (e *Engine) currentPhysicalSnapshot() string {
-	if e.physicalSnapshot == nil {
-		return ""
-	}
-	return e.physicalSnapshot()
-}
-
-func (e *Engine) setManualOverride() {
-	e.manualOverride = true
-	e.manualOverrideNet = e.currentPhysicalSnapshot()
-}
-
-func (e *Engine) clearManualOverride(reason string) {
-	if !e.manualOverride {
-		return
-	}
-	e.manualOverride = false
-	e.manualOverrideNet = ""
-	if reason != "" {
-		e.Logf("手动连接优先已结束（%s），交还守护", reason)
-	}
-}
-
-// expireManualOverride 在物理网络变化后结束手动优先；指纹取不到时保持原状。
-func (e *Engine) expireManualOverride() {
-	if !e.manualOverride {
-		return
-	}
-	current := e.currentPhysicalSnapshot()
-	if current != "" && e.manualOverrideNet != "" && current != e.manualOverrideNet {
-		e.clearManualOverride("物理网络已变化")
-	}
 }
 
 func (e *Engine) saveCurrentConfig() error {
@@ -257,13 +207,12 @@ func (e *Engine) runOnceLocked() error {
 		return nil
 	}
 
-	e.expireManualOverride()
 	trusted := e.loc.IsHome(e.cfg.TrustedNetworkPrefixes)
 	state, _ := e.tun.Status(e.service)
 	e.logTick(trusted, state)
 
-	// 受信任网络 → 守护策略断开隧道；未开启守护，或用户在当前网络手动
-	// 连接过（手动优先），则保留隧道。
+	// 受信任网络 → 守护策略优先断开隧道；未开启守护时，保留用户手动
+	// 要求 VPN 保持开启的意图。
 	if trusted {
 		if state != tunnel.StateDisconnected && !e.shouldKeepVPNUp(trusted) {
 			e.Logf("命中受信任网络，断开 WireGuard")
@@ -344,12 +293,8 @@ func (e *Engine) shouldLogTick(key string) bool {
 }
 
 func (e *Engine) logTick(trusted bool, state tunnel.State) {
-	key := fmt.Sprintf("%v|%s|%s|%v", trusted, state, e.service, e.manualOverride)
+	key := fmt.Sprintf("%v|%s|%s", trusted, state, e.service)
 	if !e.shouldLogTick(key) {
-		return
-	}
-	if e.manualOverride {
-		e.Logf("巡检 trusted=%v state=%s service=%s（手动连接优先）", trusted, state, e.service)
 		return
 	}
 	e.Logf("巡检 trusted=%v state=%s service=%s", trusted, state, e.service)
@@ -357,7 +302,7 @@ func (e *Engine) logTick(trusted bool, state tunnel.State) {
 
 func (e *Engine) shouldKeepVPNUp(trusted bool) bool {
 	if trusted && e.cfg.DesiredGuardEnabled {
-		return e.manualOverride
+		return false
 	}
 	if e.cfg.DesiredVPNEnabled {
 		return true
@@ -522,7 +467,6 @@ func (e *Engine) Connect() error {
 	if err := e.saveCurrentConfig(); err != nil {
 		return err
 	}
-	e.setManualOverride()
 	if e.passive {
 		return fmt.Errorf("daemon 处于被动模式，WireGuard 连接需要正式网络服务")
 	}
@@ -559,7 +503,6 @@ func (e *Engine) Disconnect() error {
 	if err := e.saveCurrentConfig(); err != nil {
 		return err
 	}
-	e.clearManualOverride("")
 	e.healthFailures = 0
 	return e.tun.Disconnect(e.service)
 }
@@ -638,8 +581,6 @@ func (e *Engine) Resume() error {
 	e.cfg.DesiredGuardEnabled = true
 	e.cfg.AutoConnectUntrusted = true
 	e.cfg.AutoConnectAway = true
-	// 重新开启守护 = 把判断交还守护。
-	e.clearManualOverride("已重新开启守护")
 	if err := e.saveCurrentConfig(); err != nil {
 		e.opMu.Unlock()
 		return err
