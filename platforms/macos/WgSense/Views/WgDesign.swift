@@ -296,3 +296,168 @@ enum WgFormat {
         return "\(seconds / 3600) 小时前"
     }
 }
+
+// MARK: - 页面框架
+
+/// 所有页面共用：同一种标题排版、同一内容宽度、同一纵向节奏。
+struct WgPage<Accessory: View, Content: View>: View {
+    var title: LocalizedStringKey
+    var subtitle: LocalizedStringKey? = nil
+    var maxWidth: CGFloat = 820
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 26, weight: .bold))
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 12)
+                accessory()
+            }
+            content()
+        }
+        .frame(maxWidth: maxWidth, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+}
+
+extension WgPage where Accessory == EmptyView {
+    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, maxWidth: CGFloat = 820,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, subtitle: subtitle, maxWidth: maxWidth, accessory: { EmptyView() }, content: content)
+    }
+}
+
+// MARK: - 分组
+
+/// 系统设置式分组：小标题 + 一块圆角实体 + 可选脚注。
+struct WgSection<Content: View>: View {
+    var title: LocalizedStringKey?
+    var footer: LocalizedStringKey? = nil
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            VStack(spacing: 0) {
+                content()
+            }
+            .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
+            if let footer {
+                Text(footer)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+/// 分组内的一行：方形徽章 + 标题/副标题 + 右侧控件。
+struct WgRow<Accessory: View>: View {
+    var symbol: String?
+    var tint: Color = .gray
+    var title: LocalizedStringKey
+    var subtitle: Text? = nil
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let symbol {
+                WgSquareBadge(symbol: symbol, tint: tint, size: 24)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 13))
+                if let subtitle {
+                    subtitle
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 12)
+            accessory()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(minHeight: 46)
+    }
+}
+
+extension WgRow where Accessory == EmptyView {
+    init(symbol: String?, tint: Color = .gray, title: LocalizedStringKey, subtitle: Text? = nil) {
+        self.init(symbol: symbol, tint: tint, title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// 行内右侧的只读值。
+struct WgValue: View {
+    var text: String
+    var monospaced = false
+    init(_ text: String, monospaced: Bool = false) {
+        self.text = text
+        self.monospaced = monospaced
+    }
+    var body: some View {
+        Text(verbatim: text)
+            .font(monospaced ? .system(size: 12, design: .monospaced) : .system(size: 13))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+    }
+}
+
+/// 行间分隔：从徽章之后开始，与系统设置一致。
+struct WgRowDivider: View {
+    var inset: CGFloat = 50
+    var body: some View {
+        Divider().opacity(0.5).padding(.leading, inset)
+    }
+}
+
+/// 小号次级按钮：中性底胶囊，文字可带语义色（红=卸载，橙=清理）。
+struct WgPillButtonStyle: ButtonStyle {
+    var tint: Color = .primary
+
+    func makeBody(configuration: Configuration) -> some View {
+        PillBody(configuration: configuration, tint: tint)
+    }
+
+    private struct PillBody: View {
+        let configuration: Configuration
+        let tint: Color
+        @State private var hovering = false
+        @Environment(\.colorScheme) private var colorScheme
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(tint == .primary ? AnyShapeStyle(Color.primary.opacity(0.85)) : AnyShapeStyle(tint))
+                .padding(.horizontal, 11)
+                .frame(height: 26)
+                .background(
+                    Capsule().fill((colorScheme == .dark ? Color.white : Color.black).opacity(hovering ? 0.11 : 0.065))
+                )
+                .opacity(isEnabled ? 1 : 0.45)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .contentShape(Capsule())
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
+    }
+}

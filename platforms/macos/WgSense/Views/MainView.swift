@@ -129,28 +129,11 @@ private struct WgGlassSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
     let tint: Color?
     let interactive: Bool
-    @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
-    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
-    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
 
-    private var tuning: WgSurfaceTuning {
-        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
-    }
-
-    // 卡片同理：玻璃只负责背景，内容保持实色才有轮廓。
+    // 旧卡片入口统一走新实体表面：中性底 + 顶缘高光 + 描边。状态色不再铺满整张卡，
+    // 与控制中心/系统设置一致——颜色只留给徽章和状态点。
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        content
-            .background {
-                shape
-                    .fill(WgSurface.solid(colorScheme, tuning))
-                    .overlay(shape.fill(tint?.opacity(WgSurface.tint(tuning, selected: interactive)) ?? Color.clear))
-                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
-                    .allowsHitTesting(false)
-            }
-            .clipShape(shape)
-            .contentShape(shape)
+        content.wgInteractiveSurface(cornerRadius: max(cornerRadius, WgDesign.cardRadius))
     }
 }
 
@@ -229,25 +212,8 @@ private struct WgSidebarSurfaceModifier: ViewModifier {
 }
 
 private struct WgSettingsPanelSurfaceModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
-    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
-    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
-
-    private var tuning: WgSurfaceTuning {
-        WgSurfaceTuning(fill: surfaceFill, border: surfaceBorder, tint: surfaceTint)
-    }
-
-    // 设置面板与磁贴、卡片同属实体层，用同一档色阶。
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
-        content
-            .background {
-                shape
-                    .fill(WgSurface.solid(colorScheme, tuning))
-                    .overlay(shape.strokeBorder(WgSurface.border(colorScheme, tuning), lineWidth: 1))
-            }
-            .clipShape(shape)
+        content.wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 }
 
@@ -258,7 +224,10 @@ struct MainView: View {
     @EnvironmentObject var client: DaemonClient
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
-    @State private var selection: SidebarTab = .dashboard
+    /// 调试用：`open WgSense.app --args -WgSenseInitialTab settings` 直接停在指定页面（仅命令行参数域，不落盘）。
+    @State private var selection: SidebarTab = SidebarTab(
+        rawValue: UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["WgSenseInitialTab"] as? String ?? ""
+    ) ?? .dashboard
     @State private var sidebarWidth: CGFloat = 300
 
     private let sidebarMinWidth: CGFloat = 176
@@ -1980,42 +1949,68 @@ struct AddTileSheet: View {
 struct AboutView: View {
     @EnvironmentObject var client: DaemonClient
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: WgTheme.spacing) {
-            Text("关于").font(.title2).fontWeight(.semibold)
-            VStack(spacing: 16) {
-                HStack(spacing: 16) {
-                    Image(systemName: "shield.lefthalf.filled").font(.system(size: 40)).foregroundStyle(.green)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("WgSense").font(.title2).fontWeight(.bold)
-                        Text("v0.1-alpha").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                Divider().opacity(0.3)
-                aboutRow("定位", "跨平台网络工具套件")
-                aboutRow("核心", "WireGuard 客户端 + 智能管理")
-                aboutRow("协议", "Apache-2.0 开源")
-                aboutRow("平台", "macOS / Windows / Linux / iOS / Android")
-                Divider().opacity(0.3)
-                if let s = client.status {
-                    aboutRow("Daemon", s.state == "Connected" ? "运行中" : "未运行")
-                    aboutRow("Profile", s.service.isEmpty ? "无" : s.service)
-                }
-            }
-            .padding(20)
-            .wgGlassSurface()
-            Spacer()
-        }
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+    private var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
     }
 
-    private func aboutRow(_ label: LocalizedStringKey, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
-            Spacer()
-            Text(LocalizedStringKey(value)).font(.subheadline).fontWeight(.medium)
+    var body: some View {
+        WgPage(title: "关于") {
+            VStack(spacing: 10) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 88, height: 88)
+                    .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                Text("WgSense")
+                    .font(.system(size: 22, weight: .bold))
+                Text(verbatim: "版本 \(version)（\(build)）")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Text("在家自动断开，出门自动连上的 WireGuard 客户端")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+            .wgInteractiveSurface(cornerRadius: WgDesign.heroRadius)
+
+            WgSection(title: "运行") {
+                WgRow(symbol: "server.rack", tint: client.status != nil ? .green : .gray, title: "后台服务") {
+                    HStack(spacing: 6) {
+                        WgStatusDot(color: .green, isOn: client.status != nil)
+                        WgValue(client.status == nil ? "未运行" : (client.status?.app_owned == true ? "临时服务" : "系统服务"))
+                    }
+                }
+                WgRowDivider()
+                WgRow(symbol: "lock.shield.fill", tint: client.isTunnelUp ? .green : .gray, title: "隧道") {
+                    WgValue(client.isTunnelUp ? "已连接" : "未连接")
+                }
+                WgRowDivider()
+                WgRow(symbol: "doc.text.fill", tint: .orange, title: "当前配置") {
+                    WgValue(client.status.map { $0.service.isEmpty ? "—" : $0.service } ?? "—")
+                }
+            }
+
+            WgSection(title: "项目") {
+                WgRow(symbol: "square.stack.3d.up.fill", tint: .indigo, title: "平台") {
+                    WgValue("macOS · Windows · Linux · iOS · Android")
+                }
+                WgRowDivider()
+                WgRow(symbol: "checkmark.seal.fill", tint: .green, title: "开源协议") {
+                    WgValue("Apache-2.0")
+                }
+                WgRowDivider()
+                WgRow(symbol: "chevron.left.forwardslash.chevron.right", tint: .gray, title: "源代码") {
+                    Button {
+                        if let url = URL(string: "https://github.com/Zichao-xu/WgSense") { NSWorkspace.shared.open(url) }
+                    } label: { Label("GitHub", systemImage: "arrow.up.forward") }
+                        .buttonStyle(WgPillButtonStyle())
+                }
+            }
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -2085,126 +2080,135 @@ struct TransferReceiveView: View {
     @State private var startingDaemon = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("文件接收")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text("LocalSend 兼容接收服务")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let state = client.transferState {
-                    HStack(spacing: 10) {
-                        HStack(spacing: 6) {
-                            Circle().fill(state.running ? Color.green : Color.red).frame(width: 10, height: 10)
-                            Text(state.running ? "运行中" : "已停止").font(.callout.weight(.medium))
-                                .foregroundStyle(state.running ? .green : .red)
-                        }
-                        Toggle("", isOn: Binding(
-                            get: { client.transferState?.running ?? false },
-                            set: { enabled in
-                                Task {
-                                    togglingReceive = true
-                                    let ok = await client.setTransferReceiveEnabled(enabled)
-                                    if !ok { await client.fetchTransferState() }
-                                    togglingReceive = false
-                                }
-                            }
-                        ))
-                        .labelsHidden()
-                        .disabled(togglingReceive)
-                        if togglingReceive { ProgressView().controlSize(.small) }
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill((state.running ? Color.green : Color.red).opacity(0.1)))
-                }
-            }
-            Divider().opacity(0.15)
-
+        WgPage(title: "接收", subtitle: "兼容 LocalSend，隧道内的设备可以直接把文件发到这台 Mac") {
             if let state = client.transferState {
-                VStack(alignment: .leading, spacing: 16) {
-                    receiveInfoRow("设备别名", value: state.alias)
-                    Divider().opacity(0.1)
-                    HStack { receiveInfoRow("端口", value: "\(state.port)"); Spacer(); receiveInfoRow("保存目录", value: URL(fileURLWithPath: state.downloads).lastPathComponent) }
-                    Divider().opacity(0.1)
-                    receiveInfoRow("下载路径", value: state.downloads)
-                }
-                .padding(20)
-                .wgGlassSurface()
-            } else {
-                HStack(spacing: 12) {
-                    if client.transferError == nil { ProgressView() }
-                    else { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange) }
-                    Text(LocalizedStringKey(client.transferError ?? "正在连接 daemon...")).font(.body).foregroundStyle(.secondary)
-                    Spacer()
-                    if client.transferError != nil {
-                        Button {
+                HStack(spacing: 8) {
+                    if togglingReceive { ProgressView().controlSize(.small) }
+                    Text(state.running ? "接收已开启" : "接收已关闭")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Toggle("", isOn: Binding(
+                        get: { client.transferState?.running ?? false },
+                        set: { enabled in
                             Task {
-                                startingDaemon = true
-                                _ = await client.startDaemonForTransfer()
-                                startingDaemon = false
+                                togglingReceive = true
+                                let ok = await client.setTransferReceiveEnabled(enabled)
+                                if !ok { await client.fetchTransferState() }
+                                togglingReceive = false
                             }
-                        } label: {
-                            Text(LocalizedStringKey(startingDaemon ? "正在启动..." : "启动后台服务"))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(startingDaemon)
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(togglingReceive)
+                }
+            }
+        } content: {
+            if let state = client.transferState {
+                WgSection(title: "本机") {
+                    WgRow(symbol: "desktopcomputer", tint: .blue, title: "设备名",
+                          subtitle: Text("对方在 LocalSend 里看到的名字")) {
+                        WgValue(state.alias)
+                    }
+                    WgRowDivider()
+                    WgRow(symbol: "number", tint: .gray, title: "端口") {
+                        WgValue("\(state.port)", monospaced: true)
+                    }
+                    WgRowDivider()
+                    WgRow(symbol: "folder.fill", tint: .blue, title: "保存到") {
+                        HStack(spacing: 8) {
+                            WgValue(state.downloads)
+                            Button {
+                                NSWorkspace.shared.open(URL(fileURLWithPath: state.downloads))
+                            } label: { Image(systemName: "arrow.up.forward.square") }
+                                .buttonStyle(WgToolbarIconButtonStyle())
+                                .help("在访达中打开")
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity).padding()
-                .wgGlassSurface()
+            } else {
+                WgSection(title: nil) {
+                    WgRow(symbol: client.transferError == nil ? "hourglass" : "exclamationmark.triangle.fill",
+                          tint: client.transferError == nil ? .gray : .orange,
+                          title: LocalizedStringKey(client.transferError ?? "正在连接后台服务…")) {
+                        if client.transferError != nil {
+                            Button {
+                                Task {
+                                    startingDaemon = true
+                                    _ = await client.startDaemonForTransfer()
+                                    startingDaemon = false
+                                }
+                            } label: {
+                                Text(LocalizedStringKey(startingDaemon ? "正在启动…" : "启动后台服务"))
+                            }
+                            .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                            .disabled(startingDaemon)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("待接收").font(.headline.weight(.semibold))
-                    Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("待确认")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
                     if let count = client.transferState?.pending.count, count > 0 {
-                        Text("\(count)").font(.caption.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Capsule().fill(WgTheme.accent))
+                        Text("\(count)")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.orange))
                     }
                 }
+                .padding(.leading, 4)
                 if let pending = client.transferState?.pending, !pending.isEmpty {
                     ForEach(pending) { pendingRequestRow($0) }
                 } else {
                     HStack(spacing: 10) {
-                        Image(systemName: "tray.and.arrow.down").foregroundStyle(.tertiary)
-                        Text("暂无待确认的传输").font(.callout).foregroundStyle(.secondary)
+                        Image(systemName: "tray")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.tertiary)
+                        Text("暂无待确认的传输")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
                         Spacer()
                     }
-                    .padding(16)
-                    .wgGlassSurface()
+                    .padding(.horizontal, 16)
+                    .frame(height: 52)
+                    .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
                 }
             }
 
             if let active = client.transferState?.active, !active.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("接收中").font(.headline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("接收中")
                     ForEach(active) { activeTransferRow($0) }
                 }
             }
 
             if let history = client.transferState?.history, !history.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("最近接收").font(.headline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("最近接收")
                     ForEach(Array(history.prefix(5))) { historyTransferRow($0) }
                 }
             }
-            Spacer()
         }
-        .padding(28)
         .task {
             while !Task.isCancelled {
                 await client.fetchTransferState()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    private func sectionLabel(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.leading, 4)
     }
 
     private func receiveInfoRow(_ label: LocalizedStringKey, value: String) -> some View {
@@ -2230,14 +2234,10 @@ struct TransferReceiveView: View {
             if resolvingRequestID == request.id {
                 ProgressView().controlSize(.small).frame(width: 72)
             } else {
-                Button(role: .destructive) { resolve(request, accepted: false) } label: {
-                    Image(systemName: "xmark").frame(width: 20, height: 20)
-                }
-                .buttonStyle(.bordered).help("拒绝")
-                Button { resolve(request, accepted: true) } label: {
-                    Label("接受", systemImage: "checkmark")
-                }
-                .buttonStyle(.borderedProminent)
+                Button { resolve(request, accepted: false) } label: { Text("拒绝") }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: .red, prominent: false))
+                Button { resolve(request, accepted: true) } label: { Text("接受") }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
             }
         }
         .padding(16)
@@ -2325,33 +2325,54 @@ struct TransferSendView: View {
     @State private var startingDaemon = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("发送").font(.system(size: 22, weight: .bold)).foregroundStyle(.primary)
-                    .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 16)
-                Text("发送类型").font(.caption).fontWeight(.medium).foregroundStyle(.tertiary).padding(.horizontal, 20)
-                ForEach(SendType.supportedCases, id: \.self) { type in
-                    Button { selectSendType(type) } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: type.icon).font(.system(size: 16, weight: .medium)).frame(width: 24)
-                            Text(type.label).font(.callout); Spacer()
-                            if sendType == type { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(WgTheme.accent) }
+        WgPage(title: "发送", subtitle: "把文件发给隧道内运行 LocalSend 或 WgSense 的设备") {
+            HStack(spacing: 2) {
+                if isScanning { ProgressView().controlSize(.small).padding(.trailing, 6) }
+                Button { Task { await refreshDevices() } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(WgToolbarIconButtonStyle()).disabled(isScanning).help("刷新设备")
+                Button { Task { await scanSubnetDevices() } } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(WgToolbarIconButtonStyle()).disabled(isScanning).help("扫描局域网设备")
+                Button { showAddDeviceSheet = true } label: { Image(systemName: "plus") }
+                    .buttonStyle(WgToolbarIconButtonStyle()).help("手动添加设备")
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: 8) {
+                sendSectionLabel("选择设备")
+                if client.transferDevices.isEmpty && !isScanning {
+                    deviceEmptyCard
+                } else {
+                    WgSection(title: nil) {
+                        ForEach(client.transferDevices) { device in
+                            sendDeviceRow(device)
+                            if device.id != client.transferDevices.last?.id { WgRowDivider() }
                         }
-                        .foregroundStyle(sendType == type ? WgTheme.accent : .secondary)
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .wgFloatingControlSurface(tint: sendType == type ? WgTheme.accent : nil, cornerRadius: 8)
-                    }.buttonStyle(.plain)
-                }
-                Spacer()
-                if let result = lastSendResult {
-                    Text(result).font(.caption).foregroundStyle(result.contains("失败") || result.contains("未") ? .orange : .green).padding(16).multilineTextAlignment(.center)
+                    }
                 }
             }
-            .frame(width: 180)
-            .wgSidebarSurface()
-            Rectangle().fill(WgTheme.cardBorder.opacity(0.5)).frame(width: 1)
-            ScrollView { sendContentArea.padding(32) }
-                .wgPageSurface()
+
+            if let device = selectedDevice { selectedDeviceActions(device) }
+
+            if let result = lastSendResult {
+                Label(LocalizedStringKey(result),
+                      systemImage: result.contains("失败") || result.contains("未") ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(result.contains("失败") || result.contains("未") ? .orange : .green)
+                    .padding(.leading, 4)
+                    .transition(.opacity)
+            }
+
+            if let active = client.transferSendTasks?.active, !active.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    sendSectionLabel("发送中")
+                    ForEach(active) { activeSendTaskRow($0) }
+                }
+            }
+            if let history = client.transferSendTasks?.history, !history.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    sendSectionLabel("最近发送")
+                    ForEach(Array(history.prefix(5))) { sendHistoryRow($0) }
+                }
+            }
         }
         .task {
             await loadInitialData()
@@ -2365,57 +2386,23 @@ struct TransferSendView: View {
         .sheet(isPresented: $showAddDeviceSheet) { addDeviceSheet }
     }
 
-    // MARK: - 右侧内容区
-    @ViewBuilder
-    private var sendContentArea: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("目标设备").font(.headline.weight(.semibold)); Spacer()
-                    HStack(spacing: 8) {
-                        Button { Task { await refreshDevices() } } label: {
-                            Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(.secondary)
-                                .frame(width: 28, height: 28).contentShape(Rectangle())
-                        }.buttonStyle(.plain).disabled(isScanning).help("刷新设备")
-                        Button { Task { await scanSubnetDevices() } } label: {
-                            Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.blue)
-                                .frame(width: 28, height: 28).contentShape(Rectangle())
-                        }.buttonStyle(.plain).disabled(isScanning).help("扫描局域网设备")
-                        Button { showAddDeviceSheet = true } label: {
-                            Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(.orange)
-                                .frame(width: 28, height: 28).contentShape(Rectangle())
-                        }.buttonStyle(.plain).help("手动添加设备")
-                    }
-                }
-                if client.transferDevices.isEmpty && !isScanning { deviceEmptyCard }
-                else { LazyVGrid(columns: [GridItem(.flexible(), spacing: 12)], spacing: 12) { ForEach(client.transferDevices) { device in sendDeviceRow(device) } } }
-            }
-            if let device = selectedDevice { Divider().opacity(0.1); selectedDeviceActions(device) }
-            if let active = client.transferSendTasks?.active, !active.isEmpty {
-                Divider().opacity(0.1)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("发送任务").font(.headline.weight(.semibold))
-                    ForEach(active) { activeSendTaskRow($0) }
-                }
-            }
-            if let history = client.transferSendTasks?.history, !history.isEmpty {
-                Divider().opacity(0.1)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("最近发送").font(.headline.weight(.semibold))
-                    ForEach(Array(history.prefix(5))) { sendHistoryRow($0) }
-                }
-            }
-            Spacer()
-        }
+    private func sendSectionLabel(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.leading, 4)
     }
 
     private var deviceEmptyCard: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "antenna.radiowaves.left.and.right.slash").font(.system(size: 48)).foregroundStyle(.quaternary)
-            VStack(spacing: 6) {
-                Text(LocalizedStringKey(client.transferError ?? "暂无发现设备")).font(.headline).foregroundStyle(.secondary)
-                Text(LocalizedStringKey(client.transferError == nil ? "点击上方「扫描」或「+」手动添加隧道内设备的 IP 地址" : "传输功能需要连接到 WgSense daemon"))
-                    .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+        VStack(spacing: 10) {
+            WgSquareBadge(symbol: "antenna.radiowaves.left.and.right", tint: .indigo, size: 44, dimmed: true)
+            Text(LocalizedStringKey(client.transferError ?? "还没有发现设备"))
+                .font(.system(size: 15, weight: .semibold))
+            Text(LocalizedStringKey(client.transferError == nil ? "点右上角的放大镜扫描，或用 + 手动添加隧道内设备的 IP" : "传输功能需要后台服务"))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 8) {
                 if client.transferError != nil {
                     Button {
                         Task {
@@ -2423,42 +2410,52 @@ struct TransferSendView: View {
                             _ = await client.startDaemonForTransfer()
                             startingDaemon = false
                         }
-                    } label: {
-                        Text(LocalizedStringKey(startingDaemon ? "正在启动..." : "启动后台服务"))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(startingDaemon)
+                    } label: { Text(LocalizedStringKey(startingDaemon ? "正在启动…" : "启动后台服务")) }
+                        .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                        .disabled(startingDaemon)
+                } else {
+                    Button { Task { await scanSubnetDevices() } } label: { Label("扫描", systemImage: "magnifyingglass") }
+                        .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                        .disabled(isScanning)
+                    Button { showAddDeviceSheet = true } label: { Label("手动添加", systemImage: "plus") }
+                        .buttonStyle(WgPillButtonStyle())
                 }
             }
+            .padding(.top, 6)
         }
-        .frame(maxWidth: .infinity).padding(40)
-        .wgGlassSurface()
-        .overlay(
-            RoundedRectangle(cornerRadius: WgTheme.cardRadius)
-                .stroke(WgTheme.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-        )
+        .frame(maxWidth: .infinity)
+        .padding(36)
+        .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 
+    /// 选中设备后直接给出两个动作，省掉“先选类型再点发送”这一步。
     private func selectedDeviceActions(_ device: DaemonClient.TransferDevice) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(device.alias).font(.body.weight(.semibold))
-                if let ip = device.ip { Text(ip).font(.caption).foregroundStyle(.tertiary) }
+            WgCircleBadge(symbol: "paperplane.fill", tint: .accentColor, isOn: true, size: 32)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("发送到 \(device.alias)")
+                    .font(.system(size: 13, weight: .semibold))
+                if let ip = device.ip {
+                    Text(verbatim: ip).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if sendType != nil {
-                Button { triggerSend(target: device) } label: {
-                    Label(isStartingSend ? "创建中..." : "发送", systemImage: isStartingSend ? "arrow.triangle.2.circlepath" : "paperplane.fill")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(isStartingSend ? AnyShapeStyle(Color.gray.opacity(0.7)) : AnyShapeStyle(Color.white))
-                        .frame(maxWidth: .infinity).padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(isStartingSend ? Color.gray : WgTheme.accent))
-                }.disabled(isStartingSend)
-            } else { Text("请选择发送类型 →").font(.callout.italic()).foregroundStyle(.tertiary) }
+            Button {
+                sendType = .folder
+                triggerSend(target: device)
+            } label: { Label("文件夹…", systemImage: "folder") }
+                .buttonStyle(WgPillButtonStyle())
+                .disabled(isStartingSend)
+            Button {
+                sendType = .file
+                triggerSend(target: device)
+            } label: { Label(isStartingSend ? "正在创建…" : "文件…", systemImage: "doc") }
+                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .disabled(isStartingSend)
         }
-        .padding(18)
-        .wgGlassSurface(tint: WgTheme.accent, interactive: true)
-        .overlay(RoundedRectangle(cornerRadius: WgTheme.cardRadius).stroke(WgTheme.accent.opacity(0.4), lineWidth: 1))
+        .padding(14)
+        .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius, isSelected: true)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - 添加设备 Sheet
@@ -2595,21 +2592,23 @@ struct TransferSendView: View {
 
     // MARK: - 设备行
     private func sendDeviceRow(_ device: DaemonClient.TransferDevice) -> some View {
-        HStack(spacing: 10) {
-            Button { withAnimation { selectedDevice = device } } label: {
-                HStack(spacing: 14) {
-                Image(systemName: iconForOS(device.deviceType ?? "")).font(.system(size: 26)).foregroundStyle(colorForOS(device.deviceType ?? ""))
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(device.alias).font(.body.weight(.medium)).foregroundStyle(.primary)
-                        Text(sourceBadgeLabel(device.source ?? "multicast")).font(.system(size: 9)).foregroundStyle(colorForDeviceSource(device.source ?? "multicast")).padding(.horizontal, 5).padding(.vertical, 1).background(colorForDeviceSource(device.source ?? "multicast").opacity(0.12)).cornerRadius(3)
-                    }
-                    if let ip = device.ip { Text(ip).font(.caption2).foregroundStyle(.tertiary) }
+        let selected = selectedDevice?.id == device.id
+        return HStack(spacing: 12) {
+            WgSquareBadge(symbol: iconForOS(device.deviceType ?? ""), tint: colorForOS(device.deviceType ?? ""), size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(verbatim: device.alias).font(.system(size: 13, weight: .medium))
+                    Text(sourceBadgeLabel(device.source ?? "multicast"))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(0.14)))
                 }
-                Spacer()
-                if selectedDevice?.id == device.id { Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(WgTheme.accent) }
+                if let ip = device.ip {
+                    Text(verbatim: ip).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-            }.buttonStyle(.plain)
+            }
+            Spacer()
             if device.source == "manual" {
                 Button {
                     Task {
@@ -2617,18 +2616,18 @@ struct TransferSendView: View {
                         if selectedDevice?.id == device.id { selectedDevice = nil }
                         lastSendResult = ok ? "设备已移除" : "只能移除手动添加的设备"
                     }
-                } label: {
-                    Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(.red.opacity(0.75))
-                        .frame(width: 30, height: 30).contentShape(Rectangle())
-                }.buttonStyle(.plain).help("移除此手动设备")
+                } label: { Image(systemName: "trash") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .help("移除此手动设备")
             }
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 16))
+                .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
         }
-        .padding(14)
-        .wgGlassSurface(tint: selectedDevice?.id == device.id ? WgTheme.accent : nil, interactive: true)
-        .overlay(
-            RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous)
-                .stroke(selectedDevice?.id == device.id ? WgTheme.accent.opacity(0.65) : WgTheme.cardBorder, lineWidth: 1)
-        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(WgDesign.spring) { selectedDevice = device } }
     }
 
     private func sourceBadgeLabel(_ source: String) -> String { switch source { case "manual": return "手动"; case "scan": return "扫描"; default: return "多播" } }

@@ -36,49 +36,34 @@ struct LogsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WgTheme.spacing) {
+        WgPage(title: "日志", subtitle: client.status != nil ? "后台服务实时输出" : "后台服务未运行") {
             HStack(spacing: 10) {
-                Text("日志").font(.title2).fontWeight(.semibold)
-                Text(client.status != nil ? "实时" : "daemon 未连接")
-                    .font(.caption)
-                    .foregroundStyle(client.status != nil ? .green : .secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background((client.status != nil ? Color.green : Color.gray).opacity(0.12), in: Capsule())
-                Spacer()
                 Toggle("跟随", isOn: $autoScroll)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                 Picker("数量", selection: $logLimit) {
-                    Text("100").tag(100)
-                    Text("200").tag(200)
-                    Text("500").tag(500)
+                    Text("100 行").tag(100)
+                    Text("200 行").tag(200)
+                    Text("500 行").tag(500)
                 }
                 .labelsHidden()
-                .frame(width: 80)
-                Button {
-                    Task { await refreshLogs() }
-                } label: {
-                    Image(systemName: isRefreshing ? "hourglass" : "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isRefreshing)
+                .fixedSize()
+                Button { Task { await refreshLogs() } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .disabled(isRefreshing)
+                    .help("刷新")
             }
-
-            HStack(spacing: 14) {
-                statusChip("daemon", client.status != nil ? "已连接" : "未连接")
-                if let s = client.status {
-                    statusChip("状态", "\(s.state) / \(s.service)")
-                    statusChip("网络", s.isTrustedNetwork ? "受信任" : "非受信任")
-                    statusChip("管理", client.isGuardOn ? "运行中" : "已暂停")
+        } content: {
+            if let s = client.status {
+                HStack(spacing: 8) {
+                    statusChip("网络", s.isTrustedNetwork ? "在家" : "外部网络", tint: s.isTrustedNetwork ? .teal : .blue)
+                    statusChip("隧道", client.isTunnelUp ? "已连接" : "未连接", tint: client.isTunnelUp ? .green : .gray)
+                    statusChip("守护", client.isGuardOn ? "运行中" : "已关闭", tint: client.isGuardOn ? .blue : .gray)
+                    statusChip("配置", LocalizedStringKey(s.service), tint: .orange)
                 }
             }
-            .font(.system(.caption, design: .monospaced))
-
             logStream
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: logLimit) {
             await refreshLogs()
             while !Task.isCancelled {
@@ -91,17 +76,18 @@ struct LogsView: View {
     private var logStream: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 5) {
                     if visibleLogLines.isEmpty {
-                        ContentUnavailableView("暂无日志", systemImage: "scroll")
+                        ContentUnavailableView("暂无日志", systemImage: "text.alignleft")
                             .frame(maxWidth: .infinity, minHeight: 260)
                     } else {
                         ForEach(Array(visibleLogLines.enumerated()), id: \.element.id) { index, line in
-                            HStack(alignment: .top, spacing: 10) {
-                                Text(String(format: "%04d", index + 1))
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 42, alignment: .trailing)
-                                Text(line.text)
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Circle()
+                                    .fill(Self.levelColor(line.text))
+                                    .frame(width: 5, height: 5)
+                                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                                Text(verbatim: line.text)
                                     .textSelection(.enabled)
                                     .foregroundStyle(.primary.opacity(0.86))
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -111,16 +97,24 @@ struct LogsView: View {
                     }
                 }
                 .font(.system(size: 12, design: .monospaced))
-                .padding(14)
+                .padding(16)
             }
-            .wgTimelineScroller()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .wgGlassSurface()
+            .frame(maxWidth: .infinity, minHeight: 460)
+            .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
             .onChange(of: visibleLogLines.last?.id) {
                 guard autoScroll, let last = visibleLogLines.last else { return }
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
+    }
+
+    /// 行首圆点按内容粗分级别：失败/错误红、警告橙、成功绿，其余中性。
+    private static func levelColor(_ text: String) -> Color {
+        let lower = text.lowercased()
+        if lower.contains("失败") || lower.contains("错误") || lower.contains("error") || lower.contains("fatal") { return .red }
+        if lower.contains("warn") || lower.contains("退避") || lower.contains("重试") { return .orange }
+        if text.contains("✅") || text.contains("成功") || text.contains("已连接") { return .green }
+        return .secondary.opacity(0.5)
     }
 
     private func refreshLogs() async {
@@ -130,14 +124,16 @@ struct LogsView: View {
         isRefreshing = false
     }
 
-    private func statusChip(_ tag: LocalizedStringKey, _ value: LocalizedStringKey) -> some View {
+    private func statusChip(_ tag: LocalizedStringKey, _ value: LocalizedStringKey, tint: Color) -> some View {
         HStack(spacing: 6) {
+            WgStatusDot(color: tint, isOn: tint != .gray)
             Text(tag).foregroundStyle(.secondary)
-            Text(value)
+            Text(value).fontWeight(.medium)
         }
+        .font(.system(size: 12))
         .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.05), in: Capsule())
+        .frame(height: 26)
+        .wgInteractiveSurface(cornerRadius: 13)
     }
 }
 
@@ -166,184 +162,19 @@ struct SettingsView: View {
     private let maintenance = DaemonMaintenanceService()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WgTheme.spacing) {
-            Text("设置").font(.title2).fontWeight(.semibold)
-
-            settingsGroup("外观与语言") {
-                VStack(spacing: 10) {
-                    HStack {
-                        Label("界面语言", systemImage: "character.bubble")
-                        Spacer()
-                        Picker("界面语言", selection: Binding(
-                            get: { WgAppLanguage(rawValue: appLanguageRaw) ?? .system },
-                            set: { appLanguageRaw = $0.rawValue }
-                        )) {
-                            ForEach(WgAppLanguage.allCases) { language in
-                                Text(language.title).tag(language)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 180)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("背景模式", systemImage: "square.grid.2x2")
-                        Spacer()
-                        Picker("背景模式", selection: Binding(
-                            get: { WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular },
-                            set: { newValue in
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    backdropModeRaw = newValue.rawValue
-                                }
-                            }
-                        )) {
-                            ForEach(WgBackdropMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 180)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("背景浓度", systemImage: "circle.righthalf.filled")
-                        Spacer()
-                        Slider(value: $glassTintStrength, in: 0.0...0.85)
-                            .frame(width: 140)
-                        Text(String(format: "%.2f", glassTintStrength))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, alignment: .trailing)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("内容底色", systemImage: "square.fill")
-                        Spacer()
-                        Slider(value: $surfaceFill, in: 0.0...0.30)
-                            .frame(width: 140)
-                        Text(String(format: "%.2f", surfaceFill))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, alignment: .trailing)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("描边强度", systemImage: "square.dashed")
-                        Spacer()
-                        Slider(value: $surfaceBorder, in: 0.0...0.35)
-                            .frame(width: 140)
-                        Text(String(format: "%.2f", surfaceBorder))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, alignment: .trailing)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("状态色强度", systemImage: "paintpalette")
-                        Spacer()
-                        Slider(value: $surfaceTint, in: 0.0...0.50)
-                            .frame(width: 140)
-                        Text(String(format: "%.2f", surfaceTint))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, alignment: .trailing)
-                    }
-                    Divider().opacity(0.3)
-                    HStack {
-                        Label("外观模式", systemImage: "circle.lefthalf.filled")
-                        Spacer()
-                        Picker("外观模式", selection: Binding(
-                            get: { WgAppAppearance(rawValue: appAppearanceRaw) ?? .system },
-                            set: { newValue in
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    appAppearanceRaw = newValue.rawValue
-                                }
-                            }
-                        )) {
-                            ForEach(WgAppAppearance.allCases) { appearance in
-                                Text(appearance.title).tag(appearance)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 180)
-                    }
-                    Divider().opacity(0.3)
-                }
-                .padding(.vertical, 6)
+        WgPage(title: "设置") {
+            VStack(alignment: .leading, spacing: 22) {
+                generalSection
+                appearanceSection
+                policySection
+                transferSettingsSection
+                serviceSection
+                pathsSection
             }
-
-            // 后台服务
-            settingsGroup("后台服务") {
-                daemonControlSection
-            }
-
-            // 暂停
-            settingsGroup("暂停") {
-                settingStepper("暂停时长", value: $client.pauseMinutes, range: 1...120, unit: "分钟")
-            }
-
-            // 自动化策略
-            settingsGroup("自动化策略") {
-                Toggle("非受信任网络自动连接", isOn: $client.autoConnectUntrusted)
-                    .padding(.vertical, 6)
-                Divider().opacity(0.3)
-                settingField("受信任网络前缀", placeholder: "例：10.0.0., 192.168.1.", text: $client.trustedNetworkPrefixes)
-                Divider().opacity(0.3)
-                settingStepper("巡检间隔", value: $client.intervalSeconds, range: 5...300, step: 5, unit: "秒")
-                Divider().opacity(0.3)
-                settingStepper("拉起宽限期", value: $client.autoUpGraceSeconds, range: 5...120, step: 5, unit: "秒")
-            }
-
-            // 假连接检测
-            settingsGroup("假连接检测") {
-                settingField("探测目标", placeholder: "https://www.gstatic.com/generate_204", text: $client.healthCheckTarget)
-            }
-
-            // 系统
-            settingsGroup("系统") {
-                settingInfo("配置目录", "~/.local/share/wgsense/profiles/")
-                Divider().opacity(0.3)
-                settingInfo("daemon API", "127.0.0.1:8765")
-                Divider().opacity(0.3)
-                settingInfo("日志文件", "/var/log/wgsense-daemon.log")
-            }
-
-            // 传输（LocalSend 兼容）
-            transferSettingsSection
-
-            // 应用按钮
-            Button {
-                Task {
-                    applyingConfig = true
-                    let ok = await client.syncConfig()
-                    settingsMessage = ok ? "配置已应用" : "配置应用失败"
-                    applyingConfig = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        settingsMessage = nil
-                    }
-                }
-            } label: {
-                Label {
-                    Text(LocalizedStringKey(applyingConfig ? "正在应用..." : "应用配置到 daemon"))
-                } icon: {
-                    Image(systemName: applyingConfig ? "hourglass" : "arrow.triangle.2.circlepath")
-                }
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(applyingConfig)
-
-            if let settingsMessage {
-                Text(LocalizedStringKey(settingsMessage))
-                    .font(.caption)
-                    .foregroundStyle(settingsMessage.contains("失败") ? .orange : .green)
-            }
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
+            // 系统会把首个文本框设为焦点并滚动过去；打开设置时不应落在可编辑字段上。
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
             Task {
                 await client.fetchTransferState()
                 await refreshDiagnostics()
@@ -374,126 +205,134 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - 组件
+    // MARK: - 分组
 
-    private var daemonModeText: String {
-        guard let status = client.status else { return "离线" }
-        if status.app_owned == true {
-            return status.passive == true ? "App 临时服务 / 被动" : "App 临时服务 / 网络管理"
+    private var generalSection: some View {
+        WgSection(title: "通用") {
+            WgRow(symbol: "character.bubble.fill", tint: .blue, title: "界面语言") {
+                Picker("界面语言", selection: Binding(
+                    get: { WgAppLanguage(rawValue: appLanguageRaw) ?? .system },
+                    set: { appLanguageRaw = $0.rawValue }
+                )) {
+                    ForEach(WgAppLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            WgRowDivider()
+            WgRow(symbol: "circle.lefthalf.filled", tint: .indigo, title: "外观模式") {
+                Picker("外观模式", selection: Binding(
+                    get: { WgAppAppearance(rawValue: appAppearanceRaw) ?? .system },
+                    set: { newValue in
+                        withAnimation(.easeInOut(duration: 0.3)) { appAppearanceRaw = newValue.rawValue }
+                    }
+                )) {
+                    ForEach(WgAppAppearance.allCases) { appearance in
+                        Text(appearance.title).tag(appearance)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
         }
-        return status.passive == true ? "系统服务 / 被动" : "系统服务 / 网络管理"
     }
 
-    @ViewBuilder
-    private var daemonControlSection: some View {
-        settingInfo("连接状态", client.status != nil ? "已连接" : "未连接")
-        Divider().opacity(0.3)
-        settingInfo("运行模式", daemonModeText)
-        Divider().opacity(0.3)
-        settingInfo("系统 helper", diagnostics.installedSummary)
-        Divider().opacity(0.3)
-        settingInfo("权限状态", diagnostics.permissionSummary)
-        Divider().opacity(0.3)
-        settingInfo("残留检查", diagnostics.residualSummary)
-        Divider().opacity(0.3)
-        if !diagnostics.routeLines.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("可疑路由").foregroundStyle(.secondary)
-                ForEach(diagnostics.routeLines.prefix(4), id: \.self) { line in
-                    Text(line)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+    private var appearanceSection: some View {
+        WgSection(title: "窗口材质", footer: "背景浓度决定壁纸透出多少；内容底色、描边与状态色作用于所有卡片。") {
+            WgRow(symbol: "square.stack.3d.up.fill", tint: .teal, title: "背景模式") {
+                Picker("背景模式", selection: Binding(
+                    get: { WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular },
+                    set: { newValue in
+                        withAnimation(.easeInOut(duration: 0.25)) { backdropModeRaw = newValue.rawValue }
+                    }
+                )) {
+                    ForEach(WgBackdropMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            WgRowDivider()
+            sliderRow("背景浓度", symbol: "circle.righthalf.filled", tint: .cyan, value: $glassTintStrength, range: 0.0...0.85)
+            WgRowDivider()
+            sliderRow("内容底色", symbol: "square.fill", tint: .gray, value: $surfaceFill, range: 0.0...0.30)
+            WgRowDivider()
+            sliderRow("描边强度", symbol: "square.dashed", tint: .gray, value: $surfaceBorder, range: 0.0...0.35)
+            WgRowDivider()
+            sliderRow("状态色强度", symbol: "paintpalette.fill", tint: .pink, value: $surfaceTint, range: 0.0...0.50)
+        }
+    }
+
+    private var policySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            WgSection(title: "守护与网络") {
+                WgRow(symbol: "shield.fill", tint: .blue, title: "非受信任网络自动连接",
+                      subtitle: Text("离开受信任网络时自动连上 VPN")) {
+                    Toggle("", isOn: $client.autoConnectUntrusted)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                WgRowDivider()
+                WgRow(symbol: "house.fill", tint: .teal, title: "受信任网络前缀",
+                      subtitle: Text("命中这些前缀视为在家，守护会保持 VPN 断开")) {
+                    TextField("例：10.0.0., 192.168.1.", text: $client.trustedNetworkPrefixes)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                }
+                WgRowDivider()
+                stepperRow("巡检间隔", symbol: "timer", tint: .orange, value: $client.intervalSeconds, range: 5...300, step: 5, unit: "秒")
+                WgRowDivider()
+                stepperRow("拉起宽限期", symbol: "hourglass", tint: .orange, value: $client.autoUpGraceSeconds, range: 5...120, step: 5, unit: "秒")
+                WgRowDivider()
+                stepperRow("暂停时长", symbol: "pause.fill", tint: .yellow, value: $client.pauseMinutes, range: 1...120, step: 1, unit: "分钟")
+                WgRowDivider()
+                WgRow(symbol: "waveform.path.ecg", tint: .green, title: "假连接探测目标",
+                      subtitle: Text("隧道显示已连接但探测失败时自动重建")) {
+                    TextField("https://www.gstatic.com/generate_204", text: $client.healthCheckTarget)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 240)
                 }
             }
-            .padding(.vertical, 6)
-            Divider().opacity(0.3)
-        }
-        HStack(spacing: 8) {
-            maintenanceButton("诊断", icon: diagnosticsLoading ? "hourglass" : "stethoscope") {
-                Task { await refreshDiagnostics() }
-            }
-            .disabled(diagnosticsLoading || maintenanceRunning)
-            maintenanceButton("导出诊断", icon: "doc.text.magnifyingglass") {
-                exportDiagnostics()
-            }
-            .disabled(maintenanceRunning)
-            maintenanceButton("导出日志", icon: "square.and.arrow.down") {
-                exportDaemonLog()
-            }
-            .disabled(maintenanceRunning)
-            Spacer()
-        }
-        .padding(.vertical, 6)
-        Divider().opacity(0.3)
-        HStack(spacing: 8) {
-            maintenanceButton("安装", icon: "arrow.down.app") {
-                pendingMaintenanceAction = .installSystemHelper
-            }
-            maintenanceButton("卸载", icon: "trash", roleColor: .red) {
-                pendingMaintenanceAction = .uninstallSystemHelper
-            }
-            maintenanceButton("重启", icon: "arrow.clockwise") {
-                pendingMaintenanceAction = .restartSystemHelper
-            }
-            maintenanceButton("清理网络", icon: "cross.case", roleColor: .orange) {
-                pendingMaintenanceAction = .cleanupNetworkState
-            }
-            Spacer()
-            if maintenanceRunning {
-                ProgressView().controlSize(.small)
-            }
-        }
-        .padding(.vertical, 6)
-        .disabled(maintenanceRunning || diagnosticsLoading)
-        if let maintenanceMessage {
-            Divider().opacity(0.3)
-            Text(maintenanceMessage)
-                .font(.caption)
-                .foregroundStyle(maintenanceMessage.contains("失败") ? .orange : .green)
-                .padding(.vertical, 6)
-        }
-        Divider().opacity(0.3)
-        HStack {
-            Text("App 临时服务")
-            Spacer()
-            Button {
-                Task {
-                    shuttingDownDaemon = true
-                    let ok = await client.shutdownAppOwnedDaemon()
-                    settingsMessage = ok ? "后台服务已关闭" : "后台服务关闭失败"
-                    await refreshDiagnostics()
-                    shuttingDownDaemon = false
+            HStack(spacing: 10) {
+                if let settingsMessage {
+                    Label(LocalizedStringKey(settingsMessage),
+                          systemImage: settingsMessage.contains("失败") ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(settingsMessage.contains("失败") ? .orange : .green)
+                        .transition(.opacity)
                 }
-            } label: {
-                Label {
-                    Text(LocalizedStringKey(shuttingDownDaemon ? "正在关闭..." : "关闭临时服务"))
-                } icon: {
-                    Image(systemName: "power")
+                Spacer()
+                Button {
+                    Task {
+                        applyingConfig = true
+                        let ok = await client.syncConfig()
+                        withAnimation { settingsMessage = ok ? "已应用到后台服务" : "应用失败" }
+                        applyingConfig = false
+                        try? await Task.sleep(for: .seconds(3))
+                        withAnimation { settingsMessage = nil }
+                    }
+                } label: {
+                    Text(LocalizedStringKey(applyingConfig ? "正在应用…" : "应用"))
                 }
+                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .disabled(applyingConfig)
             }
-            .disabled(shuttingDownDaemon || client.status?.app_owned != true)
+            .padding(.horizontal, 4)
         }
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
     private var transferSettingsSection: some View {
-        settingsGroup("文件传输") {
-            HStack {
-                Text("接收服务").font(.body).foregroundStyle(.primary)
-                Spacer()
+        WgSection(title: "文件传输") {
+            WgRow(symbol: "arrow.down", tint: .blue, title: "接收服务",
+                  subtitle: Text("兼容 LocalSend，隧道内设备可直接发送")) {
                 HStack(spacing: 8) {
-                    Button { Task { await client.fetchTransferState() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("刷新接收服务状态")
+                    if transferToggling { ProgressView().controlSize(.small) }
                     Toggle("", isOn: Binding(
                         get: { client.transferState?.running ?? false },
                         set: { enabled in
@@ -505,96 +344,169 @@ struct SettingsView: View {
                             }
                         }
                     ))
+                    .toggleStyle(.switch)
                     .labelsHidden()
+                    .controlSize(.small)
                     .disabled(transferToggling)
-                    if transferToggling {
-                        ProgressView().scaleEffect(0.6)
+                }
+            }
+            WgRowDivider()
+            WgRow(symbol: "desktopcomputer", tint: .gray, title: "设备别名") {
+                WgValue(client.transferState?.alias ?? "WgSense-Mac")
+            }
+            WgRowDivider()
+            WgRow(symbol: "number", tint: .gray, title: "端口") {
+                WgValue("\(client.transferState?.port ?? 53317)", monospaced: true)
+            }
+            WgRowDivider()
+            WgRow(symbol: "folder.fill", tint: .blue, title: "保存目录") {
+                WgValue(client.transferState?.downloads ?? "~/Downloads/WgSense")
+            }
+        }
+    }
+
+    private var serviceSection: some View {
+        WgSection(title: "后台服务") {
+            WgRow(symbol: "server.rack", tint: client.status != nil ? .green : .gray, title: "运行状态") {
+                HStack(spacing: 6) {
+                    WgStatusDot(color: .green, isOn: client.status != nil)
+                    WgValue(daemonModeText)
+                }
+            }
+            WgRowDivider()
+            WgRow(symbol: "gearshape.2.fill", tint: .gray, title: "系统服务") {
+                WgValue(diagnostics.installedSummary)
+            }
+            WgRowDivider()
+            WgRow(symbol: "lock.fill", tint: .gray, title: "权限") {
+                WgValue(diagnostics.permissionSummary)
+            }
+            WgRowDivider()
+            WgRow(symbol: diagnostics.hasResidue ? "exclamationmark.triangle.fill" : "checkmark.seal.fill",
+                  tint: diagnostics.hasResidue ? .orange : .green, title: "残留检查") {
+                WgValue(diagnostics.residualSummary)
+            }
+            if diagnostics.hasResidue && !diagnostics.routeLines.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(diagnostics.routeLines.prefix(4), id: \.self) { line in
+                        Text(verbatim: line)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 50)
+                .padding(.trailing, 14)
+                .padding(.bottom, 10)
+            }
+            WgRowDivider(inset: 14)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    maintenanceButton("诊断", icon: "stethoscope") { Task { await refreshDiagnostics() } }
+                        .disabled(diagnosticsLoading || maintenanceRunning)
+                    maintenanceButton("导出诊断", icon: "doc.text.magnifyingglass") { exportDiagnostics() }
+                        .disabled(maintenanceRunning)
+                    maintenanceButton("导出日志", icon: "square.and.arrow.down") { exportDaemonLog() }
+                        .disabled(maintenanceRunning)
+                    Spacer()
+                    if maintenanceRunning || diagnosticsLoading { ProgressView().controlSize(.small) }
+                }
+                HStack(spacing: 8) {
+                    maintenanceButton("重新安装", icon: "arrow.down.app") { pendingMaintenanceAction = .installSystemHelper }
+                    maintenanceButton("重启服务", icon: "arrow.clockwise") { pendingMaintenanceAction = .restartSystemHelper }
+                    maintenanceButton("清理网络", icon: "cross.case", roleColor: .orange) { pendingMaintenanceAction = .cleanupNetworkState }
+                    Spacer()
+                    maintenanceButton("卸载", icon: "trash", roleColor: .red) { pendingMaintenanceAction = .uninstallSystemHelper }
+                }
+                .disabled(maintenanceRunning || diagnosticsLoading)
+                if let maintenanceMessage {
+                    Text(verbatim: maintenanceMessage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(maintenanceMessage.contains("失败") ? .orange : .green)
+                }
+                if client.status?.app_owned == true {
+                    HStack {
+                        Text("旧版临时服务仍在运行").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Spacer()
+                        maintenanceButton(shuttingDownDaemon ? "正在关闭…" : "关闭临时服务", icon: "power") {
+                            Task {
+                                shuttingDownDaemon = true
+                                let ok = await client.shutdownAppOwnedDaemon()
+                                settingsMessage = ok ? "后台服务已关闭" : "后台服务关闭失败"
+                                await refreshDiagnostics()
+                                shuttingDownDaemon = false
+                            }
+                        }
+                        .disabled(shuttingDownDaemon)
                     }
                 }
             }
-            Divider().opacity(0.3)
-            settingInfo("设备别名", client.transferState?.alias ?? "WgSense-Mac")
-            Divider().opacity(0.3)
-            settingInfo("端口", "\(client.transferState?.port ?? 53317)")
-            Divider().opacity(0.3)
-            settingInfo("保存目录", client.transferState?.downloads ?? "~/Downloads/WgSense")
+            .padding(14)
         }
     }
 
-    private func settingsGroup<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption).fontWeight(.medium).foregroundStyle(.secondary)
-            VStack(spacing: 0) {
-                content()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .wgSettingsPanelSurface()
+    private var pathsSection: some View {
+        WgSection(title: "路径") {
+            WgRow(symbol: "doc.text.fill", tint: .orange, title: "配置目录") { WgValue("~/.local/share/wgsense/profiles/", monospaced: true) }
+            WgRowDivider()
+            WgRow(symbol: "network", tint: .gray, title: "后台服务接口") { WgValue("127.0.0.1:8765", monospaced: true) }
+            WgRowDivider()
+            WgRow(symbol: "text.alignleft", tint: .gray, title: "日志文件") { WgValue("/var/log/wgsense-daemon.log", monospaced: true) }
         }
     }
 
-    private func settingToggle(_ label: LocalizedStringKey, isOn: Binding<Bool>, isLoading: Binding<Bool>) -> some View {
-        HStack {
-            Toggle(label, isOn: isOn)
-                .disabled(isLoading.wrappedValue)
-            if isLoading.wrappedValue {
-                ProgressView().scaleEffect(0.7)
+    // MARK: - 组件
+
+    private var daemonModeText: String {
+        guard let status = client.status else { return "未运行" }
+        if status.app_owned == true {
+            return status.passive == true ? "临时服务 · 被动" : "临时服务"
+        }
+        return status.passive == true ? "系统服务 · 被动" : "系统服务 · 运行中"
+    }
+
+    private func sliderRow(_ title: LocalizedStringKey, symbol: String, tint: Color, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        WgRow(symbol: symbol, tint: tint, title: title) {
+            HStack(spacing: 10) {
+                Slider(value: value, in: range)
+                    .controlSize(.small)
+                    .frame(width: 160)
+                Text(String(format: "%.2f", value.wrappedValue))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, alignment: .trailing)
             }
         }
-        .padding(.vertical, 6)
+    }
+
+    private func stepperRow(_ title: LocalizedStringKey, symbol: String, tint: Color, value: Binding<Int>, range: ClosedRange<Int>, step: Int, unit: LocalizedStringKey) -> some View {
+        WgRow(symbol: symbol, tint: tint, title: title) {
+            Stepper(value: value, in: range, step: step) {
+                HStack(spacing: 3) {
+                    Text("\(value.wrappedValue)")
+                    Text(unit)
+                }
+                .font(.system(size: 13))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            }
+            .controlSize(.small)
+        }
     }
 
     private func maintenanceButton(
         _ title: LocalizedStringKey,
         icon: String,
-        roleColor: Color = .secondary,
+        roleColor: Color = .primary,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(roleColor)
+                .font(.system(size: 12, weight: .medium))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-    }
-
-    private func settingStepper(_ label: LocalizedStringKey, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1, unit: LocalizedStringKey) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Stepper(value: value, in: range, step: step) {
-                HStack(spacing: 4) {
-                    Text("\(value.wrappedValue)")
-                    Text(unit)
-                }
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func settingField(_ label: LocalizedStringKey, placeholder: LocalizedStringKey, text: Binding<String>) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField(placeholder, text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 220)
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func settingInfo(_ label: LocalizedStringKey, _ value: String) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(LocalizedStringKey(value))
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 6)
+        .buttonStyle(WgPillButtonStyle(tint: roleColor))
     }
 
     // MARK: - 后台服务维护

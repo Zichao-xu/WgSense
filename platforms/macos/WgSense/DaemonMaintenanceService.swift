@@ -30,11 +30,16 @@ struct DaemonDiagnostics {
         helperInstalled ? "系统 helper 已存在" : "系统 helper 未安装"
     }
 
+    /// 隧道正常连接时，全量路由和隧道 DNS 本来就该存在，不算残留。
+    var tunnelConnected: Bool { apiSummary.hasSuffix("Connected") }
+
+    var hasResidue: Bool {
+        !tunnelConnected && (!routeLines.isEmpty || dnsSummary.contains("10.66.66.1"))
+    }
+
     var residualSummary: String {
-        if routeLines.isEmpty && !dnsSummary.contains("10.66.66.1") {
-            return "未发现 WgSense 高风险残留"
-        }
-        return "发现需要检查的 DNS/路由项"
+        if tunnelConnected { return "隧道运行中，路由与 DNS 属正常" }
+        return hasResidue ? "发现疑似残留的路由或 DNS" : "无残留"
     }
 
     var exportText: String {
@@ -119,7 +124,7 @@ struct DaemonMaintenanceService {
         async let loaded = commandHasOutput("launchctl print system/com.wgsense.daemon 2>/dev/null | head -1")
         async let dns = ShellCommand.sh("networksetup -getdnsservers Wi-Fi 2>/dev/null || true")
         async let processes = ShellCommand.sh("ps ax -o pid,command | /usr/bin/grep -E 'wgsense|wireguard-go' | /usr/bin/grep -v grep || true")
-        async let routes = ShellCommand.sh("netstat -rn -f inet | /usr/bin/grep -E '^(default|0/1|128\\.0/1|10\\.66|198\\.18|198\\.19)' || true")
+        async let routes = ShellCommand.sh("netstat -rn -f inet | /usr/bin/grep -E '^(0/1|128\\.0/1|10\\.66|198\\.18|198\\.19)|^default.*utun' || true")
         async let utuns = ShellCommand.sh("ifconfig | /usr/bin/grep -E '^(utun[0-9]+:|\\tinet )' || true")
         async let lifecycle = ShellCommand.sh("tail -n 220 /var/log/wgsense-daemon.log 2>/dev/null | /usr/bin/grep -E '收到退出信号|收到信号|WgSense daemon 启动|已加载运行配置|未指定启动暂停状态|配置已更新|自动连接失败|探测失败|命中受信任网络' || true")
 

@@ -32,7 +32,10 @@ struct ProxyView: View {
         .task(id: section) {
             await refresh(section)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // 内容宽度与其他页面一致（WgPage 的 820 + 两侧内边距），切页时标题不跳位。
+        .frame(maxWidth: 820 + WgTheme.pagePadding * 2, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .padding(.horizontal, -WgTheme.pagePadding)
     }
 
     @ViewBuilder
@@ -112,38 +115,45 @@ enum ProxySection: String, CaseIterable, Identifiable {
 
 private struct ProxySectionTabs: View {
     @Binding var selection: ProxySection
+    @Namespace private var indicator
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(ProxySection.allCases) { item in
                 Button {
-                    selection = item
+                    withAnimation(WgDesign.spring) { selection = item }
                 } label: {
-                    HStack(spacing: 7) {
+                    HStack(spacing: 6) {
                         Image(systemName: item.icon)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                         Text(item.title)
-                            .font(.caption.weight(selection == item ? .semibold : .regular))
+                            .font(.system(size: 12, weight: selection == item ? .semibold : .regular))
                     }
                     .foregroundStyle(selection == item ? Color.primary : Color.secondary)
                     .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(selection == item ? WgTheme.accent.opacity(0.16) : Color.clear)
-                    )
-                    .contentShape(Rectangle())
+                    .frame(height: 28)
+                    .background {
+                        if selection == item {
+                            Capsule()
+                                .fill((colorScheme == .dark ? Color.white : Color.black).opacity(0.10))
+                                .matchedGeometryEffect(id: "tab", in: indicator)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(item.title))
                 .accessibilityHint("切换代理页面")
             }
         }
-        .padding(4)
-        .wgGlassSurface(cornerRadius: 10)
+        .padding(3)
+        .wgInteractiveSurface(cornerRadius: 17)
+        .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, WgTheme.pagePadding)
-        .padding(.bottom, 10)
+        .padding(.bottom, 14)
+        .focusEffectDisabled()
     }
 }
 
@@ -155,46 +165,35 @@ private struct ProxyPageHeader: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("代理")
-                    .font(.title2.weight(.semibold))
-                HStack(spacing: 5) {
-                    Text(section.title)
-                    if !client.proxyAddress.isEmpty {
-                        Text("·")
-                        Text(client.proxyAddress)
-                    }
-                }
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    .font(.system(size: 26, weight: .bold))
+                Text(verbatim: client.proxyAddress.isEmpty ? "Mihomo 控制面板" : "Mihomo · \(client.proxyAddress)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
             HStack(spacing: 6) {
-                Circle()
-                    .fill(client.proxyRunning ? Color.green : Color.orange)
-                    .frame(width: 7, height: 7)
+                WgStatusDot(color: .green, isOn: client.proxyRunning)
                 statusLabel
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(client.proxyRunning ? Color.green : Color.orange)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill((client.proxyRunning ? Color.green : Color.orange).opacity(0.09))
-            )
+            .wgInteractiveSurface(cornerRadius: 13)
 
             Button {
                 Task { await client.fetchProxyStatus() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WgToolbarIconButtonStyle())
             .accessibilityLabel("刷新代理状态")
             .help("刷新连接状态")
         }
         .padding(.horizontal, WgTheme.pagePadding)
-        .frame(height: 62)
+        .padding(.bottom, 14)
     }
 
     @ViewBuilder
@@ -371,8 +370,6 @@ private struct ProxyOverviewPage: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    Text("概览").font(.title2.weight(.semibold))
-
                     ProxyOverviewMetricStrip(sample: current)
 
                     ProxyPanel {

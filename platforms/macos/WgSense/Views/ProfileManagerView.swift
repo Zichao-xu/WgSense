@@ -20,41 +20,23 @@ struct ProfileName: Identifiable {
 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WgTheme.spacing) {
-            HStack {
-                Text("配置").font(.title2).fontWeight(.semibold)
-                Spacer()
-                Button {
-                    showImport = true
-                } label: {
-                    Label("导入", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    showWizard = true
-                } label: {
-                    Label("手动填写", systemImage: "plus.circle")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+        WgPage(title: "配置", subtitle: "WireGuard 隧道配置，当前使用的会标记为「使用中」") {
+            HStack(spacing: 8) {
+                Button { showImport = true } label: { Label("导入", systemImage: "square.and.arrow.down") }
+                    .buttonStyle(WgPillButtonStyle())
+                Button { showWizard = true } label: { Label("新建", systemImage: "plus") }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
             }
-
-            // Profile 列表
+        } content: {
             if client.profiles.isEmpty {
                 emptyState
             } else {
-                VStack(spacing: 1) {
+                WgSection(title: nil) {
                     ForEach(client.profiles, id: \.self) { p in
                         profileRow(p)
-                        if p != client.profiles.last {
-                            Divider().opacity(0.3)
-                        }
+                        if p != client.profiles.last { WgRowDivider() }
                     }
                 }
-                .padding(12)
-                .wgGlassSurface()
             }
         }
         .sheet(isPresented: $showImport) {
@@ -113,72 +95,53 @@ struct ProfileName: Identifiable {
 
     // MARK: - 空状态
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "doc.badge.plus")
-                .font(.system(size: 36))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 10) {
+            WgSquareBadge(symbol: "doc.badge.plus", tint: .orange, size: 44)
             Text("还没有配置")
-                .font(.subheadline)
-            Text("导入 .conf 或手动填写")
-                .font(.caption)
+                .font(.system(size: 15, weight: .semibold))
+            Text("导入 .conf 文件，或手动填写一份")
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+            Button { showImport = true } label: { Text("导入配置") }
+                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
-        .padding(30)
-        .wgGlassSurface()
+        .padding(36)
+        .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 
     private func profileRow(_ name: String) -> some View {
         let isActive = client.status?.service == name
-        return HStack(spacing: 12) {
-            Image(systemName: isActive ? "checkmark.shield.fill" : "shield")
-                .foregroundStyle(isActive ? .green : .secondary)
-                .font(.body)
-
-            Text(name)
-                .fontWeight(isActive ? .medium : .regular)
-                .foregroundStyle(isActive ? .primary : .secondary)
-
-            Spacer()
-
-            if !isActive {
-                Button("切换") {
-                    Task { await client.switchProfile(name) }
+        return WgRow(
+            symbol: "lock.shield.fill",
+            tint: isActive ? .green : .gray,
+            title: LocalizedStringKey(name),
+            subtitle: isActive ? Text("使用中") : nil
+        ) {
+            HStack(spacing: 2) {
+                if !isActive {
+                    Button("切换") { Task { await client.switchProfile(name) } }
+                        .buttonStyle(WgPillButtonStyle())
+                        .padding(.trailing, 6)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                Button { editProfile = ProfileName(name: name) } label: { Image(systemName: "pencil") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .help("编辑")
+                Button {
+                    exportProfile = name
+                    showExport = true
+                } label: { Image(systemName: "square.and.arrow.up") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .help("导出 .conf")
+                Button {
+                    deleteProfile = name
+                    showDeleteConfirm = true
+                } label: { Image(systemName: "trash") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .help("删除")
             }
-
-            // 编辑
-            Button {
-                editProfile = ProfileName(name: name)
-            } label: {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-            .help("编辑")
-
-            // 导出
-            Button {
-                exportProfile = name
-                showExport = true
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .buttonStyle(.borderless)
-            .help("导出 .conf")
-
-            // 删除
-            Button {
-                deleteProfile = name
-                showDeleteConfirm = true
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("删除")
         }
-        .padding(.vertical, 4)
     }
 }
 
