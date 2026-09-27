@@ -493,7 +493,10 @@ func (m *Manager) install(ctx context.Context, req Request) (err error) {
 	if err = m.Chown(m.Paths.Mover, 0, 0); err != nil {
 		return err
 	}
-	for _, path := range []string{runtime, filepath.Join(runtime, "incoming"), filepath.Join(owner.Home, "Downloads/WgSense"), filepath.Dir(agent)} {
+	// 不碰 ~/Downloads：它是 TCC 受保护目录，root 安装任务 chown 必然 EPERM，
+	// 曾导致每次安装都失败、用户反复输密码。目标目录由以用户身份运行的
+	// receive-mover 自己 mkdir -p。
+	for _, path := range []string{runtime, filepath.Join(runtime, "incoming"), filepath.Dir(agent)} {
 		if err = os.MkdirAll(path, 0755); err != nil {
 			return err
 		}

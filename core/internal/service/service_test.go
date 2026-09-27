@@ -674,3 +674,24 @@ func TestLegacyMigrationWithDeletedLegacyBinary(t *testing.T) {
 		t.Fatal("new service was not loaded")
 	}
 }
+
+// ~/Downloads 受 TCC 保护，root 安装任务不能创建或 chown 其中的目录。
+func TestInstallDoesNotTouchProtectedDownloads(t *testing.T) {
+	f := newServiceFixture(t)
+	f.seedIntent()
+	if err := f.m.RunTask(context.Background(), f.requestPath); err != nil {
+		t.Fatal(err)
+	}
+	if result := f.result(); result.Status != "success" {
+		t.Fatalf("install failed: %#v", result)
+	}
+	downloads := filepath.Join(f.req.Owner.Home, "Downloads")
+	for _, c := range f.chowns {
+		if strings.HasPrefix(c.path, downloads) {
+			t.Fatalf("installer chowned protected Downloads path %s", c.path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(downloads, "WgSense")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installer created Downloads/WgSense as root: %v", err)
+	}
+}
