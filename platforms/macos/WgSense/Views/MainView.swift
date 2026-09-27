@@ -288,7 +288,10 @@ struct MainView: View {
         .preferredColorScheme(selectedAppearance.colorScheme)
         .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
         .id("content-\(appLanguageRaw)")
-        .task { await client.refresh() }
+        .task {
+            await client.refresh()
+            Self.openMenuPreviewIfRequested(client)
+        }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             Task { await client.fetchStatus() }
         }
@@ -300,6 +303,35 @@ struct MainView: View {
 
     private var selectedAppearance: WgAppAppearance {
         WgAppAppearance(rawValue: appAppearanceRaw) ?? .system
+    }
+
+    private static var menuPreviewWindow: NSWindow?
+
+    /// 调试用：`--args -WgSenseMenuPreview YES` 把菜单栏面板放进独立窗口，便于截图（仅命令行参数域）。
+    private static func openMenuPreviewIfRequested(_ client: DaemonClient) {
+        let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        guard (args["WgSenseMenuPreview"] as? String) == "YES", menuPreviewWindow == nil else { return }
+        let host = NSHostingView(rootView: MenuBarView().environmentObject(client))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 360),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "WgSense Menu Preview"
+        window.titlebarAppearsTransparent = true
+        let effect = NSVisualEffectView()
+        effect.material = .menu
+        effect.state = .active
+        host.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            host.topAnchor.constraint(equalTo: effect.topAnchor, constant: 20),
+            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        window.contentView = effect
+        window.setContentSize(NSSize(width: 300, height: host.fittingSize.height + 20))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        menuPreviewWindow = window
     }
 }
 

@@ -120,12 +120,15 @@ struct WgSenseApp: App {
         .menuBarExtraStyle(.window)
     }
 
-    // 菜单栏图标：填充样式确保高对比度；连接/断开状态区分明显
+    // 菜单栏图标：已连接实心；在家（守护保持断开，属正常）空心；安装失败/离线带提示。
     private var menuBarIcon: String {
-        switch client.status?.state {
-        case "Connected": return "shield.fill"
-        case "Disconnected": return "shield.slash.fill"
-        default: return "shield.lefthalf.filled"
+        switch client.vpnPresentation.phase {
+        case .connected: return "lock.shield.fill"
+        case .connecting, .disconnecting, .retrying: return "shield.lefthalf.filled"
+        case .home: return "shield"
+        case .setupFailed: return "exclamationmark.shield"
+        case .offline: return "shield.slash"
+        case .idle: return "shield.slash"
         }
     }
 }
