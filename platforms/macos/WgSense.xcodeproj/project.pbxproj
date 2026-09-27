@@ -21,6 +21,7 @@
 		4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA034BB1EC7512467D785C99 /* MainView.swift */; };
 		521899CB83778C9021CC3025 /* WgSenseWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5788738D511517DE2321E8E8 /* DaemonAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */; };
+		5C89F8AE623FCFC4434B574E /* OpenWrtRuleSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */; };
 		65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF23D4A47461A7F12D1F16B /* OverviewView.swift */; };
 		6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */; };
 		7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */; };
@@ -32,6 +33,7 @@
 		A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */; };
 		A9184D24FC36095D400742E2 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */; };
 		AFA93798730A8E6F44DC3473 /* DaemonControlAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */; };
+		B132C1308AA46F9EB3F8F045 /* PPRuleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D85B97959ADC12632B570F /* PPRuleViews.swift */; };
 		BE5EC6E099B4A5BDF8F2E894 /* DaemonMaintenanceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */; };
 		C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */; };
 		C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */; };
@@ -79,6 +81,7 @@
 		54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferModels.swift; sourceTree = "<group>"; };
 		6827EB7C08699493703F29CA /* ProxyPanelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPanelStore.swift; sourceTree = "<group>"; };
 		6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProxiesPage.swift; sourceTree = "<group>"; };
+		796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWrtRuleSource.swift; sourceTree = "<group>"; };
 		7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVPNPresentation.swift; sourceTree = "<group>"; };
 		7DF23D4A47461A7F12D1F16B /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WgSenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,6 +99,7 @@
 		B327C41F92B977872F228B46 /* WgSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSurfaces.swift; sourceTree = "<group>"; };
 		B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProviderSupport.swift; sourceTree = "<group>"; };
 		B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
+		B6D85B97959ADC12632B570F /* PPRuleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPRuleViews.swift; sourceTree = "<group>"; };
 		B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferAPIClient.swift; sourceTree = "<group>"; };
 		BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonControlAPIClient.swift; sourceTree = "<group>"; };
@@ -172,9 +176,11 @@
 				B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */,
 				08446624B46672875126EF07 /* MihomoBackends.swift */,
 				3354F508C0653A08D63DBEEC /* MihomoModels.swift */,
+				796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */,
 				4455FF95397C153A2E668592 /* PPComponents.swift */,
 				B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */,
 				6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */,
+				B6D85B97959ADC12632B570F /* PPRuleViews.swift */,
 				6827EB7C08699493703F29CA /* ProxyPanelStore.swift */,
 			);
 			path = ProxyPanel;
@@ -344,11 +350,13 @@
 				A9184D24FC36095D400742E2 /* MihomoAPI.swift in Sources */,
 				882F34D0761960552EDAA758 /* MihomoBackends.swift in Sources */,
 				0A2EC6E290092752B87FCA08 /* MihomoModels.swift in Sources */,
+				5C89F8AE623FCFC4434B574E /* OpenWrtRuleSource.swift in Sources */,
 				A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */,
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
 				37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */,
 				7FCDB9B317084D1468793764 /* PPProviderSupport.swift in Sources */,
 				9A2198BA923E1789C7409A6F /* PPProxiesPage.swift in Sources */,
+				B132C1308AA46F9EB3F8F045 /* PPRuleViews.swift in Sources */,
 				205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */,
 				00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */,
 				48ADE081313F1751E1A488D2 /* ProxyAPIClient.swift in Sources */,

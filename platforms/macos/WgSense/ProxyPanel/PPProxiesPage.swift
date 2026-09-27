@@ -33,8 +33,7 @@ struct PPProxiesPage: View {
             case .node: PPNodeGroupList()
             case .provider: PPProviderList()
             case .domain:
-                PPEmptyState(symbol: "list.bullet.rectangle", title: "域名子视图",
-                             detail: "规则明细依赖 SSH 规则缓存，在第 3 阶段实现")
+                PPDomainGroupView().padding(.bottom, 20)
             }
         }
     }
@@ -250,6 +249,8 @@ struct PPGroupCard: View {
     var chromeless = false
     var onSelect: ((String, String) -> Void)?
 
+    @State private var showPenetration = false
+
     private var collapseKey: String { embedded ? "penetration:\(rootGroup ?? ""):level-\(level)" : name }
     private var expanded: Bool { store.collapseMap[collapseKey] == true }
 
@@ -299,11 +300,10 @@ struct PPGroupCard: View {
                         .font(.system(size: embedded ? 13 : 14, weight: .semibold))
                         .lineLimit(1)
                     if !embedded {
-                        Button("域名穿透") {}
+                        Button("域名穿透") { showPenetration = true }
                             .buttonStyle(WgPillButtonStyle())
                             .font(.system(size: 11, weight: .medium))
-                            .disabled(true)
-                            .help("规则明细依赖 SSH 规则缓存，在第 3 阶段实现")
+                            .sheet(isPresented: $showPenetration) { PPRulePenetrationSheet(group: name) }
                     }
                     Text(verbatim: embedded ? "\(group.type) (\(store.availabilityText(of: name)))" : group.type)
                         .font(.system(size: 11))

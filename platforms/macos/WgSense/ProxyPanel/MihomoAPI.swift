@@ -120,6 +120,10 @@ struct MihomoAPI {
         try await decode(MihomoSmartWeightsResponse.self, "group/weights")
     }
 
+    func rules() async throws -> [MihomoRule] {
+        try await decode(MihomoRulesResponse.self, "rules").rules
+    }
+
     func updateProvider(_ name: String) async throws {
         try await command("providers/proxies/\(Self.seg(name))", method: "PUT")
     }

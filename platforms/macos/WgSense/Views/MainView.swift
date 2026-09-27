@@ -301,6 +301,12 @@ struct MainView: View {
         .task {
             await client.refresh()
             Self.openMenuPreviewIfRequested(client)
+            // 调试：`--args -WgSenseRuleSync YES` 启动即同步规则缓存（仅命令行参数域）。
+            let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            if (args["WgSenseRuleSync"] as? String) == "YES" {
+                RuleCacheStore.shared.loadIfNeeded()
+                await RuleCacheStore.shared.sync()
+            }
         }
     }
 

@@ -7,13 +7,49 @@ import Foundation
 // 而且弹框会卡住启动。0600 文件与原有 proxy.json 的安全等级一致。
 
 struct MihomoBackend: Codable, Identifiable, Equatable, Hashable {
-    var id: UUID = UUID()
-    var label: String = ""
-    var scheme: String = "http"
+    var id: UUID
+    var label: String
+    var scheme: String
     var host: String
     var port: Int
     /// 二级路径（原版 secondaryPath）：以 / 开头，没有则为空。
     var secondaryPath: String = ""
+    /// 规则源 SSH（原版“规则源 SSH”）：走本机 ssh 密钥认证，不保存密码。主机默认同控制器。
+    var sshHost: String = ""
+    var sshPort: Int = 22
+    var sshUser: String = "root"
+    /// auto / openclash / nikki
+    var rulePlugin: String = "auto"
+
+    var effectiveSSHHost: String { sshHost.isEmpty ? host : sshHost }
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, scheme, host, port, secondaryPath, sshHost, sshPort, sshUser, rulePlugin
+    }
+
+    init(id: UUID = UUID(), label: String = "", scheme: String = "http", host: String, port: Int, secondaryPath: String = "") {
+        self.id = id
+        self.label = label
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        self.secondaryPath = secondaryPath
+    }
+
+    /// 新增字段用 decodeIfPresent，旧版本存下的后端列表照常解码。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        scheme = (try? c.decode(String.self, forKey: .scheme)) ?? "http"
+        host = try c.decode(String.self, forKey: .host)
+        port = try c.decode(Int.self, forKey: .port)
+        secondaryPath = (try? c.decode(String.self, forKey: .secondaryPath)) ?? ""
+        sshHost = (try? c.decode(String.self, forKey: .sshHost)) ?? ""
+        sshPort = (try? c.decode(Int.self, forKey: .sshPort)) ?? 22
+        sshUser = (try? c.decode(String.self, forKey: .sshUser)) ?? "root"
+        rulePlugin = (try? c.decode(String.self, forKey: .rulePlugin)) ?? "auto"
+    }
 
     var displayName: String {
         label.isEmpty ? "\(host):\(port)" : label
