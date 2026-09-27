@@ -133,7 +133,9 @@ struct PPPreview: View {
             if showDots {
                 PPFlowLayout(spacing: 4) {
                     ForEach(nodes, id: \.self) { node in
-                        PPDot(name: node, group: group, isCurrent: node == now) { onSelect(node) }
+                        let latency = store.latency(node, group: group)
+                        PPDot(color: store.level(latency).dotColor, isCurrent: node == now,
+                              tip: latency == 0 ? node : "\(node)  \(latency)ms") { onSelect(node) }
                     }
                 }
             } else {
@@ -168,18 +170,21 @@ struct PPPreview: View {
     }
 }
 
-private struct PPDot: View {
-    @EnvironmentObject private var store: ProxyPanelStore
-    var name: String
-    var group: String?
+/// 延迟点：纯值输入，不订阅数据源（上层算好颜色传入），避免任何数据变化都让几百个点一起重算。
+private struct PPDot: View, Equatable {
+    var color: Color
     var isCurrent: Bool
+    var tip: String
     var action: () -> Void
     @State private var hovering = false
 
+    static func == (a: PPDot, b: PPDot) -> Bool {
+        a.color == b.color && a.isCurrent == b.isCurrent && a.tip == b.tip
+    }
+
     var body: some View {
-        let latency = store.latency(name, group: group)
         Circle()
-            .fill(store.level(latency).dotColor)
+            .fill(color)
             .frame(width: 12, height: 12)
             .overlay {
                 if isCurrent { Circle().fill(Color.white).frame(width: 5, height: 5) }
@@ -189,7 +194,19 @@ private struct PPDot: View {
             .contentShape(Circle())
             .onHover { hovering = $0 }
             .onTapGesture(perform: action)
-            .help(latency == 0 ? name : "\(name)  \(latency)ms")
+            .help(tip)
+    }
+}
+
+/// 组下载速度：唯一订阅每秒变化统计的视图。
+struct PPGroupSpeed: View {
+    @ObservedObject private var live = PPLiveStats.shared
+    var group: String
+    var body: some View {
+        Text(verbatim: WgFormat.speed(Double(live.groupDownloadSpeed[group] ?? 0)))
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .fixedSize()
     }
 }
 

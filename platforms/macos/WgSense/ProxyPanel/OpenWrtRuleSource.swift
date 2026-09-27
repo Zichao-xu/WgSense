@@ -542,10 +542,21 @@ struct MihomoRule: Decodable, Equatable {
     var proxy: String
     var index: Int?
     var disabled: Bool
+    /// 规则命中统计（smart/alpha 内核在 extra 里提供）。
+    var hitCount: Int
+    var missCount: Int
+    var hitAt: String?
+    var missAt: String?
 
     init(from decoder: Decoder) throws {
         enum K: String, CodingKey { case type, payload, proxy, index, extra, disabled }
-        struct Extra: Decodable { var disabled: Bool? }
+        struct Extra: Decodable {
+            var disabled: Bool?
+            var hitCount: Int?
+            var missCount: Int?
+            var hitAt: String?
+            var missAt: String?
+        }
         let c = try decoder.container(keyedBy: K.self)
         type = (try? c.decode(String.self, forKey: .type)) ?? ""
         payload = (try? c.decode(String.self, forKey: .payload)) ?? ""
@@ -553,6 +564,10 @@ struct MihomoRule: Decodable, Equatable {
         index = try? c.decode(Int.self, forKey: .index)
         let extra = try? c.decode(Extra.self, forKey: .extra)
         disabled = extra?.disabled ?? (try? c.decode(Bool.self, forKey: .disabled)) ?? false
+        hitCount = extra?.hitCount ?? 0
+        missCount = extra?.missCount ?? 0
+        hitAt = extra?.hitAt
+        missAt = extra?.missAt
     }
 }
 

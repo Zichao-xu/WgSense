@@ -326,10 +326,7 @@ struct PPGroupCard: View {
                 }
                 HStack(spacing: 8) {
                     PPRouteView(group: name)
-                    Text(verbatim: "\(WgFormat.speed(Double(store.groupDownloadSpeed[name] ?? 0)))")
-                        .font(.system(size: 11).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
+                    PPGroupSpeed(group: name)
                 }
             }
         }

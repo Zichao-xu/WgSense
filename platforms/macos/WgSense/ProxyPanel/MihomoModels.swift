@@ -162,6 +162,28 @@ struct MihomoSmartWeightsResponse: Decodable {
 
 // MARK: - 连接（WebSocket 推送）
 
+struct MihomoConnectionMetadata: Decodable, Equatable {
+    var sourceIP: String
+    var host: String
+    var sniffHost: String
+    var destinationIP: String
+    var process: String
+    var processPath: String
+
+    init(from decoder: Decoder) throws {
+        enum K: String, CodingKey { case sourceIP, host, sniffHost, destinationIP, process, processPath }
+        let c = try decoder.container(keyedBy: K.self)
+        sourceIP = (try? c.decode(String.self, forKey: .sourceIP)) ?? ""
+        host = (try? c.decode(String.self, forKey: .host)) ?? ""
+        sniffHost = (try? c.decode(String.self, forKey: .sniffHost)) ?? ""
+        destinationIP = (try? c.decode(String.self, forKey: .destinationIP)) ?? ""
+        process = (try? c.decode(String.self, forKey: .process)) ?? ""
+        processPath = (try? c.decode(String.self, forKey: .processPath)) ?? ""
+    }
+
+    init() { sourceIP = ""; host = ""; sniffHost = ""; destinationIP = ""; process = ""; processPath = "" }
+}
+
 struct MihomoConnection: Decodable, Equatable, Identifiable {
     var id: String
     var chains: [String]
@@ -170,9 +192,10 @@ struct MihomoConnection: Decodable, Equatable, Identifiable {
     var rule: String?
     var rulePayload: String?
     var start: String?
+    var metadata: MihomoConnectionMetadata
 
     init(from decoder: Decoder) throws {
-        enum K: String, CodingKey { case id, chains, upload, download, rule, rulePayload, start }
+        enum K: String, CodingKey { case id, chains, upload, download, rule, rulePayload, start, metadata }
         let c = try decoder.container(keyedBy: K.self)
         id = try c.decode(String.self, forKey: .id)
         chains = (try? c.decode([String].self, forKey: .chains)) ?? []
@@ -181,6 +204,7 @@ struct MihomoConnection: Decodable, Equatable, Identifiable {
         rule = try? c.decode(String.self, forKey: .rule)
         rulePayload = try? c.decode(String.self, forKey: .rulePayload)
         start = try? c.decode(String.self, forKey: .start)
+        metadata = (try? c.decode(MihomoConnectionMetadata.self, forKey: .metadata)) ?? MihomoConnectionMetadata()
     }
 }
 

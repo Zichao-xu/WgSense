@@ -42,7 +42,8 @@ struct ProxyView: View {
     private var page: some View {
         switch section {
         case .overview:
-            ProxyOverviewPage(section: $section)
+            PPOverviewPage()
+                .padding(.horizontal, WgTheme.pagePadding)
         case .proxies:
             PPProxiesPage()
                 .padding(.horizontal, WgTheme.pagePadding)

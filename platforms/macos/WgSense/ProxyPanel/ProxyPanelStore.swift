@@ -78,8 +78,8 @@ final class ProxyPanelStore: ObservableObject {
     @Published private(set) var localHistory: [String: [MihomoDelayHistory]] = [:]
     @Published var ipv6Map: [String: Bool] = PPPersist.dict("ipv6Map")
 
-    /// 组 → 当前经过该组的下载速度（来自连接推送，P-G08）。
-    @Published private(set) var groupDownloadSpeed: [String: Int64] = [:]
+    /// 组 → 下载速度（P-G08）放在独立的 PPLiveStats：每秒变化，挂在这里会让整页重算。
+    var groupDownloadSpeed: [String: Int64] { PPLiveStats.shared.groupDownloadSpeed }
     private var activeConnections: [MihomoConnection] = []
     private var lastConnectionBytes: [String: Int64] = [:]
     private var lastConnectionTime: Date?
@@ -118,37 +118,37 @@ final class ProxyPanelStore: ObservableObject {
 
     // MARK: 设置（默认值与原版一致）
 
-    @AppStorage("pp.sortType") var sortTypeRaw = PPSortType.defaultsort.rawValue
-    @AppStorage("pp.useSmartGroupSort") var useSmartGroupSort = false
-    @AppStorage("pp.groupProxiesByProvider") var groupProxiesByProvider = false
-    @AppStorage("pp.hideUnavailableProxies") var hideUnavailableProxies = false
-    @AppStorage("pp.manageHiddenGroup") var manageHiddenGroup = false
-    @AppStorage("pp.automaticDisconnection") var automaticDisconnection = true
-    @AppStorage("pp.displayFinalOutbound") var displayFinalOutbound = false
-    @AppStorage("pp.minProxyCardWidth") var minProxyCardWidth = 180.0
-    @AppStorage("pp.speedtestUrl") var speedtestUrl = ProxyPanelStore.testURLDefault
-    @AppStorage("pp.speedtestTimeout") var speedtestTimeout = 5000
-    @AppStorage("pp.independentLatencyTest") var independentLatencyTest = false
-    @AppStorage("pp.ipv6Test") var ipv6Test = false
-    @AppStorage("pp.lowLatency") var lowLatency = 400
-    @AppStorage("pp.mediumLatency") var mediumLatency = 800
-    @AppStorage("pp.previewType") var previewTypeRaw = PPPreviewType.auto.rawValue
-    @AppStorage("pp.smallCard") var smallCard = false
-    @AppStorage("pp.truncateProxyName") var truncateProxyName = true
-    @AppStorage("pp.largeGroupIcon") var useLargeProxyGroupIcon = false
-    @AppStorage("pp.groupIconSize") var proxyGroupIconSize = 24.0
-    @AppStorage("pp.groupIconMargin") var proxyGroupIconMargin = 6.0
-    @AppStorage("pp.displayGlobalByMode") var displayGlobalByMode = false
-    @AppStorage("pp.groupTestUrls") var groupTestUrlsRaw = "{}"
-    @AppStorage("pp.categoryFeatureEnabled") var categoryFeatureEnabled = true
+    @Published var sortTypeRaw = PPPersist.value("pp.sortType", PPSortType.defaultsort.rawValue) { didSet { UserDefaults.standard.set(sortTypeRaw, forKey: "pp.sortType") } }
+    @Published var useSmartGroupSort = PPPersist.value("pp.useSmartGroupSort", false) { didSet { UserDefaults.standard.set(useSmartGroupSort, forKey: "pp.useSmartGroupSort") } }
+    @Published var groupProxiesByProvider = PPPersist.value("pp.groupProxiesByProvider", false) { didSet { UserDefaults.standard.set(groupProxiesByProvider, forKey: "pp.groupProxiesByProvider") } }
+    @Published var hideUnavailableProxies = PPPersist.value("pp.hideUnavailableProxies", false) { didSet { UserDefaults.standard.set(hideUnavailableProxies, forKey: "pp.hideUnavailableProxies") } }
+    @Published var manageHiddenGroup = PPPersist.value("pp.manageHiddenGroup", false) { didSet { UserDefaults.standard.set(manageHiddenGroup, forKey: "pp.manageHiddenGroup") } }
+    @Published var automaticDisconnection = PPPersist.value("pp.automaticDisconnection", true) { didSet { UserDefaults.standard.set(automaticDisconnection, forKey: "pp.automaticDisconnection") } }
+    @Published var displayFinalOutbound = PPPersist.value("pp.displayFinalOutbound", false) { didSet { UserDefaults.standard.set(displayFinalOutbound, forKey: "pp.displayFinalOutbound") } }
+    @Published var minProxyCardWidth = PPPersist.value("pp.minProxyCardWidth", 180.0) { didSet { UserDefaults.standard.set(minProxyCardWidth, forKey: "pp.minProxyCardWidth") } }
+    @Published var speedtestUrl = PPPersist.value("pp.speedtestUrl", ProxyPanelStore.testURLDefault) { didSet { UserDefaults.standard.set(speedtestUrl, forKey: "pp.speedtestUrl") } }
+    @Published var speedtestTimeout = PPPersist.value("pp.speedtestTimeout", 5000) { didSet { UserDefaults.standard.set(speedtestTimeout, forKey: "pp.speedtestTimeout") } }
+    @Published var independentLatencyTest = PPPersist.value("pp.independentLatencyTest", false) { didSet { UserDefaults.standard.set(independentLatencyTest, forKey: "pp.independentLatencyTest") } }
+    @Published var ipv6Test = PPPersist.value("pp.ipv6Test", false) { didSet { UserDefaults.standard.set(ipv6Test, forKey: "pp.ipv6Test") } }
+    @Published var lowLatency = PPPersist.value("pp.lowLatency", 400) { didSet { UserDefaults.standard.set(lowLatency, forKey: "pp.lowLatency") } }
+    @Published var mediumLatency = PPPersist.value("pp.mediumLatency", 800) { didSet { UserDefaults.standard.set(mediumLatency, forKey: "pp.mediumLatency") } }
+    @Published var previewTypeRaw = PPPersist.value("pp.previewType", PPPreviewType.auto.rawValue) { didSet { UserDefaults.standard.set(previewTypeRaw, forKey: "pp.previewType") } }
+    @Published var smallCard = PPPersist.value("pp.smallCard", false) { didSet { UserDefaults.standard.set(smallCard, forKey: "pp.smallCard") } }
+    @Published var truncateProxyName = PPPersist.value("pp.truncateProxyName", true) { didSet { UserDefaults.standard.set(truncateProxyName, forKey: "pp.truncateProxyName") } }
+    @Published var useLargeProxyGroupIcon = PPPersist.value("pp.largeGroupIcon", false) { didSet { UserDefaults.standard.set(useLargeProxyGroupIcon, forKey: "pp.largeGroupIcon") } }
+    @Published var proxyGroupIconSize = PPPersist.value("pp.groupIconSize", 24.0) { didSet { UserDefaults.standard.set(proxyGroupIconSize, forKey: "pp.groupIconSize") } }
+    @Published var proxyGroupIconMargin = PPPersist.value("pp.groupIconMargin", 6.0) { didSet { UserDefaults.standard.set(proxyGroupIconMargin, forKey: "pp.groupIconMargin") } }
+    @Published var displayGlobalByMode = PPPersist.value("pp.displayGlobalByMode", false) { didSet { UserDefaults.standard.set(displayGlobalByMode, forKey: "pp.displayGlobalByMode") } }
+    @Published var groupTestUrlsRaw = PPPersist.value("pp.groupTestUrls", "{}") { didSet { UserDefaults.standard.set(groupTestUrlsRaw, forKey: "pp.groupTestUrls") } }
+    @Published var categoryFeatureEnabled = PPPersist.value("pp.categoryFeatureEnabled", true) { didSet { UserDefaults.standard.set(categoryFeatureEnabled, forKey: "pp.categoryFeatureEnabled") } }
 
     var sortType: PPSortType {
         get { PPSortType(rawValue: sortTypeRaw) ?? .defaultsort }
-        set { sortTypeRaw = newValue.rawValue; objectWillChange.send() }
+        set { sortTypeRaw = newValue.rawValue }
     }
     var previewType: PPPreviewType {
         get { PPPreviewType(rawValue: previewTypeRaw) ?? .auto }
-        set { previewTypeRaw = newValue.rawValue; objectWillChange.send() }
+        set { previewTypeRaw = newValue.rawValue }
     }
     var groupTestUrls: [String: String] {
         (try? JSONDecoder().decode([String: String].self, from: Data(groupTestUrlsRaw.utf8))) ?? [:]
@@ -183,6 +183,7 @@ final class ProxyPanelStore: ObservableObject {
     }
 
     func backendChanged() {
+        PPOverviewStore.shared.backendChanged()
         proxyMap = [:]
         proxyGroupList = []
         providers = []
@@ -259,7 +260,7 @@ final class ProxyPanelStore: ObservableObject {
             // 合并远端历史后，本地补记的历史里已被远端覆盖的部分丢弃。
             localHistory = localHistory.filter { name, _ in merged[name]?.history.isEmpty ?? true }
 
-            if proxyMap != merged { proxyMap = merged }
+            if proxyMap != merged { proxyMap = merged; proxyMapVersion += 1 }
             if proxyGroupList != groups { proxyGroupList = groups }
             if providers != validProviders { providers = validProviders }
             if lastError != nil { lastError = nil }
@@ -310,8 +311,10 @@ final class ProxyPanelStore: ObservableObject {
         manageHiddenGroup ? names : names.filter { !isHidden($0) }
     }
 
+    var currentGroups: [String] { classified().current }
+
     /// P-D08：根据模式显示 GLOBAL。
-    var currentGroups: [String] {
+    private func computeCurrentGroups() -> [String] {
         if displayGlobalByMode {
             if config?.mode.uppercased() == Self.global { return [Self.global] }
             return filterHidden(proxyGroupList)
@@ -319,8 +322,34 @@ final class ProxyPanelStore: ObservableObject {
         return filterHidden(proxyGroupList + (proxyMap[Self.global] != nil ? [Self.global] : []))
     }
 
+    private struct ClassificationKey: Equatable {
+        var proxies: Int, groups: [String], mode: String?, hidden: [String: Bool], manage: Bool, byMode: Bool
+    }
+    private var classificationKey: ClassificationKey?
+    private var classificationCache: (nodes: Set<String>, current: [String], policy: [String], node: [String], blocks: [[String]]) = ([], [], [], [], [])
+    private var proxyMapVersion = 0
+
+    /// 组划分只在代理数据、模式、隐藏组相关设置变化时重算（原先每次渲染都递归一遍）。
+    private func classified() -> (nodes: Set<String>, current: [String], policy: [String], node: [String], blocks: [[String]]) {
+        let key = ClassificationKey(proxies: proxyMapVersion, groups: proxyGroupList, mode: config?.mode,
+                                    hidden: hiddenGroupMap, manage: manageHiddenGroup, byMode: displayGlobalByMode)
+        if key == classificationKey { return classificationCache }
+        let current = computeCurrentGroups()
+        let nodes = computeNodeGroupNames(current)
+        let policy = current.filter { !nodes.contains($0) }
+        let node = current.filter { nodes.contains($0) }
+        classificationCache = (nodes, current, policy, node, computeNodeGroupBlocks(node))
+        classificationKey = key
+        return classificationCache
+    }
+
+    var nodeGroupNames: Set<String> { classified().nodes }
+    var policyGroups: [String] { classified().policy }
+    var nodeGroups: [String] { classified().node }
+    var nodeGroupBlocks: [[String]] { classified().blocks }
+
     /// P-D06：成员全是节点（或全是节点组）的组 = 节点组。递归判定，防环。
-    var nodeGroupNames: Set<String> {
+    private func computeNodeGroupNames(_ currentGroups: [String]) -> Set<String> {
         var resolved: [String: Bool] = [:]
         var visiting: Set<String> = []
         func isNodeGroup(_ name: String) -> Bool {
@@ -341,19 +370,8 @@ final class ProxyPanelStore: ObservableObject {
         return Set(currentGroups.filter { isNodeGroup($0) })
     }
 
-    var policyGroups: [String] {
-        let nodes = nodeGroupNames
-        return currentGroups.filter { !nodes.contains($0) }
-    }
-
-    var nodeGroups: [String] {
-        let nodes = nodeGroupNames
-        return currentGroups.filter { nodes.contains($0) }
-    }
-
     /// P-D07：节点组按引用关系打包。
-    var nodeGroupBlocks: [[String]] {
-        let groups = nodeGroups
+    private func computeNodeGroupBlocks(_ groups: [String]) -> [[String]] {
         let groupSet = Set(groups)
         func children(_ name: String) -> [String] { (proxyMap[name]?.all ?? []).filter { groupSet.contains($0) } }
         var referenced: Set<String> = []
@@ -538,6 +556,7 @@ final class ProxyPanelStore: ObservableObject {
         do {
             try await api.select(group: group, name: node)
             proxyMap[group]?.now = node
+            proxyMapVersion += 1
             if automaticDisconnection {
                 let targets = activeConnections.filter { $0.chains.contains(group) }
                 for conn in targets { try? await api.closeConnection(conn.id) }
@@ -748,6 +767,7 @@ final class ProxyPanelStore: ObservableObject {
     }
 
     private func consume(_ snapshot: MihomoConnectionsSnapshot) {
+        PPOverviewStore.shared.ingest(snapshot)
         let connections = snapshot.connections ?? []
         let now = Date()
         let elapsed = lastConnectionTime.map { max(now.timeIntervalSince($0), 0.2) } ?? 1
@@ -763,7 +783,7 @@ final class ProxyPanelStore: ObservableObject {
         activeConnections = connections
         lastConnectionBytes = bytes
         lastConnectionTime = now
-        if groupDownloadSpeed != speed { groupDownloadSpeed = speed }
+        if PPLiveStats.shared.groupDownloadSpeed != speed { PPLiveStats.shared.groupDownloadSpeed = speed }
     }
 
     // MARK: 自动刷新（P-D11）
@@ -775,7 +795,8 @@ final class ProxyPanelStore: ObservableObject {
         let intervals = zip(times.dropFirst(), times).map { $0.timeIntervalSince($1) }.filter { $0 > 0 }
         guard !intervals.isEmpty else { return nil }
         let sorted = intervals.sorted()
-        let median = sorted[sorted.count / 2]
+        // 下限 60 秒：几次间隔很近的手动测速不能让自动刷新退化成每秒整包拉取（实测曾占用约 10% CPU）。
+        let median = max(sorted[sorted.count / 2], 60)
         let autoTypes: Set<String> = ["urltest", "fallback", "loadbalance", "smart"]
         if autoTypes.contains(proxy.type.lowercased()) { return median }
         // 间隔稳定（全部落在中位数 ±20% 内）才认为是核心定时测速。
@@ -942,7 +963,18 @@ final class ProxyPanelStore: ObservableObject {
 }
 
 /// 小型持久化工具：界面状态字典存 UserDefaults（前缀 pp.）。
+/// 每秒变化的统计单独成一个数据源，只让显示它的小视图订阅。
+@MainActor
+final class PPLiveStats: ObservableObject {
+    static let shared = PPLiveStats()
+    @Published var groupDownloadSpeed: [String: Int64] = [:]
+}
+
 enum PPPersist {
+    static func value<T>(_ key: String, _ fallback: T) -> T {
+        UserDefaults.standard.object(forKey: key) as? T ?? fallback
+    }
+
     static func dict<V: Codable>(_ key: String) -> [String: V] {
         guard let data = UserDefaults.standard.data(forKey: "pp." + key),
               let value = try? JSONDecoder().decode([String: V].self, from: data) else { return [:] }
@@ -953,17 +985,43 @@ enum PPPersist {
         if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: "pp." + key) }
     }
 
-    private static let isoFractional: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-    private static let iso = ISO8601DateFormatter()
+    private static var dateCache: [String: Date] = [:]
 
-    /// Mihomo 的时间带纳秒（9 位小数），ISO8601DateFormatter 只认 3 位：先去掉小数部分。
+    /// 手写解析 `YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`：Mihomo 的时间带纳秒，
+    /// DateFormatter 既不认 9 位小数又很慢（自动刷新推算时要解析上千条，实测是最大热点）。
     static func parseDate(_ string: String) -> Date? {
-        if let d = isoFractional.date(from: string) ?? iso.date(from: string) { return d }
-        let trimmed = string.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
-        return iso.date(from: trimmed)
+        if let cached = dateCache[string] { return cached }
+        let b = Array(string.utf8)
+        func num(_ from: Int, _ len: Int) -> Int? {
+            guard from + len <= b.count else { return nil }
+            var v = 0
+            for i in from..<(from + len) {
+                let c = b[i]
+                guard c >= 48 && c <= 57 else { return nil }
+                v = v * 10 + Int(c - 48)
+            }
+            return v
+        }
+        guard b.count >= 19, let y = num(0, 4), let mo = num(5, 2), let d = num(8, 2),
+              let h = num(11, 2), let mi = num(14, 2), let sec = num(17, 2) else { return nil }
+        var i = 19
+        var fraction = 0.0
+        if i < b.count, b[i] == 46 { // '.'
+            var scale = 0.1
+            i += 1
+            while i < b.count, b[i] >= 48, b[i] <= 57 { fraction += Double(b[i] - 48) * scale; scale /= 10; i += 1 }
+        }
+        var offset = 0
+        if i < b.count, b[i] == 43 || b[i] == 45, let oh = num(i + 1, 2), let om = num(i + 4, 2) { // '+' / '-'
+            offset = (oh * 3600 + om * 60) * (b[i] == 45 ? -1 : 1)
+        }
+        var t = tm()
+        t.tm_year = Int32(y - 1900); t.tm_mon = Int32(mo - 1); t.tm_mday = Int32(d)
+        t.tm_hour = Int32(h); t.tm_min = Int32(mi); t.tm_sec = Int32(sec)
+        let epoch = TimeInterval(timegm(&t)) - TimeInterval(offset) + fraction
+        let date = Date(timeIntervalSince1970: epoch)
+        if dateCache.count > 20000 { dateCache.removeAll() }
+        dateCache[string] = date
+        return date
     }
 }
