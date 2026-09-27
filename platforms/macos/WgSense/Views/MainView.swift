@@ -35,7 +35,7 @@ enum WgTheme {
         dark: NSColor(calibratedWhite: 1, alpha: 0.09)
     )
     static let accent = Color(red: 0.2, green: 0.5, blue: 0.95)
-    static let cardRadius: CGFloat = 10
+    static let cardRadius: CGFloat = 14
     static let controlRadius: CGFloat = 16
     static let floatingRadius: CGFloat = 18
     static let spacing: CGFloat = 12
@@ -410,22 +410,22 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .profile: return "配置"
         case .logs: return "日志"
         case .about: return "关于"
-        case .connection: return "连接"
+        case .connection: return "流量"
         }
     }
 
     var icon: String {
         switch self {
-        case .vpn: return "network"
-        case .pause: return "pause.circle.fill"
-        case .stop: return "stop.circle.fill"
-        case .transferReceive: return "arrow.down.circle.fill"
-        case .transferSend: return "arrow.up.circle.fill"
-        case .proxy: return "globe.asia.australia"
+        case .vpn: return "lock.shield.fill"
+        case .pause: return "pause.fill"
+        case .stop: return "stop.fill"
+        case .transferReceive: return "arrow.down"
+        case .transferSend: return "arrow.up"
+        case .proxy: return "globe"
         case .profile: return "doc.text.fill"
-        case .logs: return "scroll"
-        case .about: return "info.circle"
-        case .connection: return "arrow.up.arrow.down.circle"
+        case .logs: return "text.alignleft"
+        case .about: return "info"
+        case .connection: return "arrow.up.arrow.down"
         }
     }
 
@@ -435,11 +435,11 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .pause: return .orange
         case .stop: return .red
         case .transferReceive: return .blue
-        case .transferSend: return .orange
+        case .transferSend: return .indigo
         case .proxy: return .purple
         case .profile: return .orange
-        case .logs: return .secondary
-        case .about: return .secondary
+        case .logs: return .gray
+        case .about: return .gray
         case .connection: return .cyan
         }
     }
@@ -499,7 +499,8 @@ struct SidebarView: View {
     // VPN 状态快捷访问
     private var isConnected: Bool { client.isVPNOn }
     private var isTunnelUp: Bool { client.isTunnelUp }
-    private var guardRunning: Bool { client.isGuardOn }
+    /// 服务离线时不沿用本地缓存的守护意图，否则会显示“运行中”而实际没人在守护。
+    private var guardRunning: Bool { client.status != nil && client.isGuardOn }
 
     init(selection: Binding<SidebarTab>) {
         self._selection = selection
@@ -555,7 +556,6 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
-            Divider().opacity(0.15).padding(.horizontal, 12)
 
             // 磁贴网格区域
             GeometryReader { geometry in
@@ -593,46 +593,400 @@ struct SidebarView: View {
     // MARK: - 头部
 
     private var headerBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.green)
-            Text("WgSense").font(.headline).fontWeight(.bold)
-            Spacer()
+        HStack(spacing: 9) {
+            WgSquareBadge(symbol: "lock.shield.fill", tint: .green, size: 24)
+            Text("WgSense")
+                .font(.system(size: 14, weight: .semibold))
+            Spacer(minLength: 4)
 
-            // 添加磁贴按钮（编辑模式下高亮）
-            Button { showAddSheet = true } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(isEditMode ? WgTheme.accent : .secondary)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: isEditMode ? WgTheme.accent : nil, cornerRadius: 13)
+            Button { showAddSheet = true } label: { Image(systemName: "plus") }
+                .buttonStyle(WgToolbarIconButtonStyle())
+                .help("添加磁贴")
 
-            // 编辑模式切换按钮
-            Button { withAnimation(.spring(response: 0.35)) { isEditMode.toggle() } } label: {
-                Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(isEditMode ? .green : .secondary)
-                    .frame(width: 26, height: 26)
+            Button {
+                withAnimation(WgDesign.spring) { isEditMode.toggle() }
+            } label: {
+                Image(systemName: isEditMode ? "checkmark" : "square.grid.2x2")
             }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: isEditMode ? .green : nil, cornerRadius: 13)
+            .buttonStyle(WgToolbarIconButtonStyle(isActive: isEditMode))
+            .help(isEditMode ? "完成编辑" : "编辑磁贴")
 
-            // 设置图标按钮
-            Button { withAnimation(.easeInOut(duration: 0.15)) { selection = .settings } } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16))
-                    .foregroundStyle(selection == .settings ? WgTheme.accent : .secondary)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: selection == .settings ? WgTheme.accent : nil, cornerRadius: 13)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
+            } label: { Image(systemName: "gearshape") }
+                .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
+                .help("设置")
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.bottom, 6)
+        .focusEffectDisabled()
+    }
+
+    // MARK: - 磁贴内容
+
+    @ViewBuilder
+    private func tileContent(_ tile: TileData) -> some View {
+        Group {
+            switch tile.kind {
+            case .vpn:
+                vpnModule(tile)
+            case .connection:
+                trafficModule(tile)
+            case .logs where tile.size != .small:
+                logContentTile(tile)
+            case .pause where tile.size != .small:
+                pauseTile(tile)
+            case .stop where tile.size != .small:
+                stopTile(tile)
+            default:
+                standardModule(tile)
+            }
+        }
+        .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
+        .overlay(alignment: .topTrailing) {
+            if isEditMode { editOverlay(tile) }
+        }
+    }
+
+    private func tab(for kind: TileKind) -> SidebarTab? {
+        switch kind {
+        case .vpn, .connection: return .dashboard
+        case .transferReceive: return .transferReceive
+        case .transferSend: return .transferSend
+        case .proxy: return .proxy
+        case .profile: return .profile
+        case .logs: return .logs
+        case .about: return .about
+        case .pause, .stop: return nil
+        }
+    }
+
+    private func isSelected(_ kind: TileKind) -> Bool {
+        guard let tab = tab(for: kind) else { return false }
+        return selection == tab
+    }
+
+    // MARK: 通用模块（控制中心样式：圆形徽章 + 标题 + 一行状态）
+
+    private struct ModuleInfo {
+        var symbol: String
+        var tint: Color
+        var isOn: Bool
+        var status: Text
+        var highlight: Bool = false
+    }
+
+    private func moduleInfo(_ kind: TileKind) -> ModuleInfo {
+        switch kind {
+        case .transferReceive:
+            guard let state = client.transferState else {
+                return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text("未启动"))
+            }
+            if !state.pending.isEmpty {
+                return ModuleInfo(symbol: kind.icon, tint: .orange, isOn: true,
+                                  status: Text("\(state.pending.count) 个待确认"), highlight: true)
+            }
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: state.running,
+                              status: Text(state.running ? "可接收" : "已停止"))
+        case .transferSend:
+            let count = client.transferDevices.count
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: count > 0,
+                              status: count > 0 ? Text("\(count) 台设备") : Text("无设备"))
+        case .proxy:
+            let status: Text
+            if client.proxyRunning {
+                status = Text(client.mihomoVersion?.version ?? "运行中")
+            } else {
+                status = Text(client.proxyServiceRunning ? "等待认证" : "未连接")
+            }
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: client.proxyRunning, status: status)
+        case .profile:
+            let name = client.status?.service ?? client.profiles.first
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: name != nil,
+                              status: name.map { Text(verbatim: $0) } ?? Text("无配置"))
+        case .logs:
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text("运行记录"))
+        case .about:
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text(verbatim: "v\(version)"))
+        case .pause:
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: client.isPauseOn,
+                              status: client.isPauseOn ? Text("已暂停") : Text("\(client.pauseMinutes) 分钟"))
+        case .stop:
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text("全部停止"))
+        case .vpn, .connection:
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text(""))
+        }
+    }
+
+    private func standardModule(_ tile: TileData) -> some View {
+        let info = moduleInfo(tile.kind)
+        let compact = tile.size == .small
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                WgCircleBadge(symbol: info.symbol, tint: info.tint, isOn: info.isOn, size: compact ? 30 : 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(tile.kind.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    info.status
+                        .font(.system(size: 11))
+                        .foregroundStyle(info.highlight ? info.tint : Color.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if !compact {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            if !compact {
+                moduleDetail(tile)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .padding(compact ? 11 : 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: compact ? .leading : .topLeading)
+        .wgInteractiveSurface(isSelected: isSelected(tile.kind), isEnabled: !isEditMode) {
+            handleSmallTileTap(tile)
+        }
+    }
+
+    @ViewBuilder
+    private func moduleDetail(_ tile: TileData) -> some View {
+        switch tile.kind {
+        case .transferReceive:
+            if let state = client.transferState {
+                detailLine("设备名", state.alias)
+                if tile.size == .large { detailLine("端口", ":\(state.port)") }
+            }
+        case .transferSend:
+            if tile.size == .large {
+                ForEach(client.transferDevices.prefix(3)) { device in
+                    detailLine(device.alias, device.ip ?? "")
+                }
+            }
+        case .proxy:
+            if !client.proxyAddress.isEmpty { detailLine("控制器", client.proxyAddress) }
+        case .profile:
+            if tile.size == .large {
+                ForEach(client.profiles.prefix(3), id: \.self) { name in
+                    detailLine(name, name == client.status?.service ? "当前" : "")
+                }
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func detailLine(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(verbatim: label).foregroundStyle(.secondary)
+            Spacer(minLength: 6)
+            Text(verbatim: value).foregroundStyle(.tertiary).monospacedDigit()
+        }
+        .font(.system(size: 11))
+        .lineLimit(1)
+    }
+
+    // MARK: VPN 模块
+
+    private func vpnModule(_ tile: TileData) -> some View {
+        let vpn = client.vpnPresentation
+        let compact = tile.size == .small
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: compact ? 10 : 12) {
+                Button(action: toggleVPN) {
+                    WgCircleBadge(
+                        symbol: vpn.symbol,
+                        tint: vpn.tint,
+                        isOn: vpn.isConnected,
+                        size: compact ? 30 : 44,
+                        isBusy: vpn.isBusy
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditMode)
+                .help(vpnToggleHelp(vpn))
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("VPN")
+                        .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                    Text(vpn.title)
+                        .font(.system(size: compact ? 11 : 12, weight: vpn.isConnected ? .medium : .regular))
+                        .foregroundStyle(vpn.isConnected ? vpn.tint : Color.secondary)
+                        .contentTransition(.opacity)
+                }
+                Spacer(minLength: 0)
+
+                if tile.size == .medium {
+                    HStack(spacing: 2) {
+                        Button { Task { await client.setGuardEnabled(!guardRunning) } } label: {
+                            Image(systemName: guardRunning ? "shield.fill" : "shield.slash")
+                        }
+                        .buttonStyle(WgToolbarIconButtonStyle(isActive: guardRunning))
+                        .help(guardRunning ? "关闭守护" : "开启守护")
+                        Button(action: toggleVPNPause) {
+                            Image(systemName: client.isPauseOn ? "play.fill" : "pause.fill")
+                        }
+                        .buttonStyle(WgToolbarIconButtonStyle(isActive: client.isPauseOn))
+                        .help(client.isPauseOn ? "继续并重新连接" : "暂停 \(client.pauseMinutes) 分钟")
+                    }
+                    .disabled(isEditMode)
+                }
+            }
+
+            if tile.size == .large {
+                Text(vpn.detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
+                Spacer(minLength: 8)
+                vpnActions
+            }
+        }
+        .padding(compact ? 11 : 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: compact ? .leading : .topLeading)
+        .wgInteractiveSurface(isSelected: selection == .dashboard, isEnabled: !isEditMode) {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
+        }
+    }
+
+    private func toggleVPN() {
+        let vpn = client.vpnPresentation
+        Task { await client.post(vpn.canDisconnect ? "disconnect" : "connect") }
+    }
+
+    private func vpnToggleHelp(_ vpn: WgVPNPresentation) -> LocalizedStringKey {
+        if vpn.canDisconnect { return "断开 VPN" }
+        if vpn.phase == .home { return "在家由守护保持断开；关闭守护后可手动连接" }
+        return "连接 VPN"
+    }
+
+    private var vpnActions: some View {
+        HStack(spacing: 6) {
+            vpnActionButton(
+                client.isPauseOn ? "继续" : "暂停",
+                symbol: client.isPauseOn ? "play.fill" : "pause.fill",
+                isActive: client.isPauseOn, tint: .orange,
+                help: client.isPauseOn ? "继续并重新连接" : "暂停 \(client.pauseMinutes) 分钟",
+                action: toggleVPNPause
+            )
+            vpnActionButton(
+                "守护",
+                symbol: guardRunning ? "shield.fill" : "shield.slash",
+                isActive: guardRunning, tint: .blue,
+                help: guardRunning ? "关闭守护" : "开启守护"
+            ) {
+                Task { await client.setGuardEnabled(!guardRunning) }
+            }
+            vpnActionButton("重启", symbol: "arrow.clockwise", isActive: false, tint: .purple, help: "重启守护") {
+                vpnPauseTask?.cancel()
+                vpnPauseTask = nil
+                Task { await client.restartGuardFlow() }
+            }
+            vpnActionButton("停止", symbol: "stop.fill", isActive: false, tint: .red, help: "关闭守护并断开 VPN",
+                            destructive: true, action: stopAllServices)
+        }
+        .disabled(isEditMode)
+    }
+
+    private func vpnActionButton(
+        _ title: LocalizedStringKey,
+        symbol: String,
+        isActive: Bool,
+        tint: Color,
+        help: LocalizedStringKey,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(destructive ? AnyShapeStyle(Color.red.opacity(0.9)) : AnyShapeStyle(.foreground))
+                    .contentTransition(.symbolEffect(.replace))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+            }
+        }
+        .buttonStyle(WgActionButtonStyle(isActive: isActive, tint: tint))
+        .help(help)
+    }
+
+    // MARK: 流量模块
+
+    private func trafficModule(_ tile: TileData) -> some View {
+        let up = client.isTunnelUp
+        let tx = client.traffic?.tx_speed ?? 0
+        let rx = client.traffic?.rx_speed ?? 0
+        let compact = tile.size == .small
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                WgCircleBadge(symbol: TileKind.connection.icon, tint: .cyan, isOn: up, size: compact ? 30 : 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(TileKind.connection.title)
+                        .font(.system(size: 13, weight: .semibold))
+                    Group {
+                        if compact && up {
+                            Text(verbatim: "↓ \(WgFormat.speed(rx))")
+                        } else {
+                            Text(up ? "经由隧道" : "未连接")
+                        }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                }
+                Spacer(minLength: 0)
+                if !compact {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        speedLabel("arrow.down", up ? WgFormat.speed(rx) : "—")
+                        speedLabel("arrow.up", up ? WgFormat.speed(tx) : "—")
+                    }
+                }
+            }
+            if tile.size == .large {
+                VStack(spacing: 4) {
+                    detailLine("累计下载", WgFormat.size(client.traffic?.rx_bytes ?? 0))
+                    detailLine("累计上传", WgFormat.size(client.traffic?.tx_bytes ?? 0))
+                    if let s = client.status {
+                        detailLine("配置", s.service.isEmpty ? "—" : s.service)
+                        if let age = s.last_handshake_age_seconds, up {
+                            detailLine("最近握手", WgFormat.age(age))
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+        .padding(compact ? 11 : 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tile.size == .large ? .topLeading : .leading)
+        .wgInteractiveSurface(isSelected: false, isEnabled: !isEditMode) {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
+        }
+        .task {
+            await client.fetchTraffic()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await client.fetchTraffic()
+            }
+        }
+    }
+
+    private func speedLabel(_ symbol: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.tertiary)
+            Text(verbatim: value)
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.85))
+        }
     }
 
     // MARK: - Tab 行
@@ -661,158 +1015,6 @@ struct SidebarView: View {
     }
 
     // MARK: - 磁贴内容视图
-
-    @ViewBuilder
-    private func tileContent(_ tile: TileData) -> some View {
-        // 小磁贴：统一风格（右侧半透明大图标 + 左侧大字）
-        if tile.size == .small {
-            return AnyView(smallTileBody(tile))
-        }
-
-        let content = Group {
-            switch tile.kind {
-            case .vpn: vpnTile(tile)
-            case .pause: pauseTile(tile)
-            case .stop: stopTile(tile)
-            case .transferReceive: receiveTile(tile)
-            case .transferSend: sendTile(tile)
-            case .proxy: proxyTile(tile)
-            case .profile: profileTile(tile)
-            case .logs:
-                if tile.size == .small {
-                    navTile(tile, isSelected: selection == .logs)
-                } else {
-                    logContentTile(tile)  // 中/大尺寸显示滚动日志
-                }
-            case .about: navTile(tile, isSelected: selection == .about)
-            case .connection: connectionTile(tile)
-            }
-        }
-        .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
-        .overlay(alignment: .topTrailing) {
-            if isEditMode { editOverlay(tile) }
-        }
-
-        return AnyView(content)
-    }
-
-    /// 小磁贴统一样式：右侧半透明大图标背景 + 左侧标题
-    @ViewBuilder
-    private func smallTileBody(_ tile: TileData) -> some View {
-        let iconColor = tile.kind.activeColor
-
-        // 控制类磁贴：显示操作按钮
-        if tile.kind == .vpn || tile.kind == .pause {
-            return AnyView(smallControlTile(tile, iconColor: iconColor))
-        }
-
-        return AnyView(
-            Button {
-                handleSmallTileTap(tile)
-            } label: {
-                ZStack(alignment: .topLeading) {
-                    Image(systemName: tile.kind.icon)
-                        .font(.system(size: 48, weight: .ultraLight))
-                        .foregroundStyle(iconColor.opacity(0.12))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .offset(x: 4, y: 4)
-
-                    // 小磁贴统一：标题左上角 + 图标背景右下角
-                    Text(tile.kind.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary.opacity(0.9))
-                        .padding(.leading, 10)
-                        .padding(.top, 10)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .wgTileSurface()
-            .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
-            .overlay(alignment: .topTrailing) {
-                if isEditMode { editOverlay(tile) }
-            }
-            // 日志数据后台持续拉取（切换到中/大尺寸时立即可用）
-            .task {
-                if tile.kind == .logs {
-                    await client.fetchLogs(n: 15)
-                    while !Task.isCancelled && tile.kind == .logs {
-                        try? await Task.sleep(for: .seconds(3))
-                        await client.fetchLogs(n: 15)
-                    }
-                }
-            }
-        )
-    }
-
-    /// 小尺寸控制磁贴（VPN/守护/暂停）— 原生 Toggle 开关
-    private func smallControlTile(_ tile: TileData, iconColor: Color) -> some View {
-        let isOn: Bool
-        let tintColor: Color
-
-        switch tile.kind {
-        case .vpn:
-            isOn = isConnected; tintColor = .green
-        case .pause:
-            isOn = client.isPauseOn; tintColor = .orange
-        default:
-            isOn = false; tintColor = .gray
-        }
-
-        return Button {
-            switch tile.kind {
-            case .vpn:
-                Task { await client.post(isConnected ? "disconnect" : "connect") }
-            case .pause:
-                Task { await client.post(client.isPauseOn ? "resume" : "pause") }
-            default: break
-            }
-        } label: {
-            ZStack {
-                // 背景层：右下角半透明大图标
-                Image(systemName: tile.kind.icon)
-                    .font(.system(size: 48, weight: .ultraLight))
-                    .foregroundStyle(iconColor.opacity(0.10))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .offset(x: 4, y: 4)
-
-                // 左上角：标题文字（横向）
-                Text(tile.kind.title)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary.opacity(0.9))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.leading, 10)
-                    .padding(.top, 10)
-
-                // 右上角：Toggle 开关
-                ToggleSwitch(isOn: isOn, tintColor: tintColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(10)
-
-                // 左下角：状态圆点
-                Circle()
-                    .fill(isOn ? tintColor : Color.gray.opacity(0.35))
-                    .frame(width: 7, height: 7)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(10)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .wgTileSurface(tint: isOn ? tintColor : nil)
-        .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
-        .overlay(alignment: .topTrailing) {
-            if isEditMode { editOverlay(tile) }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if tile.kind == .vpn && !isEditMode {
-                vpnQuickControls(compact: true)
-                    .padding(8)
-            }
-        }
-    }
 
     /// 小磁贴点击处理
     private func handleSmallTileTap(_ tile: TileData) {
@@ -869,89 +1071,7 @@ struct SidebarView: View {
         }
     }
 
-    private func vpnQuickControls(compact: Bool) -> some View {
-        HStack(spacing: compact ? 5 : 7) {
-            Button(action: toggleVPNPause) {
-                Image(systemName: client.isPauseOn ? "play.fill" : "pause.fill")
-                    .font(.system(size: compact ? 9 : 10, weight: .semibold))
-                    .foregroundStyle(client.isPauseOn ? Color.green : Color.orange)
-                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: client.isPauseOn ? .green : .orange, cornerRadius: compact ? 11 : 13)
-            .help(client.isPauseOn ? "继续并重新连接" : "暂停 \(client.pauseMinutes) 分钟")
-
-            Button(action: stopAllServices) {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
-                    .foregroundStyle(.red)
-                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: .red, cornerRadius: compact ? 11 : 13)
-            .help("停止 VPN")
-
-            Button {
-                Task { await client.setGuardEnabled(!guardRunning) }
-            } label: {
-                Image(systemName: guardRunning ? "shield.fill" : "shield.slash")
-                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
-                    .foregroundStyle(guardRunning ? Color.blue : Color.secondary)
-                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: guardRunning ? .blue : nil, cornerRadius: compact ? 11 : 13)
-            .help(guardRunning ? "关闭守护" : "开启守护")
-
-            Button {
-                vpnPauseTask?.cancel()
-                vpnPauseTask = nil
-                Task { await client.restartGuardFlow() }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: compact ? 8 : 9, weight: .semibold))
-                    .foregroundStyle(.purple)
-                    .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .wgFloatingControlSurface(tint: .purple, cornerRadius: compact ? 11 : 13)
-            .help("重启守护")
-        }
-    }
-
     // MARK: 各类型磁贴
-
-    // --- VPN 磁贴 ---
-    private func vpnTile(_ tile: TileData) -> some View {
-        controlTile(
-            tile: tile,
-            icon: tile.kind.icon,
-            color: tile.kind.activeColor,
-            subtitle: isConnected ? (isTunnelUp ? "已连" : "连接中") : (client.isGuardBlockingVPN ? "在家 · 守护断开" : "断开"),
-            isOn: isConnected
-        ) {
-            Task { await client.post(isConnected ? "disconnect" : "connect") }
-        } onTap: {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if !isEditMode {
-                vpnQuickControls(compact: false)
-                    .padding(tilePadding(tile.size))
-            }
-        }
-        // 放在 overlay 而不是磁贴 Button 的 label 里：嵌套 Button 的点击会被外层吃掉。
-        .overlay(alignment: .bottomLeading) {
-            if !isEditMode && tile.size == .large {
-                vpnActionButton()
-                    .padding(tilePadding(tile.size))
-            }
-        }
-    }
 
     // --- 暂停磁贴 ---
     private func pauseTile(_ tile: TileData) -> some View {
@@ -980,222 +1100,6 @@ struct SidebarView: View {
         )
     }
 
-    // --- 接收磁贴（LocalSend 兼容）---
-    @ViewBuilder
-    private func receiveTile(_ tile: TileData) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .transferReceive }
-        } label: {
-            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
-                HStack {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: tile.size == .small ? 14 : 20))
-                        .foregroundStyle(.blue)
-                    Text("接收")
-                        .font(.system(size: tile.size == .small ? 11 : 14, weight: .bold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    receiveStatusBadge
-                }
-                if tile.size != .small {
-                    receiveTileDetail(size: tile.size)
-                }
-            }
-            .padding(tile.size == .small ? 10 : 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: .blue, isSelected: selection == .transferReceive)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var receiveStatusBadge: some View {
-        Group {
-            if let state = client.transferState {
-                HStack(spacing: 4) {
-                    if state.pending.isEmpty {
-                        Circle().fill(state.running ? Color.green : Color.red).frame(width: 7, height: 7)
-                        Text(state.running ? "运行中" : "已停止")
-                            .font(.caption2).foregroundStyle(state.running ? .green : .red)
-                    } else {
-                        Image(systemName: "tray.and.arrow.down.fill")
-                        Text("\(state.pending.count) 待确认")
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(state.pending.isEmpty ? (state.running ? Color.green : Color.red) : Color.orange)
-            } else {
-                Text("--").font(.caption2).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func receiveTileDetail(size: TileSize) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if size == .large, let state = client.transferState {
-                // 大尺寸：显示别名 + 端口 + 自动保存状态
-                Text(state.alias)
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider().opacity(0.1)
-                HStack(spacing: 12) {
-                    Label(":\(state.port)", systemImage: "network")
-                    Label("自动保存: 关", systemImage: "tray.full")
-                }
-                .font(.caption2).foregroundStyle(.tertiary)
-            } else if let state = client.transferState {
-                // 中尺寸：简洁信息
-                Text("\(state.alias) · :\\(state.port)")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("LocalSend 接收服务")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider().opacity(0.1)
-                Text("点击进入").font(.caption2).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    // --- 发送磁贴（LocalSend 兼容）---
-    @ViewBuilder
-    private func sendTile(_ tile: TileData) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .transferSend }
-        } label: {
-            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
-                HStack {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: tile.size == .small ? 14 : 20))
-                        .foregroundStyle(.orange)
-                    Text("发送")
-                        .font(.system(size: tile.size == .small ? 11 : 14, weight: .bold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    sendStatusBadge
-                }
-                if tile.size != .small {
-                    sendTileDetail(size: tile.size)
-                }
-            }
-            .padding(tile.size == .small ? 10 : 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: .orange, isSelected: selection == .transferSend)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var sendStatusBadge: some View {
-        let count = client.transferDevices.count
-        if count > 0 {
-            Text("\(count) 设备")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.12))
-                .cornerRadius(4)
-        } else {
-            Text("--").font(.caption2).foregroundStyle(.tertiary)
-        }
-    }
-
-    @ViewBuilder
-    private func sendTileDetail(size: TileSize) -> some View {
-        let count = client.transferDevices.count
-        VStack(alignment: .leading, spacing: 6) {
-            if count > 0 && size == .large {
-                // 大尺寸：设备列表预览
-                ForEach(client.transferDevices.prefix(3)) { device in
-                    HStack(spacing: 6) {
-                        Circle().fill(colorForDeviceSource(device.source ?? "multicast")).frame(width: 6, height: 6)
-                        Text(device.alias).font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Text(device.ip ?? "").font(.caption2).foregroundStyle(.tertiary)
-                    }
-                }
-                if count > 3 { Text("... 还有 \(count - 3) 个").font(.caption2).foregroundStyle(.tertiary) }
-            } else if count > 0 {
-                // 中尺寸：设备数量
-                Text("发现 \(count) 台设备")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider().opacity(0.1)
-                Text("点击进入发送").font(.caption2).foregroundStyle(.tertiary)
-            } else {
-                Text("扫描或手动添加设备")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider().opacity(0.1)
-                Text("隧道内传输").font(.caption2).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    /// 设备来源对应的颜色
-    private func colorForDeviceSource(_ source: String) -> Color {
-        switch source {
-        case "manual": return .orange
-        case "scan": return .blue
-        default: return .green
-        }
-    }
-
-    // --- 代理磁贴 ---
-    private func proxyTile(_ tile: TileData) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .proxy }
-        } label: {
-            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "globe.asia.australia")
-                        .font(.system(size: tileSizeIcon(tile.size) - 4))
-                        .foregroundStyle(client.proxyRunning ? .purple : .secondary.opacity(0.5))
-                    Text(client.proxyRunning ? (client.mihomoVersion?.version ?? "Mihomo") : "未连接")
-                        .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
-                        .fontWeight(.semibold).lineLimit(1)
-                    Spacer()
-                }
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(client.proxyRunning ? Color.purple : Color.secondary.opacity(0.3))
-                        .frame(width: 7, height: 7)
-                    Text(client.proxyRunning ? "运行中" : "离线")
-                        .font(.caption2).fontWeight(.medium)
-                        .foregroundStyle(client.proxyRunning ? .purple : .secondary)
-                    if !client.proxyAddress.isEmpty {
-                        Text(client.proxyAddress)
-                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
-                    }
-                    Spacer()
-                }
-
-                if tile.size == .large {
-                    if let conns = client.connections {
-                        HStack(spacing: 12) {
-                            statItem("↑", formatSpeed(client.traffic?.tx_speed ?? 0), .blue)
-                            statItem("↓", formatSpeed(client.traffic?.rx_speed ?? 0), .green)
-                            statItem("链接", "\(conns.connections.count)", .orange)
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-            }
-            .padding(tile.size == .small ? 12 : 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .wgTileSurface(tint: client.proxyRunning ? .purple : nil, isSelected: selection == .proxy)
-        .task {
-            await client.fetchProxyStatus()
-            if client.proxyRunning {
-                await client.fetchProxyVersion()
-                await client.fetchConnections()
-            }
-        }
-    }
-
     private func statItem(_ label: LocalizedStringKey, _ value: String, _ color: Color) -> some View {
         VStack(spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(color)
@@ -1208,129 +1112,6 @@ struct SidebarView: View {
         if bps < 1024 { return "\(bps) B/s" }
         if bps < 1024 * 1024 { return "\(bps / 1024) KB/s" }
         return String(format: "%.1f MB/s", Double(bps) / 1024.0 / 1024.0)
-    }
-
-    // --- Profile 磁贴（内容随尺寸自适应）---
-    private func profileTile(_ tile: TileData) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .profile }
-        } label: {
-            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 8) {
-                // 第一行：图标 + 名称
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text.fill")
-                        .font(.system(size: tileSizeIcon(tile.size) - 4))
-                        .foregroundStyle(.orange)
-                    Text(client.profiles.isEmpty ? "无配置" : client.profiles.joined(separator: ", "))
-                        .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
-                        .fontWeight(.semibold).lineLimit(1)
-                    Spacer()
-                    if !isEditMode {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) { selection = .profile }
-                        } label: {
-                            Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary.opacity(0.6))
-                        }.buttonStyle(.plain)
-                    }
-                }
-
-                // 第二行：标签 + 状态
-                HStack(spacing: 6) {
-                    Text("本地")
-                        .font(.caption2).fontWeight(.medium).foregroundStyle(Color.cyan)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Color.cyan.opacity(0.12)).clipShape(Capsule())
-                    if let s = client.status {
-                        Text(s.at_home ? "在家网段" : "在外")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if !isEditMode && tile.size != .small {
-                        Button { showDeleteConfirm = true } label: {
-                            Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(.red.opacity(0.45))
-                        }.buttonStyle(.plain)
-                    }
-                }
-
-                // 中尺寸：状态摘要
-                if tile.size == .medium {
-                    HStack(spacing: 6) {
-                        Circle().fill(isTunnelUp ? Color.green : Color.gray.opacity(0.3))
-                            .frame(width: 6, height: 6)
-                        Text(isTunnelUp ? "已连接" : "未连接")
-                            .font(.system(size: 10)).foregroundStyle(isTunnelUp ? .green : .secondary)
-                        Spacer()
-                    }
-                }
-
-                // 大尺寸时展示额外信息（连接状态、操作按钮等）
-                if tile.size == .large {
-                    Divider().opacity(0.2)
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(isTunnelUp ? "已连接" : "未连接", systemImage: isTunnelUp ? "checkmark.circle.fill" : "circle")
-                                .font(.caption2)
-                                .foregroundStyle(isTunnelUp ? .green : .secondary)
-                            Label(client.status?.state ?? "未知", systemImage: "network")
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        Spacer()
-                    }
-                }
-            }
-            .padding(tilePadding(tile.size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: .orange, isSelected: selection == .profile)
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .bottomTrailing) {
-            if !isEditMode && tile.size == .large {
-                vpnActionButton()
-                    .padding(tilePadding(tile.size))
-            }
-        }
-    }
-
-    // --- 导航小卡（日志/关于）---
-    private func navTile(_ tile: TileData, isSelected: Bool) -> some View {
-        Button {
-            switch tile.kind {
-            case .logs: withAnimation(.easeInOut(duration: 0.15)) { selection = .logs }
-            case .about: withAnimation(.easeInOut(duration: 0.15)) { selection = .about }
-            default: break
-            }
-        } label: {
-            VStack(spacing: tile.size == .small ? 4 : 8) {
-                HStack {
-                    Image(systemName: tile.kind.icon)
-                        .font(.system(size: tileSizeIcon(tile.size) - 4))
-                        .foregroundStyle(isSelected ? WgTheme.accent : .secondary.opacity(0.7))
-                    Spacer()
-                }
-                HStack {
-                    Text(tile.kind.title)
-                        .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
-                        .fontWeight(isSelected ? .semibold : .regular)
-                        .foregroundStyle(isSelected ? WgTheme.accent : .secondary)
-                    Spacer()
-                }
-
-                // 中尺寸以上显示描述
-                if tile.size != .small {
-                    HStack {
-                        Text(tile.kind == .logs ? "查看运行日志" : "关于 WgSense")
-                            .font(.caption).foregroundStyle(.tertiary)
-                        Spacer()
-                    }
-                }
-            }
-            .padding(tilePadding(tile.size))
-            .frame(maxWidth: .infinity, minHeight: tileNavMinHeight(tile.size), maxHeight: .infinity)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: isSelected ? WgTheme.accent : nil, isSelected: isSelected)
-        }
-        .buttonStyle(.plain)
     }
 
     /// 中/大尺寸日志磁贴：显示滚动日志内容
@@ -1399,116 +1180,6 @@ struct SidebarView: View {
             }
         }
         .modifier(EditShakeModifier(isShaking: isEditMode && draggedItem?.id != tile.id))
-    }
-
-    /// navTile 最小高度
-    private func tileNavMinHeight(_ size: TileSize) -> CGFloat {
-        switch size {
-        case .small: return 0
-        case .medium: return 80
-        case .large: return 120
-        }
-    }
-
-    // --- 连接面板（内容随尺寸自适应）---
-    private func connectionTile(_ tile: TileData) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
-        } label: {
-            VStack(alignment: .leading, spacing: tile.size == .small ? 4 : 6) {
-            // 第一行：标题 + 状态点
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.arrow.down.circle")
-                    .font(.system(size: tileSizeIcon(tile.size) - 6))
-                    .foregroundStyle(isTunnelUp ? .cyan : .secondary)
-                Text("连接")
-                    .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
-                    .fontWeight(.medium)
-                Spacer()
-                Circle().fill(isTunnelUp ? Color.green : Color.gray.opacity(0.3))
-                    .frame(width: 6, height: 6)
-            }
-
-            // 第二行：↑/↓ 速度
-            HStack(spacing: 10) {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.up").font(.system(size: 9))
-                    Text(formatSpeed(client.traffic?.tx_speed ?? 0))
-                        .font(.caption2.monospacedDigit())
-                }
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.down").font(.system(size: 9))
-                    Text(formatSpeed(client.traffic?.rx_speed ?? 0))
-                        .font(.caption2.monospacedDigit())
-                }
-                .foregroundStyle(.secondary)
-                Spacer()
-                if tile.size == .large {
-                    // 大尺寸显示累计流量
-                    Text("↓ \(formatSize(client.traffic?.rx_bytes ?? 0))")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .foregroundStyle(isTunnelUp ? .primary : .secondary)
-
-            // 中尺寸：增加一行状态文本（无 divider）
-            if tile.size == .medium || tile.size == .large {
-                Text(isTunnelUp ? "已建立隧道" : (isConnected ? "连接中" : "未连接"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(isTunnelUp ? .green : (isConnected ? .orange : .secondary))
-            }
-
-            // 大尺寸：详细信息
-            if tile.size == .large {
-                if let s = client.status {
-                    connDetailRow("Profile", value: s.service.isEmpty ? "无" : s.service)
-                    connDetailRow("守护", value: guardRunning ? "运行中" : "暂停")
-                }
-            }
-            }
-            .padding(tilePadding(tile.size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: isTunnelUp ? .cyan : nil)
-        }
-        .buttonStyle(.plain)
-        .task {
-            await client.fetchTraffic()
-            // 持续刷新流量
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await client.fetchTraffic()
-            }
-        }
-    }
-
-    /// 只显示当前能做的那一个动作；实色底白字，玻璃背景上也看得清。
-    /// 连接只发 connect：不再顺带开启守护，否则在受信任网络会被守护立即断开。
-    private func vpnActionButton() -> some View {
-        let connected = isConnected
-        let blocked = !connected && client.isGuardBlockingVPN
-        return Button {
-            Task { await client.post(connected ? "disconnect" : "connect") }
-        } label: {
-            Text(connected ? "断开" : "连接")
-                .font(.caption2).fontWeight(.semibold)
-                .padding(.horizontal, 12).padding(.vertical, 4)
-                .background((blocked ? Color.gray : (connected ? Color.red : Color.green)).opacity(blocked ? 0.35 : 0.85))
-                .foregroundStyle(.white.opacity(blocked ? 0.6 : 1))
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-        }
-        .buttonStyle(.plain)
-        .disabled(client.pendingConnected != nil || blocked)
-        .help(blocked ? "在家由守护保持断开；关闭守护后可手动连接" : "")
-    }
-
-    private func connDetailRow(_ label: LocalizedStringKey, value: String, color: Color? = nil) -> some View {
-        HStack {
-            Text(label).font(.caption2).foregroundStyle(.tertiary)
-            Spacer()
-            Text(value).font(.caption2.monospacedDigit()).foregroundStyle(color ?? .secondary)
-        }
     }
 
     // MARK: - 通用控制卡片组件（带 Toggle）
@@ -1791,57 +1462,22 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var editFooter: some View {
-        if !isEditMode {
-            Button {
-                withAnimation(.spring(response: 0.35)) { isEditMode = true }
-            } label: {
-                // 点击即可进入编辑（旧文案写“长按”，实际单击就生效）。
-                Text("编辑磁贴")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 1.5).onEnded { _ in
-                    withAnimation(.spring(response: 0.35)) { isEditMode = true }
-                }
-            )
-        } else {
+        // 非编辑态不放任何提示：编辑入口在头部，底部保持干净。
+        if isEditMode {
             HStack(spacing: 8) {
                 Button { showAddSheet = true } label: {
-                    Label("添加磁贴", systemImage: "plus.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(WgTheme.accent)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(WgTheme.accent.opacity(0.1)))
-                        .overlay(RoundedRectangle(cornerRadius: 8)
-                            .stroke(WgTheme.accent.opacity(0.25), lineWidth: 1))
+                    Label("添加磁贴", systemImage: "plus")
                 }
-                .buttonStyle(.plain)
-
-                Button {
-                    selection = .settings
-                    withAnimation(.spring(response: 0.35)) { isEditMode = false }
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(Color.white.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
+                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor, prominent: false))
 
                 Spacer(minLength: 8)
 
-                Text("点击退出编辑")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary.opacity(0.5))
+                Button("完成") {
+                    withAnimation(WgDesign.spring) { isEditMode = false }
+                }
+                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
             }
-            .frame(minHeight: 28)
+            .padding(.top, 4)
         }
     }
 
@@ -2394,10 +2030,10 @@ struct TileDragContainer<Content: View>: View {
                 .animation(.spring(response: 0.3), value: isBeingDragged)
                 .modifier(EditShakeModifier(isShaking: true))
                 .overlay(alignment: .topTrailing) {
-                    Image(systemName: "line.horizontal.3")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .padding(6)
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .padding(10)
                 }
         } else {
             // 正常模式：完整交互内容
@@ -2405,46 +2041,29 @@ struct TileDragContainer<Content: View>: View {
         }
     }
 
-    // 编辑模式下的简化卡片（纯展示 + 拖拽手柄）
+    // 编辑模式下的简化卡片：与正常态同一套徽章，右上角是拖拽手柄。
     private var simplifiedTile: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Image(systemName: tile.kind.icon)
-                    .font(.system(size: 22, weight: .light))
-                    .foregroundStyle(tile.kind.activeColor)
-                Spacer()
-            }
-            HStack {
+        HStack(spacing: 10) {
+            WgCircleBadge(symbol: tile.kind.icon, tint: tile.kind.activeColor, isOn: true, size: 30)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(tile.kind.title)
-                    .font(.subheadline).fontWeight(.semibold)
-                Spacer()
-                // 尺寸标签
+                    .font(.system(size: 13, weight: .semibold))
                 Text(sizeLabel(tile.size))
-                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
-            if tile.size == .medium || tile.size == .large {
-                Divider().opacity(0.2)
-                HStack {
-                    Image(systemName: "hand.draw")
-                        .font(.caption2)
-                    Text("拖拽排序")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: tile.size == .large ? 200 : 96, maxHeight: .infinity)
-        .wgGlassSurface(tint: tile.kind.activeColor, interactive: true)
+        .padding(11)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tile.size == .large ? .topLeading : .leading)
+        .wgInteractiveSurface()
     }
 
     private func sizeLabel(_ size: TileSize) -> String {
         switch size {
-        case .small: return "1格"
-        case .medium: return "2格"
-        case .large: return "4格"
+        case .small: return "小"
+        case .medium: return "中"
+        case .large: return "大"
         }
     }
 }

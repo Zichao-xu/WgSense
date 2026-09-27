@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
+		043CC060D48805CE01C49DDC /* WgVPNPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */; };
 		205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
 		3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C9AEACF015695C43E09540 /* ShellCommand.swift */; };
@@ -28,6 +29,7 @@
 		C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */; };
 		C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */; };
 		CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327C41F92B977872F228B46 /* WgSurfaces.swift */; };
+		D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */; };
 		D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25978E89B4CCD23B64EA7345 /* DaemonModels.swift */; };
 		EA45E94FFA4E175DB33049A1 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
 		F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */; };
@@ -65,6 +67,7 @@
 		2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonAPIClient.swift; sourceTree = "<group>"; };
 		3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseWidget.swift; sourceTree = "<group>"; };
 		54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferModels.swift; sourceTree = "<group>"; };
+		7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVPNPresentation.swift; sourceTree = "<group>"; };
 		7DF23D4A47461A7F12D1F16B /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WgSenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		808710A2E6EAD06A54381677 /* WgSense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WgSense.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,6 +76,7 @@
 		866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
 		88EC3834F9EE809E1C80F044 /* ProxyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyAPIClient.swift; sourceTree = "<group>"; };
 		89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseApp.swift; sourceTree = "<group>"; };
+		8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgDesign.swift; sourceTree = "<group>"; };
 		8B6A7A3B044CB63E8D0EDE36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireGuardView.swift; sourceTree = "<group>"; };
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
@@ -140,6 +144,8 @@
 				7DF23D4A47461A7F12D1F16B /* OverviewView.swift */,
 				C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */,
 				842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */,
+				8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */,
+				7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */,
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
 			);
 			path = Views;
@@ -316,8 +322,10 @@
 				3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */,
 				F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */,
 				6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */,
+				D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */,
+				043CC060D48805CE01C49DDC /* WgVPNPresentation.swift in Sources */,
 				7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
