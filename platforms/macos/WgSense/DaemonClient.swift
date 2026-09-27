@@ -96,8 +96,14 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         defaults.set(true, forKey: migrationKey)
     }
 
+    /// 用户意图（开关位置）。daemon 离线时不再沿用旧意图，避免开关亮着而实际无人维持隧道。
     var isVPNOn: Bool {
-        pendingConnected ?? status?.desired_vpn_enabled ?? desiredVPNEnabled
+        pendingConnected ?? status?.desired_vpn_enabled ?? false
+    }
+
+    /// 隧道实际已建立。“已连接/已建立隧道”等文字只看这个，不看意图。
+    var isTunnelUp: Bool {
+        status?.state == "Connected"
     }
 
     var isGuardOn: Bool {

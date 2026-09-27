@@ -498,6 +498,7 @@ struct SidebarView: View {
 
     // VPN 状态快捷访问
     private var isConnected: Bool { client.isVPNOn }
+    private var isTunnelUp: Bool { client.isTunnelUp }
     private var guardRunning: Bool { client.isGuardOn }
 
     init(selection: Binding<SidebarTab>) {
@@ -930,7 +931,7 @@ struct SidebarView: View {
             tile: tile,
             icon: tile.kind.icon,
             color: tile.kind.activeColor,
-            subtitle: isConnected ? "已连" : "断开",
+            subtitle: isConnected ? (isTunnelUp ? "已连" : "连接中") : "断开",
             isOn: isConnected
         ) {
             Task { await client.post(isConnected ? "disconnect" : "connect") }
@@ -954,14 +955,8 @@ struct SidebarView: View {
             subtitle: "\(client.pauseMinutes)分钟",
             actionLabel: "执行"
         ) {
-            Task {
-                await client.post("pause")
-                await client.post("disconnect")
-                let m = client.pauseMinutes
-                try? await Task.sleep(nanoseconds: UInt64(m) * 60_000_000_000)
-                await client.post("resume")
-                await client.post("connect")
-            }
+            // 与 VPN 磁贴的暂停按钮共用可取消的计时，手动继续/停止会取消到点重连。
+            if !client.isPauseOn { toggleVPNPause() }
         }
     }
 
@@ -1224,7 +1219,9 @@ struct SidebarView: View {
                         .fontWeight(.semibold).lineLimit(1)
                     Spacer()
                     if !isEditMode {
-                        Button { /* TODO: edit */ } label: {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { selection = .profile }
+                        } label: {
                             Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary.opacity(0.6))
                         }.buttonStyle(.plain)
                     }
@@ -1251,10 +1248,10 @@ struct SidebarView: View {
                 // 中尺寸：状态摘要
                 if tile.size == .medium {
                     HStack(spacing: 6) {
-                        Circle().fill(isConnected ? Color.green : Color.gray.opacity(0.3))
+                        Circle().fill(isTunnelUp ? Color.green : Color.gray.opacity(0.3))
                             .frame(width: 6, height: 6)
-                        Text(isConnected ? "已连接" : "未连接")
-                            .font(.system(size: 10)).foregroundStyle(isConnected ? .green : .secondary)
+                        Text(isTunnelUp ? "已连接" : "未连接")
+                            .font(.system(size: 10)).foregroundStyle(isTunnelUp ? .green : .secondary)
                         Spacer()
                     }
                 }
@@ -1264,38 +1261,14 @@ struct SidebarView: View {
                     Divider().opacity(0.2)
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Label(isConnected ? "已连接" : "未连接", systemImage: isConnected ? "checkmark.circle.fill" : "circle")
+                            Label(isTunnelUp ? "已连接" : "未连接", systemImage: isTunnelUp ? "checkmark.circle.fill" : "circle")
                                 .font(.caption2)
-                                .foregroundStyle(isConnected ? .green : .secondary)
+                                .foregroundStyle(isTunnelUp ? .green : .secondary)
                             Label(client.status?.state ?? "未知", systemImage: "network")
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        VStack(spacing: 8) {
-                            Button { Task { await client.post("disconnect") } } label: {
-                                Text("断开")
-                                    .font(.caption2).fontWeight(.medium)
-                                    .padding(.horizontal, 12).padding(.vertical, 4)
-                                    .background(Color.red.opacity(0.15))
-                                    .foregroundColor(.red)
-                                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                            }.buttonStyle(.plain)
-
-                            Button {
-                                Task {
-                                    await client.postAndWait("resume")
-                                    try? await Task.sleep(for: .seconds(0.8))
-                                    await client.postAndWait("connect")
-                                }
-                            } label: {
-                                Text("连接")
-                                    .font(.caption2).fontWeight(.medium)
-                                    .padding(.horizontal, 12).padding(.vertical, 4)
-                                    .background(Color.green.opacity(0.15))
-                                    .foregroundColor(.green)
-                                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                            }.buttonStyle(.plain)
-                        }
+                        vpnActionButton()
                     }
                 }
             }
@@ -1435,12 +1408,12 @@ struct SidebarView: View {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.up.arrow.down.circle")
                     .font(.system(size: tileSizeIcon(tile.size) - 6))
-                    .foregroundStyle(isConnected ? .cyan : .secondary)
+                    .foregroundStyle(isTunnelUp ? .cyan : .secondary)
                 Text("连接")
                     .font(tile.size == .small ? .subheadline : (tile.size == .medium ? .body : .title3))
                     .fontWeight(.medium)
                 Spacer()
-                Circle().fill(isConnected ? Color.green : Color.gray.opacity(0.3))
+                Circle().fill(isTunnelUp ? Color.green : Color.gray.opacity(0.3))
                     .frame(width: 6, height: 6)
             }
 
@@ -1465,13 +1438,13 @@ struct SidebarView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .foregroundStyle(isConnected ? .primary : .secondary)
+            .foregroundStyle(isTunnelUp ? .primary : .secondary)
 
             // 中尺寸：增加一行状态文本（无 divider）
             if tile.size == .medium || tile.size == .large {
-                Text(isConnected ? "已建立隧道" : "未连接")
+                Text(isTunnelUp ? "已建立隧道" : (isConnected ? "连接中" : "未连接"))
                     .font(.system(size: 10))
-                    .foregroundStyle(isConnected ? .green : .secondary)
+                    .foregroundStyle(isTunnelUp ? .green : (isConnected ? .orange : .secondary))
             }
 
             // 大尺寸：详细信息
@@ -1485,7 +1458,7 @@ struct SidebarView: View {
             .padding(tilePadding(tile.size))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-            .wgTileSurface(tint: isConnected ? .cyan : nil)
+            .wgTileSurface(tint: isTunnelUp ? .cyan : nil)
         }
         .buttonStyle(.plain)
         .task {
@@ -1496,6 +1469,24 @@ struct SidebarView: View {
                 await client.fetchTraffic()
             }
         }
+    }
+
+    /// 只显示当前能做的那一个动作；实色底白字，玻璃背景上也看得清。
+    /// 连接只发 connect：不再顺带开启守护，否则在受信任网络会被守护立即断开。
+    private func vpnActionButton() -> some View {
+        let connected = isConnected
+        return Button {
+            Task { await client.post(connected ? "disconnect" : "connect") }
+        } label: {
+            Text(connected ? "断开" : "连接")
+                .font(.caption2).fontWeight(.semibold)
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                .background((connected ? Color.red : Color.green).opacity(0.85))
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .disabled(client.pendingConnected != nil)
     }
 
     private func connDetailRow(_ label: LocalizedStringKey, value: String, color: Color? = nil) -> some View {
@@ -1552,28 +1543,8 @@ struct SidebarView: View {
 
                     // 大尺寸：显示操作按钮
                     if tile.size == .large {
-                        HStack(spacing: 12) {
-                            Button { Task { await client.post("disconnect") } } label: {
-                                Text("断开")
-                                    .font(.caption2).fontWeight(.medium)
-                                    .padding(.horizontal, 10).padding(.vertical, 3)
-                                    .background(Color.red.opacity(0.12)).foregroundColor(.red)
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                            }.buttonStyle(.plain)
-                            Button {
-                                Task {
-                                    await client.postAndWait("resume")
-                                    try? await Task.sleep(for: .seconds(0.8))
-                                    await client.postAndWait("connect")
-                                }
-                            } label: {
-                                Text("连接")
-                                    .font(.caption2).fontWeight(.medium)
-                                    .padding(.horizontal, 10).padding(.vertical, 3)
-                                    .background(Color.green.opacity(0.12)).foregroundColor(.green)
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                            }.buttonStyle(.plain)
-                        }
+                        vpnActionButton()
+                            .padding(.top, 6)
                     }
                 }
             }
@@ -1813,9 +1784,10 @@ struct SidebarView: View {
             Button {
                 withAnimation(.spring(response: 0.35)) { isEditMode = true }
             } label: {
-                Text("长按空白处编辑")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary.opacity(0.5))
+                // 点击即可进入编辑（旧文案写“长按”，实际单击就生效）。
+                Text("编辑磁贴")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 22)
                     .contentShape(Rectangle())
             }

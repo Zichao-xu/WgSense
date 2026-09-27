@@ -846,3 +846,122 @@ func TestNetworkChangeRunsTrustedDisconnectPolicy(t *testing.T) {
 		t.Fatalf("trusted network change should disconnect guard-managed tunnel: disconnects=%d state=%s", tun.disconnects, tun.state)
 	}
 }
+
+func newManualOverrideEngine(physical *string) (*Engine, *mockTunnel) {
+	tun := &mockTunnel{state: tunnel.StateDisconnected}
+	cfg := config.Default()
+	cfg.DesiredGuardEnabled = true
+	cfg.AutoConnectUntrusted = true
+	eng := New(cfg, mockLocation{trusted: true}, tun, mockHealth{connected: true}, &mockPause{})
+	eng.SetPhysicalSnapshotFunc(func() string { return *physical })
+	return eng, tun
+}
+
+func TestManualConnectOnTrustedNetworkSurvivesGuardTick(t *testing.T) {
+	physical := "en0=10.10.1.11"
+	eng, tun := newManualOverrideEngine(&physical)
+
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := eng.RunOnce(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tun.state != tunnel.StateConnected {
+		t.Fatalf("受信任网络下手动连接不应被守护巡检断开, 实际 %s", tun.state)
+	}
+	if !eng.Status().DesiredVPNEnabled {
+		t.Fatal("手动优先期间 UI 应显示 VPN 保持开启")
+	}
+}
+
+func TestManualOverrideEndsWhenPhysicalNetworkChanges(t *testing.T) {
+	physical := "en0=10.10.1.11"
+	eng, tun := newManualOverrideEngine(&physical)
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+
+	physical = "en0=10.10.1.52"
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateDisconnected {
+		t.Fatalf("物理网络变化后应交还守护并断开, 实际 %s", tun.state)
+	}
+}
+
+func TestManualOverrideKeptWhenPhysicalSnapshotUnavailable(t *testing.T) {
+	physical := "en0=10.10.1.11"
+	eng, tun := newManualOverrideEngine(&physical)
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+
+	physical = ""
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateConnected {
+		t.Fatalf("取不到物理网络指纹时不应误判为网络变化, 实际 %s", tun.state)
+	}
+}
+
+func TestManualDisconnectAndResumeEndManualOverride(t *testing.T) {
+	physical := "en0=10.10.1.11"
+
+	eng, tun := newManualOverrideEngine(&physical)
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Disconnect(); err != nil {
+		t.Fatal(err)
+	}
+	tun.state = tunnel.StateConnected // 模拟外部残留连接
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateDisconnected {
+		t.Fatalf("手动断开后手动优先应失效, 实际 %s", tun.state)
+	}
+
+	eng, tun = newManualOverrideEngine(&physical)
+	if err := eng.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Resume(); err != nil {
+		t.Fatal(err)
+	}
+	if tun.state != tunnel.StateDisconnected {
+		t.Fatalf("重新开启守护应交还判断并在受信任网络断开, 实际 %s", tun.state)
+	}
+}
+
+type byteTunnel struct {
+	mockTunnel
+	tx, rx uint64
+}
+
+func (m *byteTunnel) InterfaceBytes(string) (uint64, uint64) { return m.tx, m.rx }
+
+func TestTrafficSpeedResetsWhenCountersDrop(t *testing.T) {
+	tun := &byteTunnel{tx: 1000, rx: 5000}
+	eng := New(config.Default(), mockLocation{}, tun, mockHealth{}, &mockPause{})
+
+	eng.UpdateTraffic()
+	time.Sleep(20 * time.Millisecond)
+	tun.tx, tun.rx = 2000, 9000
+	eng.UpdateTraffic()
+	if s := eng.TrafficStats(); s.TxSpeed <= 0 || s.RxSpeed <= 0 {
+		t.Fatalf("有流量时速度应大于 0: %+v", s)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	tun.tx, tun.rx = 0, 0 // 隧道断开，接口计数清零
+	eng.UpdateTraffic()
+	if s := eng.TrafficStats(); s.TxSpeed != 0 || s.RxSpeed != 0 {
+		t.Fatalf("计数回退后速度应归零，不应停留在旧值: %+v", s)
+	}
+}

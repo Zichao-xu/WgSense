@@ -12,9 +12,6 @@ struct OverviewView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
                 Spacer()
-                if let s = client.status {
-                    statusPill(s.state)
-                }
             }
 
             // 状态概览卡
@@ -27,7 +24,6 @@ struct OverviewView: View {
             ], spacing: WgTheme.spacing) {
                 infoCard(title: "网络", value: networkText, icon: "location.fill", color: networkColor)
                 infoCard(title: "守护", value: guardText, icon: "shield.checkered", color: guardColor)
-                infoCard(title: "状态", value: stateText, icon: "network", color: statusColor)
             }
 
             // 模块状态
@@ -41,27 +37,6 @@ struct OverviewView: View {
             _ = await (transfer, proxy)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    // MARK: - 状态 Pill 标签
-
-    private func statusPill(_ state: String) -> some View {
-        Text(localizedStatus(state))
-            .font(.caption)
-            .fontWeight(.medium)
-            .foregroundStyle(statusColorFor(state))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(statusColorFor(state).opacity(0.12))
-            .clipShape(Capsule())
-    }
-
-    private func statusColorFor(_ state: String) -> Color {
-        switch state {
-        case "Connected": return .green
-        case "Disconnected": return .gray
-        default: return .orange
-        }
     }
 
     // MARK: - 主状态卡
@@ -84,17 +59,10 @@ struct OverviewView: View {
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                 }
 
-                if let s = client.status {
-                    VStack(alignment: .leading, spacing: 4) {
-                        detailLine("网络", s.isTrustedNetwork ? "受信任" : "非受信任")
-                        detailLine("管理", s.paused ? "已暂停" : "自动管理")
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        detailLine("网络", "等待 daemon")
-                        detailLine("管理", "未连接")
-                    }
-                }
+                // 说明“为什么是现在这个状态”，网络/守护细节见下方卡片。
+                Text(reasonText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -106,17 +74,6 @@ struct OverviewView: View {
         }
         .padding(22)
         .wgGlassSurface(cornerRadius: WgTheme.controlRadius, tint: statusColor, interactive: true)
-    }
-
-    private func detailLine(_ label: LocalizedStringKey, _ value: LocalizedStringKey) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption)
-                .fontWeight(.medium)
-        }
     }
 
     // MARK: - 信息卡片
@@ -150,7 +107,7 @@ struct OverviewView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 0) {
-                moduleRow(icon: "shield.lefthalf.filled", name: "WireGuard", desc: wireGuardModuleText, active: client.status != nil, color: .blue)
+                moduleRow(icon: "shield.lefthalf.filled", name: "WireGuard", desc: wireGuardModuleText, active: client.isTunnelUp, color: .green)
                 Divider().opacity(0.3)
                 moduleRow(
                     icon: "arrow.triangle.2.circlepath",
@@ -205,7 +162,30 @@ struct OverviewView: View {
 
     // MARK: - 辅助属性
 
-    private var isConnected: Bool { client.isVPNOn }
+    private var isConnected: Bool { client.isTunnelUp }
+
+    private var reasonText: LocalizedStringKey {
+        guard let s = client.status else { return "后台服务未运行" }
+        let guardOn = s.desired_guard_enabled ?? !s.paused
+        let wantVPN = s.desired_vpn_enabled ?? false
+        switch s.state {
+        case "Connected":
+            if s.isTrustedNetwork && guardOn { return "受信任网络，手动连接优先；换网络或手动断开后交还守护" }
+            return "隧道已建立"
+        case "Connecting":
+            return "正在连接…"
+        case "Disconnecting":
+            return "正在断开…"
+        default:
+            if wantVPN {
+                if let failures = s.auto_failures, failures > 0 { return "连接失败，正在自动重试（第 \(failures) 次）" }
+                return "正在尝试连接…"
+            }
+            if s.isTrustedNetwork && guardOn { return "受信任网络，守护保持断开" }
+            if !guardOn { return "守护已关闭，需要时手动连接" }
+            return "未连接"
+        }
+    }
 
     private var stateText: LocalizedStringKey {
         guard let state = client.status?.state else { return "daemon 离线" }
