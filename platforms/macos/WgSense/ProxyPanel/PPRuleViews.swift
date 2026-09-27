@@ -180,7 +180,7 @@ struct PPCacheHintBar: View {
             .disabled(cache.syncing)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.primary.opacity(0.04)))
     }
 }
 
@@ -233,7 +233,7 @@ struct PPSearchField: View {
         .padding(.horizontal, 10)
         .frame(height: 28)
         .frame(minWidth: 140, maxWidth: 320)
-        .wgInteractiveSurface(cornerRadius: 14)
+        .wgInteractiveSurface(cornerRadius: 3)
     }
 }
 
@@ -260,7 +260,7 @@ struct PPDomainGroupView: View {
                 .fixedSize()
                 .padding(.horizontal, 10)
                 .frame(height: 28)
-                .wgInteractiveSurface(cornerRadius: 14)
+                .wgInteractiveSurface(cornerRadius: 3)
 
                 let options = RulePenetration.ruleSetOptions(group: selectedGroup, rules: model.rules)
                 Picker("", selection: Binding(

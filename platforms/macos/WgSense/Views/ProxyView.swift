@@ -126,31 +126,34 @@ private struct ProxySectionTabs: View {
                 Button {
                     withAnimation(WgDesign.spring) { selection = item }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 12, weight: .medium))
+                    // 页签 = 编号 + 名称；当前页整块克莱因蓝（位置滑动过渡）。
+                    let index = (ProxySection.allCases.firstIndex(of: item) ?? 0) + 1
+                    HStack(spacing: 7) {
+                        Text(verbatim: String(format: "%02d", index))
+                            .font(WgInk.mono(9.5, .medium))
+                            .opacity(selection == item ? 0.75 : 0.5)
                         Text(item.title)
-                            .font(.system(size: 12, weight: selection == item ? .semibold : .regular))
+                            .font(.system(size: 12.5, weight: selection == item ? .semibold : .regular))
                     }
-                    .foregroundStyle(selection == item ? Color.primary : Color.secondary)
+                    .foregroundStyle(selection == item ? Color.white : WgInk.ink2)
                     .padding(.horizontal, 12)
                     .frame(height: 28)
                     .background {
                         if selection == item {
-                            Capsule()
-                                .fill((colorScheme == .dark ? Color.white : Color.black).opacity(0.10))
+                            Rectangle()
+                                .fill(WgInk.signal)
                                 .matchedGeometryEffect(id: "tab", in: indicator)
                         }
                     }
-                    .contentShape(Capsule())
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(item.title))
                 .accessibilityHint("切换代理页面")
             }
         }
-        .padding(3)
-        .wgInteractiveSurface(cornerRadius: 17)
+        .padding(2)
+        .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1))
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, WgTheme.pagePadding)
@@ -164,26 +167,18 @@ private struct ProxyPageHeader: View {
     let section: ProxySection
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("代理")
-                    .font(.system(size: 26, weight: .bold))
-                Text(verbatim: client.proxyAddress.isEmpty ? "Mihomo 控制面板" : "Mihomo · \(client.proxyAddress)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            HStack(spacing: 6) {
-                WgStatusDot(color: .green, isOn: client.proxyRunning)
+        WgPageHeader(title: "代理",
+                     subtitleText: client.proxyAddress.isEmpty ? "MIHOMO" : "MIHOMO · \(client.proxyAddress)") {
+            HStack(spacing: 7) {
+                WgStatusDot(color: WgInk.signal, isOn: client.proxyRunning)
                 statusLabel
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(WgInk.mono(10.5, .medium))
+                    .foregroundStyle(WgInk.ink2)
                     .lineLimit(1)
             }
             .padding(.horizontal, 10)
-            .frame(height: 26)
-            .wgInteractiveSurface(cornerRadius: 13)
+            .frame(height: 24)
+            .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
 
             Button {
                 Task { await client.fetchProxyStatus() }
@@ -602,7 +597,7 @@ private struct ProxyLineChart: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3))
                 } else {
                     ProxyCoreAnimationChart(series: series, timeWindow: timeWindow)
                     .overlay(alignment: .topLeading) {
@@ -838,7 +833,7 @@ private struct ProxyInfoBox: View {
         .font(.system(.callout, design: .monospaced))
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3))
     }
 }
 
@@ -1071,7 +1066,7 @@ private struct ProxyNetworkInformationView: View {
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
-                .wgGlassSurface(cornerRadius: 15, interactive: true)
+                .wgGlassSurface(cornerRadius: 3, interactive: true)
                 .help(revealsIPAddress ? "隐藏 IP 地址" : "显示 IP 地址")
 
                 Button {
@@ -1087,7 +1082,7 @@ private struct ProxyNetworkInformationView: View {
                     .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
-                .wgGlassSurface(cornerRadius: 15, interactive: true)
+                .wgGlassSurface(cornerRadius: 3, interactive: true)
                 .disabled(isRefreshing)
                 .help("立即重新检测")
             }
@@ -1205,7 +1200,7 @@ private struct ProxyTopologyView: View {
             let activeNodeIDs = activeNodeID.map { graph.connectedNodeIDs(to: $0) } ?? Set(graph.nodes.map(\.id))
             let activeLinkIDs = activeNodeID.map { graph.connectedLinkIDs(to: $0) } ?? Set(graph.links.map(\.id))
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(Color.black.opacity(0.10))
                 Canvas(opaque: false, colorMode: .linear, rendersAsynchronously: true) { context, size in
                     for link in graph.links {
@@ -1639,9 +1634,9 @@ private struct ProxyTopologyTooltip: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: 260, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .stroke(node.color.opacity(0.32), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 8)
@@ -1690,7 +1685,7 @@ private struct ProxyTopologySelectionBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
     }
 }
 
@@ -1716,7 +1711,7 @@ private struct ProxySourceStatsTable: View {
                     .frame(maxWidth: .infinity, minHeight: 80)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
     }
 
     private func row(_ values: [String], header: Bool = false) -> some View {
@@ -1893,7 +1888,7 @@ private struct ProxyBrowserPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 230, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 8)
+                    .wgFloatingControlSurface(cornerRadius: 3)
 
                     if mode == .groups {
                         Button {
@@ -2131,8 +2126,8 @@ private struct ProxyChoiceButton: View {
         .padding(.trailing, 5)
         .frame(height: nestedSelection == nil ? 34 : 42)
         .background(selected ? WgTheme.accent.opacity(0.12) : Color.white.opacity(0.025))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? WgTheme.accent.opacity(0.35) : WgTheme.cardBorder))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3).stroke(selected ? WgTheme.accent.opacity(0.35) : WgTheme.cardBorder))
     }
 }
 
@@ -2265,7 +2260,7 @@ private struct ProxyConnectionsPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 260, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 8)
+                    .wgFloatingControlSurface(cornerRadius: 3)
                     Button {
                         confirmCloseAll = true
                     } label: {
@@ -2408,7 +2403,7 @@ private struct ProxyRulesPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 240, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 8)
+                    .wgFloatingControlSurface(cornerRadius: 3)
                     Button {
                         Task { await refresh() }
                     } label: {
@@ -2562,7 +2557,7 @@ private struct ProxyLogsPage: View {
                     }
                     .padding(.horizontal, 9)
                     .frame(width: 220, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 8)
+                    .wgFloatingControlSurface(cornerRadius: 3)
                     Toggle("自动刷新", isOn: $autoRefresh)
                         .toggleStyle(.switch)
                         .controlSize(.small)
@@ -2785,7 +2780,7 @@ private struct ProxyControllerSettingsEditor: View {
             }
         }
         .padding(12)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
     }
 
     private var saveDisabledReason: String? {
@@ -3033,7 +3028,7 @@ private struct ProxyActionButton: View {
             }
             .padding(.horizontal, 11)
             .frame(height: 38)
-            .wgGlassSurface(cornerRadius: 8, tint: roleColor.opacity(0.8), interactive: true)
+            .wgGlassSurface(cornerRadius: 3, tint: roleColor.opacity(0.8), interactive: true)
         }
         .buttonStyle(.plain)
     }

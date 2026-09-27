@@ -10,9 +10,7 @@ struct OverviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("概览")
-                .font(.system(size: 26, weight: .bold))
-                .padding(.bottom, -4)
+            WgPageHeader(title: "概览", subtitleText: "WGSENSE · STATUS") { EmptyView() }
 
             hero
 
@@ -50,7 +48,7 @@ struct OverviewView: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(vpn.title)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(size: 30, weight: .semibold))
                     .contentTransition(.opacity)
                 Text(vpn.detail)
                     .font(.system(size: 13))
@@ -64,16 +62,6 @@ struct OverviewView: View {
             primaryAction(vpn)
         }
         .padding(24)
-        .background {
-            // 状态色只做一层极淡的径向晕染，从光球的位置散开。
-            RadialGradient(
-                colors: [vpn.tint.opacity(vpn.phase == .connected ? 0.22 : 0.10), .clear],
-                center: UnitPoint(x: 0.08, y: 0.5),
-                startRadius: 0,
-                endRadius: 360
-            )
-            .allowsHitTesting(false)
-        }
         .wgInteractiveSurface(cornerRadius: WgDesign.heroRadius)
     }
 
@@ -222,7 +210,8 @@ struct OverviewView: View {
 
 // MARK: - 组件
 
-/// 状态光球：连接时实色 + 柔光；在家用青色表示“安全、无需 VPN”；其余中性。
+/// 状态块：同心方框收束到一枚实心方块（取自图纸的层层等高线）。
+/// 已连接 = 克莱因蓝；在家 = 实墨（安全、无需 VPN）；其余只剩线框。
 private struct StatusOrb: View {
     var symbol: String
     var tint: Color
@@ -230,38 +219,37 @@ private struct StatusOrb: View {
     var isBusy: Bool
 
     @State private var spin = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let normalized = WgInk.normalize(tint)
+        let fill: Color = normalized == WgInk.warn || normalized == WgInk.alert ? normalized
+            : (tint == .green ? WgInk.signal : WgInk.ink)
         ZStack {
-            Circle()
-                .fill(tint.opacity(isActive ? 0.18 : 0.08))
-                .frame(width: 76, height: 76)
-            Circle()
-                .fill(isActive ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(neutral))
-                .frame(width: 56, height: 56)
-                .shadow(color: isActive ? tint.opacity(0.45) : .clear, radius: 12, y: 3)
+            ForEach(0..<3, id: \.self) { i in
+                Rectangle()
+                    .strokeBorder(Color.primary.opacity(0.28 - Double(i) * 0.08), lineWidth: 1)
+                    .frame(width: 60 + CGFloat(i) * 12, height: 60 + CGFloat(i) * 12)
+            }
+            Rectangle()
+                .fill(isActive ? fill : Color.clear)
+                .frame(width: 48, height: 48)
             Image(systemName: symbol)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(isActive ? Color.white : Color.primary.opacity(0.55))
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(isActive ? Color(nsColor: .windowBackgroundColor) : Color.primary.opacity(0.6))
                 .contentTransition(.symbolEffect(.replace))
             if isBusy {
-                Circle()
-                    .trim(from: 0, to: 0.25)
-                    .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .frame(width: 70, height: 70)
+                Rectangle()
+                    .trim(from: 0, to: 0.2)
+                    .stroke(fill, style: StrokeStyle(lineWidth: 2))
+                    .frame(width: 72, height: 72)
                     .rotationEffect(.degrees(spin ? 360 : 0))
                     .onAppear {
-                        withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { spin = true }
+                        withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { spin = true }
                     }
             }
         }
-        .frame(width: 80, height: 80)
+        .frame(width: 86, height: 86)
         .animation(WgDesign.spring, value: isActive)
-    }
-
-    private var neutral: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.07)
     }
 }
 

@@ -35,9 +35,9 @@ enum WgTheme {
         dark: NSColor(calibratedWhite: 1, alpha: 0.09)
     )
     static let accent = Color(red: 0.2, green: 0.5, blue: 0.95)
-    static let cardRadius: CGFloat = 14
-    static let controlRadius: CGFloat = 16
-    static let floatingRadius: CGFloat = 18
+    static let cardRadius: CGFloat = 4
+    static let controlRadius: CGFloat = 4
+    static let floatingRadius: CGFloat = 5
     static let spacing: CGFloat = 12
     static let pagePadding: CGFloat = 28
     /// 磁贴尺寸基准：小磁贴高=y, 宽=x; 中=高y宽2x; 大=2y×2x; 间距=y/10
@@ -445,16 +445,11 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
 
     var activeColor: Color {
         switch self {
-        case .vpn: return .green
+        // 仪表语言：“开启”统一克莱因蓝；只有暂停（警示）与停止（告警）保留状态色。
         case .pause: return .orange
         case .stop: return .red
-        case .transferReceive: return .blue
-        case .transferSend: return .indigo
-        case .proxy: return .purple
-        case .profile: return .orange
-        case .logs: return .gray
-        case .about: return .gray
-        case .connection: return .cyan
+        case .logs, .about: return .gray
+        case .vpn, .transferReceive, .transferSend, .proxy, .profile, .connection: return WgInk.signal
         }
     }
 
@@ -1016,7 +1011,7 @@ struct SidebarView: View {
                         .foregroundStyle(selection == tab ? .primary : .secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 8)
+                        .background(RoundedRectangle(cornerRadius: 3)
                             .fill(selection == tab ? WgTheme.accent : Color.clear))
                 }
                 .buttonStyle(.plain)
@@ -1269,7 +1264,7 @@ struct SidebarView: View {
                             .font(.caption2).fontWeight(.semibold)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 11).padding(.vertical, 4)
-                            .background(color).clipShape(Capsule())
+                            .background(color).clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
                     }.buttonStyle(.plain)
                 }
             }
@@ -1480,14 +1475,14 @@ struct SidebarView: View {
                 Button { showAddSheet = true } label: {
                     Label("添加磁贴", systemImage: "plus")
                 }
-                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor, prominent: false))
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
 
                 Spacer(minLength: 8)
 
                 Button("完成") {
                     withAnimation(WgDesign.spring) { isEditMode = false }
                 }
-                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
             }
             .padding(.top, 4)
         }
@@ -1634,7 +1629,7 @@ struct SidebarView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(destructive ? Color.red.opacity(0.08) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 3))
         }
         .buttonStyle(.plain)
     }
@@ -1691,7 +1686,7 @@ struct ToggleSwitch: View {
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             // 轨道背景
-            Capsule()
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(isOn ? tintColor.opacity(0.3) : Color.gray.opacity(0.25))
                 .frame(width: trackWidth, height: trackHeight)
 
@@ -1753,21 +1748,21 @@ private struct LiquidGlassToastSurface: ViewModifier {
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 24) {
                 content
-                    .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: .rect(cornerRadius: 18))
+                    .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: .rect(cornerRadius: 3))
                     .glassEffectTransition(.materialize)
                     .shadow(color: .black.opacity(0.20), radius: 22, y: 12)
             }
         } else {
             content
                 .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(.regularMaterial)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
                                 .fill(tint.opacity(0.08))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
                                 .stroke(.white.opacity(0.22), lineWidth: 0.75)
                         )
                         .shadow(color: .black.opacity(0.20), radius: 22, y: 12)
@@ -1906,7 +1901,7 @@ struct PillToggleStyle: ToggleStyle {
     let activeColor: Color
 
     func makeBody(configuration: Configuration) -> some View {
-        Capsule()
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(configuration.isOn ? activeColor : Color.secondary.opacity(0.35))
             .frame(width: 44, height: 24)
             .overlay(
@@ -2179,7 +2174,7 @@ struct TransferReceiveView: View {
                             } label: {
                                 Text(LocalizedStringKey(startingDaemon ? "正在启动…" : "启动后台服务"))
                             }
-                            .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                            .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                             .disabled(startingDaemon)
                         } else {
                             ProgressView().controlSize(.small)
@@ -2198,7 +2193,7 @@ struct TransferReceiveView: View {
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.orange))
+                            .background(RoundedRectangle(cornerRadius: 2, style: .continuous).fill(Color.orange))
                     }
                 }
                 .padding(.leading, 4)
@@ -2275,7 +2270,7 @@ struct TransferReceiveView: View {
                 Button { resolve(request, accepted: false) } label: { Text("拒绝") }
                     .buttonStyle(WgCapsuleButtonStyle(tint: .red, prominent: false))
                 Button { resolve(request, accepted: true) } label: { Text("接受") }
-                    .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
             }
         }
         .padding(16)
@@ -2449,11 +2444,11 @@ struct TransferSendView: View {
                             startingDaemon = false
                         }
                     } label: { Text(LocalizedStringKey(startingDaemon ? "正在启动…" : "启动后台服务")) }
-                        .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                        .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                         .disabled(startingDaemon)
                 } else {
                     Button { Task { await scanSubnetDevices() } } label: { Label("扫描", systemImage: "magnifyingglass") }
-                        .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                        .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                         .disabled(isScanning)
                     Button { showAddDeviceSheet = true } label: { Label("手动添加", systemImage: "plus") }
                         .buttonStyle(WgPillButtonStyle())
@@ -2469,7 +2464,7 @@ struct TransferSendView: View {
     /// 选中设备后直接给出两个动作，省掉“先选类型再点发送”这一步。
     private func selectedDeviceActions(_ device: DaemonClient.TransferDevice) -> some View {
         HStack(spacing: 12) {
-            WgCircleBadge(symbol: "paperplane.fill", tint: .accentColor, isOn: true, size: 32)
+            WgCircleBadge(symbol: "paperplane.fill", tint: WgInk.signal, isOn: true, size: 32)
             VStack(alignment: .leading, spacing: 1) {
                 Text("发送到 \(device.alias)")
                     .font(.system(size: 13, weight: .semibold))
@@ -2488,7 +2483,7 @@ struct TransferSendView: View {
                 sendType = .file
                 triggerSend(target: device)
             } label: { Label(isStartingSend ? "正在创建…" : "文件…", systemImage: "doc") }
-                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .disabled(isStartingSend)
         }
         .padding(14)
@@ -2640,7 +2635,7 @@ struct TransferSendView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                        .background(RoundedRectangle(cornerRadius: 2, style: .continuous).fill(Color.secondary.opacity(0.14)))
                 }
                 if let ip = device.ip {
                     Text(verbatim: ip).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -2660,7 +2655,7 @@ struct TransferSendView: View {
             }
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 16))
-                .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
+                .foregroundStyle(selected ? WgInk.signal : Color.secondary.opacity(0.4))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

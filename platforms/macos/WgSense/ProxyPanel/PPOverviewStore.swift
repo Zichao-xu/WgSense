@@ -7,9 +7,11 @@ import SwiftUI
 //   - 拓扑图输入节流（最多每秒一次），悬停/暂停时冻结。
 
 /// 带时间戳的样本缓冲（环形，保留最近 windowSeconds + 余量）。
-final class PPSampleBuffer {
+final class PPSampleBuffer: ObservableObject {
     struct Sample { var time: TimeInterval; var values: [Double] }
     private(set) var samples: [Sample] = []
+    /// 最新样本时间：图表只订阅自己的缓冲区，每来一个样本刷新一次。
+    @Published private(set) var version: TimeInterval = 0
     let seriesCount: Int
     let keep: TimeInterval
 
@@ -24,9 +26,10 @@ final class PPSampleBuffer {
         if let first = samples.firstIndex(where: { $0.time >= cutoff }), first > 0 {
             samples.removeFirst(first)
         }
+        version = time
     }
 
-    func reset() { samples.removeAll() }
+    func reset() { samples.removeAll(); version = 0 }
 }
 
 enum PPOverviewCard: String, CaseIterable, Codable, Identifiable {

@@ -113,18 +113,18 @@ private struct PPToolbar: View {
                     .frame(height: 26)
                     .background {
                         if store.tab == tab {
-                            Capsule()
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
                                 .fill((colorScheme == .dark ? Color.white : Color.black).opacity(0.10))
                                 .matchedGeometryEffect(id: "ppTab", in: tabIndicator)
                         }
                     }
-                    .contentShape(Capsule())
+                    .contentShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .wgInteractiveSurface(cornerRadius: 16)
+        .wgInteractiveSurface(cornerRadius: 3)
         .fixedSize()
     }
 
@@ -146,7 +146,7 @@ private struct PPToolbar: View {
         .padding(.horizontal, 10)
         .frame(height: 28)
         .frame(minWidth: 120, maxWidth: 280)
-        .wgInteractiveSurface(cornerRadius: 14)
+        .wgInteractiveSurface(cornerRadius: 3)
     }
 
     private func modes(_ config: MihomoRuntimeConfig) -> [String] {
@@ -662,7 +662,7 @@ private struct PPNoticeStack: View {
                 }
                 .padding(12)
                 .frame(width: 260, alignment: .leading)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -682,7 +682,7 @@ private struct PPNoticeStack: View {
 
     private func tint(_ kind: PPNotice.Kind) -> Color {
         switch kind {
-        case .info: return .accentColor
+        case .info: return WgInk.signal
         case .success: return .green
         case .warning: return .orange
         case .error: return .red

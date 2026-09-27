@@ -25,7 +25,7 @@ struct ProfileName: Identifiable {
                 Button { showImport = true } label: { Label("导入", systemImage: "square.and.arrow.down") }
                     .buttonStyle(WgPillButtonStyle())
                 Button { showWizard = true } label: { Label("新建", systemImage: "plus") }
-                    .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
             }
         } content: {
             if client.profiles.isEmpty {
@@ -103,7 +103,7 @@ struct ProfileName: Identifiable {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Button { showImport = true } label: { Text("导入配置") }
-                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
@@ -206,12 +206,12 @@ struct ImportConfView: View {
             .padding(30)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isDropTargeted ? Color.accentColor.opacity(0.1) : Color.clear)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(isDropTargeted ? WgInk.signal.opacity(0.1) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 3)
                             .strokeBorder(
-                                isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.3),
+                                isDropTargeted ? WgInk.signal : Color.secondary.opacity(0.3),
                                 style: StrokeStyle(lineWidth: 2, dash: [8])
                             )
                     )
@@ -309,7 +309,7 @@ struct ExportConfView: View {
             } else {
                 Image(systemName: done ? "checkmark.circle.fill" : "doc.text.fill")
                     .font(.system(size: 36))
-                    .foregroundStyle(done ? Color.green : Color.accentColor)
+                    .foregroundStyle(done ? Color.green : WgInk.signal)
                     .transition(.scale.combined(with: .opacity))
 
                 Text(done ? "已保存到文件" : "配置内容预览").font(.headline)
@@ -372,7 +372,7 @@ struct ManualWizardView: View {
                 ForEach(0..<steps.count, id: \.self) { i in
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(i <= step ? Color.accentColor : Color.secondary.opacity(0.3))
+                            .fill(i <= step ? WgInk.signal : Color.secondary.opacity(0.3))
                             .frame(width: 22, height: 22)
                             .overlay(
                                 Group {
@@ -391,7 +391,7 @@ struct ManualWizardView: View {
 
                         if i < steps.count - 1 {
                             Rectangle()
-                                .fill(i < step ? Color.accentColor : Color.secondary.opacity(0.2))
+                                .fill(i < step ? WgInk.signal : Color.secondary.opacity(0.2))
                                 .frame(height: 1.5)
                                 .frame(maxWidth: .infinity)
                         }
@@ -542,7 +542,7 @@ struct ManualWizardView: View {
     private func wizardIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 44))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(WgInk.signal)
             .padding(.bottom, 4)
     }
 

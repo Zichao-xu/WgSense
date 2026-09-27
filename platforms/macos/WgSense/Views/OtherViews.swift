@@ -18,7 +18,7 @@ struct PlaceholderView: View {
                 .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
-                .wgFloatingControlSurface(cornerRadius: 14)
+                .wgFloatingControlSurface(cornerRadius: 3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -133,7 +133,7 @@ struct LogsView: View {
         .font(.system(size: 12))
         .padding(.horizontal, 10)
         .frame(height: 26)
-        .wgInteractiveSurface(cornerRadius: 13)
+        .wgInteractiveSurface(cornerRadius: 3)
     }
 }
 
@@ -146,9 +146,6 @@ struct SettingsView: View {
     @AppStorage("appLanguage") private var appLanguageRaw = WgAppLanguage.system.rawValue
     @AppStorage("appAppearance") private var appAppearanceRaw = WgAppAppearance.system.rawValue
     @AppStorage("backdropMode") private var backdropModeRaw = WgBackdropMode.liquidRegular.rawValue
-    @AppStorage("surfaceFill") private var surfaceFill = WgSurfaceTuning.standard.fill
-    @AppStorage("surfaceBorder") private var surfaceBorder = WgSurfaceTuning.standard.border
-    @AppStorage("surfaceTint") private var surfaceTint = WgSurfaceTuning.standard.tint
     @AppStorage("glassTintStrength") private var glassTintStrength = 0.55
     @State private var applyingConfig = false
     @State private var transferToggling = false
@@ -241,7 +238,7 @@ struct SettingsView: View {
     }
 
     private var appearanceSection: some View {
-        WgSection(title: "窗口材质", footer: "背景浓度决定壁纸透出多少；内容底色、描边与状态色作用于所有卡片。") {
+        WgSection(title: "窗口材质", footer: "背景浓度决定壁纸透出多少。") {
             WgRow(symbol: "square.stack.3d.up.fill", tint: .teal, title: "背景模式") {
                 Picker("背景模式", selection: Binding(
                     get: { WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular },
@@ -258,12 +255,6 @@ struct SettingsView: View {
             }
             WgRowDivider()
             sliderRow("背景浓度", symbol: "circle.righthalf.filled", tint: .cyan, value: $glassTintStrength, range: 0.0...0.85)
-            WgRowDivider()
-            sliderRow("内容底色", symbol: "square.fill", tint: .gray, value: $surfaceFill, range: 0.0...0.30)
-            WgRowDivider()
-            sliderRow("描边强度", symbol: "square.dashed", tint: .gray, value: $surfaceBorder, range: 0.0...0.35)
-            WgRowDivider()
-            sliderRow("状态色强度", symbol: "paintpalette.fill", tint: .pink, value: $surfaceTint, range: 0.0...0.50)
         }
     }
 
@@ -319,7 +310,7 @@ struct SettingsView: View {
                 } label: {
                     Text(LocalizedStringKey(applyingConfig ? "正在应用…" : "应用"))
                 }
-                .buttonStyle(WgCapsuleButtonStyle(tint: .accentColor))
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .disabled(applyingConfig)
             }
             .padding(.horizontal, 4)

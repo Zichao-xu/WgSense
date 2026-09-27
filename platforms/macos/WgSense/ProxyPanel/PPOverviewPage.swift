@@ -9,16 +9,16 @@ struct PPOverviewPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 10) {
                     PPStatsStrip()
-                    Button { showCardSettings = true } label: { Image(systemName: "rectangle.3.group") }
+                    Button { showCardSettings = true } label: { Image(systemName: "slider.horizontal.3") }
                         .buttonStyle(WgToolbarIconButtonStyle())
                         .help("卡片设置")
                         .popover(isPresented: $showCardSettings, arrowEdge: .bottom) { PPCardSettings() }
                 }
-                ForEach(overview.cards.filter(\.visible)) { setting in
-                    card(setting.card)
+                ForEach(Array(overview.cards.filter(\.visible).enumerated()), id: \.element.id) { index, setting in
+                    card(setting.card).environment(\.ppCardIndex, index + 1)
                 }
             }
             .padding(.bottom, 24)
@@ -46,31 +46,39 @@ struct PPOverviewPage: View {
 
 // MARK: - 卡片外框
 
+private struct PPCardIndexKey: EnvironmentKey { static let defaultValue = 0 }
+extension EnvironmentValues {
+    /// 卡片在可见顺序中的编号（图纸式段落编号 01、02…）。
+    var ppCardIndex: Int {
+        get { self[PPCardIndexKey.self] }
+        set { self[PPCardIndexKey.self] = newValue }
+    }
+}
+
 struct PPCard<Accessory: View, Content: View>: View {
     var title: LocalizedStringKey
-    var symbol: String
-    var tint: Color
+    var caption: String
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
+    @Environment(\.ppCardIndex) private var index
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                WgSquareBadge(symbol: symbol, tint: tint, size: 22)
-                Text(title).font(.system(size: 14, weight: .semibold))
-                Spacer()
-                accessory()
+        VStack(alignment: .leading, spacing: 16) {
+            WgSectionMark(index: String(format: "%02d", index), title: title, caption: caption) {
+                HStack(spacing: 2) { accessory() }
             }
             content()
         }
-        .padding(16)
-        .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 18)
+        .wgPanel()
     }
 }
 
 extension PPCard where Accessory == EmptyView {
-    init(title: LocalizedStringKey, symbol: String, tint: Color, @ViewBuilder content: @escaping () -> Content) {
-        self.init(title: title, symbol: symbol, tint: tint, accessory: { EmptyView() }, content: content)
+    init(title: LocalizedStringKey, caption: String, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, caption: caption, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -82,38 +90,41 @@ private struct PPStatsStrip: View {
     var body: some View {
         let s = live.stats
         HStack(spacing: 0) {
-            metric("连接", "\(s.connections)", value: Double(s.connections))
+            metric("下载速度", "DOWN/S", WgFormat.speed(Double(s.downSpeed)))
             divider
-            metric("内存使用", s.memory > 0 ? WgFormat.size(UInt64(s.memory)) : "—", value: Double(s.memory))
+            metric("上传速度", "UP/S", WgFormat.speed(Double(s.upSpeed)))
             divider
-            metric("下载", WgFormat.size(UInt64(max(0, s.downloadTotal))), value: Double(s.downloadTotal))
+            metric("下载", "RX", WgFormat.size(UInt64(max(0, s.downloadTotal))))
             divider
-            metric("下载速度", WgFormat.speed(Double(s.downSpeed)), value: Double(s.downSpeed), tint: .blue)
+            metric("上传", "TX", WgFormat.size(UInt64(max(0, s.uploadTotal))))
             divider
-            metric("上传", WgFormat.size(UInt64(max(0, s.uploadTotal))), value: Double(s.uploadTotal))
+            metric("连接", "CONN", "\(s.connections)")
             divider
-            metric("上传速度", WgFormat.speed(Double(s.upSpeed)), value: Double(s.upSpeed), tint: .teal)
+            metric("内存使用", "MEM", s.memory > 0 ? WgFormat.size(UInt64(s.memory)) : "—")
         }
-        .padding(.vertical, 12)
-        .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
+        .padding(.vertical, 14)
+        .wgPanel()
     }
 
     private var divider: some View {
-        Rectangle().fill(Color.primary.opacity(0.07)).frame(width: 1, height: 30)
+        Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 40)
     }
 
-    private func metric(_ title: LocalizedStringKey, _ text: String, value: Double, tint: Color? = nil) -> some View {
-        VStack(spacing: 4) {
-            Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
+    /// 读数格：上为中文名 + 等宽代号，下为读数（单位降级）。
+    private func metric(_ title: LocalizedStringKey, _ code: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(verbatim: code).font(WgInk.mono(9, .semibold)).tracking(1.2).foregroundStyle(WgInk.signal)
+                Text(title).font(.system(size: 11)).foregroundStyle(WgInk.ink3)
+            }
+            .lineLimit(1)
             // 不用 numericText 过渡：它对每个字形做模糊+位移动画，6 个数字每秒变化等于持续的 CPU 模糊卷积
             // （实测是概览页的最大开销）。等宽数字直接刷新，位置不跳。
-            Text(verbatim: text)
-                .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(tint ?? .primary)
-                .lineLimit(1)
+            WgReadout(text: text, size: 24, weight: .light)
                 .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -123,21 +134,22 @@ private struct PPChartsCard: View {
     private let overview = PPOverviewStore.shared
 
     var body: some View {
-        PPCard(title: "实时", symbol: "chart.xyaxis.line", tint: .blue) {
-            VStack(spacing: 18) {
+        // 单色：主系列亮墨铺面，次系列淡墨描线；颜色不承担区分，靠明度与粗细。
+        PPCard(title: "实时", caption: "Realtime · 60s") {
+            VStack(spacing: 22) {
                 PPStreamChart(title: "速度", buffer: overview.speed,
-                              series: [.init(name: "上传速度", color: .teal), .init(name: "下载速度", color: .blue)],
+                              series: [.init(name: "上传", color: WgInk.ink2, fill: false, dashed: true), .init(name: "下载", color: WgInk.ink)],
                               format: { WgFormat.speed($0) }, floor: 1024)
-                    .frame(height: 170)
-                HStack(spacing: 18) {
+                    .frame(height: 190)
+                HStack(spacing: 28) {
                     PPStreamChart(title: "内存使用", buffer: overview.memory,
-                                  series: [.init(name: "内存使用", color: .purple)],
+                                  series: [.init(name: "内存使用", color: WgInk.ink2)],
                                   format: { WgFormat.size(UInt64(max(0, $0))) }, floor: 1024 * 1024)
                     PPStreamChart(title: "连接", buffer: overview.connectionCount,
-                                  series: [.init(name: "连接", color: .orange)],
+                                  series: [.init(name: "连接", color: WgInk.ink2)],
                                   format: { String(Int($0.rounded())) }, floor: 5)
                 }
-                .frame(height: 140)
+                .frame(height: 150)
             }
         }
     }
@@ -150,7 +162,7 @@ private struct PPNetworkCard: View {
     @EnvironmentObject private var panel: ProxyPanelStore
 
     var body: some View {
-        PPCard(title: "网络信息", symbol: "network", tint: .teal) {
+        PPCard(title: "网络信息", caption: "Network") {
             HStack(alignment: .top, spacing: 14) {
                 pane {
                     ipRow("ipip.net", overview.chinaIP)
@@ -170,7 +182,7 @@ private struct PPNetworkCard: View {
                 pane {
                     ForEach(PPOverviewStore.latencyTargets, id: \.name) { target in
                         HStack {
-                            Text(verbatim: target.name).font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text(verbatim: target.name).font(.system(size: 12)).foregroundStyle(WgInk.ink2)
                             Spacer()
                             latencyText(overview.latencies[target.name])
                         }
@@ -193,17 +205,18 @@ private struct PPNetworkCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(WgInk.field))
+        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
     }
 
     private func ipRow(_ source: String, _ result: PPIPResult?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(verbatim: source).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: result?.location ?? "—").font(.system(size: 12, weight: .medium)).lineLimit(1)
+            Text(verbatim: source).font(WgInk.mono(10)).foregroundStyle(WgInk.ink3).frame(width: 64, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: result?.location ?? "—").font(.system(size: 12.5, weight: .medium)).foregroundStyle(WgInk.ink).lineLimit(1)
                 if let ip = result?.ip, !ip.isEmpty {
-                    Text(verbatim: overview.showPrivacy ? ip : "***.***.***.***")
-                        .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                    Text(verbatim: overview.showPrivacy ? ip : "•••.•••.•••.•••")
+                        .font(WgInk.mono(10.5)).foregroundStyle(WgInk.ink3)
                         .textSelection(.enabled)
                 }
             }
@@ -213,9 +226,8 @@ private struct PPNetworkCard: View {
     private func latencyText(_ ms: Int?) -> some View {
         let level = panel.level(ms ?? 0)
         return Text(verbatim: ms.map { $0 == 0 ? "超时" : "\($0) ms" } ?? "—")
-            .font(.system(size: 12, weight: .semibold).monospacedDigit())
-            .foregroundStyle(ms == nil ? .secondary : (ms == 0 ? Color.red : level.color))
-            .contentTransition(.numericText())
+            .font(WgInk.figure(12, .medium))
+            .foregroundStyle(ms == nil ? WgInk.ink3 : (ms == 0 ? WgInk.alert : level.color))
     }
 }
 
@@ -227,7 +239,7 @@ private struct PPProviderTrafficCard: View {
     var body: some View {
         let items = PPOverviewStore.shared.providerTraffic(panel.providers)
         if !items.isEmpty {
-            PPCard(title: "提供商流量概览", symbol: "chart.bar.fill", tint: .indigo) {
+            PPCard(title: "提供商流量概览", caption: "Quota") {
                 VStack(spacing: 12) {
                     ForEach(items) { row($0.name, used: $0.used, total: $0.total) }
                     if items.count > 1 {
@@ -247,18 +259,18 @@ private struct PPProviderTrafficCard: View {
                 Text(verbatim: name).font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text(verbatim: "已使用 \(fmt.string(fromByteCount: used)) · 剩余 \(fmt.string(fromByteCount: max(0, total - used))) · 共 \(fmt.string(fromByteCount: total))")
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                    .font(WgInk.figure(11, .regular)).foregroundStyle(WgInk.ink3)
                 Text(verbatim: String(format: "%.1f%%", fraction * 100))
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .font(WgInk.mono(11, .medium))
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.07))
-                    Capsule().fill(fraction > 0.9 ? Color.red.gradient : Color.indigo.gradient)
+                    Rectangle().fill(WgInk.rule)
+                    Rectangle().fill(fraction > 0.9 ? WgInk.alert : (fraction > 0.75 ? WgInk.warn : WgInk.ink2))
                         .frame(width: geo.size.width * fraction)
                 }
             }
-            .frame(height: 6)
+            .frame(height: 3)
         }
     }
 }
@@ -277,7 +289,7 @@ private struct PPTopologyCard: View {
 
     var body: some View {
         let m = model
-        PPCard(title: "连接拓扑", symbol: "point.3.filled.connected.trianglepath.dotted", tint: .indigo) {
+        PPCard(title: "连接拓扑", caption: "Topology · \(overview.topologyConnections.count) conn") {
             HStack(spacing: 2) {
                 Button { togglePause() } label: { Image(systemName: paused ? "play.fill" : "pause.fill") }
                     .buttonStyle(WgToolbarIconButtonStyle(isActive: paused))
@@ -288,16 +300,8 @@ private struct PPTopologyCard: View {
             }
         } content: {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 14) {
-                    ForEach(0..<4, id: \.self) { i in
-                        HStack(spacing: 5) {
-                            RoundedRectangle(cornerRadius: 2).fill(PPSankeyView.layerColors[i]).frame(width: 8, height: 8)
-                            Text(verbatim: PPSankeyModel.layerTitles[i]).font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
-                    }
-                }
                 if m.nodes.isEmpty {
-                    Text("暂无数据").font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
+                    Text("暂无数据").font(.system(size: 12)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 160)
                 } else {
                     PPSankeyView(model: m, onHoverChange: { overview.topologyPaused = $0 || paused })
                         .frame(height: height(for: m))
@@ -320,7 +324,7 @@ private struct PPTopologyCard: View {
 
     private func height(for m: PPSankeyModel) -> CGFloat {
         let maxPerLayer = Dictionary(grouping: m.nodes, by: \.layer).values.map(\.count).max() ?? 0
-        return min(900, max(260, CGFloat(maxPerLayer) * 22))
+        return min(900, max(260, CGFloat(maxPerLayer) * 22 + PPSankeyView.headerHeight))
     }
 
     private func togglePause() {
@@ -349,7 +353,7 @@ private struct PPHistoryCard: View {
 
     var body: some View {
         let rows = (overview.history[overview.historyType] ?? []).sorted(using: sortOrder)
-        PPCard(title: "连接统计", symbol: "clock.arrow.circlepath", tint: .orange) {
+        PPCard(title: "连接统计", caption: "History") {
             Button { confirmClear = true } label: { Image(systemName: "trash") }
                 .buttonStyle(WgToolbarIconButtonStyle())
                 .help("清空连接历史")
@@ -397,7 +401,7 @@ private struct PPHistoryCard: View {
                     UserDefaults.standard.set(key, forKey: "pp.historySort")
                 }
                 Text(verbatim: "只能统计面板打开期间的连接。记录开始时间：\(overview.historyStart?.formatted(date: .abbreviated, time: .shortened) ?? "—")")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(WgInk.ink3)
             }
         }
         .confirmationDialog("清空连接历史", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -409,8 +413,8 @@ private struct PPHistoryCard: View {
 
     private func summary(_ title: LocalizedStringKey, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
-            Text(verbatim: value).font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
+            Text(title).font(.system(size: 11)).foregroundStyle(WgInk.ink2)
+            WgReadout(text: value, size: 17, weight: .regular)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -422,10 +426,10 @@ private struct PPRuleHitsCard: View {
     @ObservedObject private var overview = PPOverviewStore.shared
 
     var body: some View {
-        PPCard(title: "规则命中统计", symbol: "target", tint: .pink) {
-            HStack(alignment: .top, spacing: 20) {
-                bars(title: "命中统计", color: .pink, hit: true)
-                bars(title: "未命中统计", color: .gray, hit: false)
+        PPCard(title: "规则命中统计", caption: "Rule hits") {
+            HStack(alignment: .top, spacing: 28) {
+                bars(title: "命中统计", color: WgInk.ink2, hit: true)
+                bars(title: "未命中统计", color: WgInk.ink3, hit: false)
             }
         }
     }
@@ -440,25 +444,30 @@ private struct PPRuleHitsCard: View {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 12, weight: .semibold))
+            Text(title).font(.system(size: 12, weight: .semibold)).padding(.bottom, 2)
             if top.isEmpty {
-                Text("暂无数据").font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 60)
+                Text("暂无数据").font(.system(size: 11)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 60)
             }
-            ForEach(Array(top.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(top.enumerated()), id: \.offset) { rank, item in
                 let name = item.rule.payload.isEmpty ? item.rule.type : "\(item.rule.type) · \(item.rule.payload)"
                 let at = (hit ? item.rule.hitAt : item.rule.missAt).flatMap(PPPersist.parseDate).map { fmt.string(from: $0) } ?? "—"
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(verbatim: name).font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
+                    HStack(spacing: 8) {
+                        Text(verbatim: String(format: "%02d", rank + 1)).font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink4)
+                        Text(verbatim: name).font(.system(size: 11)).foregroundStyle(WgInk.ink).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 6)
-                        Text("\(item.value)").font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
+                        Text("\(item.value)").font(WgInk.figure(11)).foregroundStyle(WgInk.ink2)
                     }
                     GeometryReader { geo in
-                        Capsule().fill(color.gradient.opacity(0.85))
-                            .frame(width: max(3, geo.size.width * Double(item.value) / maxValue))
-                            .animation(.smooth(duration: 0.6), value: item.value)
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(WgInk.rule)
+                            Rectangle().fill(color)
+                                .frame(width: max(2, geo.size.width * Double(item.value) / maxValue))
+                                .animation(.smooth(duration: 0.6), value: item.value)
+                        }
                     }
-                    .frame(height: 4)
+                    .frame(height: 2)
+                    .padding(.leading, 24)
                 }
                 .help("\(name)\n\(hit ? "命中" : "未命中")：\(item.value) 次\n\(hit ? "最后命中" : "最后未命中")：\(at)")
             }
@@ -480,8 +489,8 @@ private struct PPCardSettings: View {
                 ForEach($overview.cards) { $setting in
                     HStack(spacing: 10) {
                         Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
-                        WgSquareBadge(symbol: setting.card.symbol, tint: .gray, size: 20, dimmed: !setting.visible)
-                        Text(setting.card.title).font(.system(size: 12))
+                        Image(systemName: setting.card.symbol).font(.system(size: 11)).foregroundStyle(WgInk.ink2).frame(width: 18)
+                        Text(setting.card.title).font(.system(size: 12)).foregroundStyle(setting.visible ? WgInk.ink : WgInk.ink3)
                         Spacer()
                         Toggle("", isOn: $setting.visible).toggleStyle(.switch).controlSize(.mini).labelsHidden()
                     }

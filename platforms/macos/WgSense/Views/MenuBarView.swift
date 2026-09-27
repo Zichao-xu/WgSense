@@ -244,7 +244,7 @@ private struct MenuModule: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(isEnabled ? 1 : 0.45)
-        .wgInteractiveSurface(cornerRadius: 12, isEnabled: isEnabled, action: action)
+        .wgInteractiveSurface(cornerRadius: 3, isEnabled: isEnabled, action: action)
     }
 }
 
@@ -275,8 +275,8 @@ private struct MenuItemRow: View {
             .padding(.horizontal, 8)
             .frame(height: 26)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(hovering ? Color.accentColor : Color.clear)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(hovering ? WgInk.signal : Color.clear)
             )
             .contentShape(Rectangle())
         }

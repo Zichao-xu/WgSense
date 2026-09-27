@@ -63,7 +63,7 @@ struct PPSankeyLayout {
     var nodes: [String: NodeBox] = [:]
     var ribbons: [String: Ribbon] = [:]
 
-    static let nodeWidth: CGFloat = 12
+    static let nodeWidth: CGFloat = 4
     static let gap: CGFloat = 6
 
     static func compute(_ model: PPSankeyModel, size: CGSize) -> PPSankeyLayout {
@@ -189,7 +189,9 @@ struct PPSankeyView: View {
     @State private var focus: Set<String>?     // 高亮的节点/连线 key
     @State private var tip: String?
 
-    static let layerColors: [Color] = [.indigo, .green, .orange, .pink]
+    /// 顶部列标题区高度（A 源IP地址 · B 规则匹配 …）。
+    static let headerHeight: CGFloat = 28
+    static let layerMarks = ["A", "B", "C", "D"]
 
     /// 按实际标签宽度决定左右边距：左边放第一列标签，右边放最后一列标签。
     private func margins(width: CGFloat) -> (left: CGFloat, right: CGFloat) {
@@ -212,12 +214,15 @@ struct PPSankeyView: View {
     var body: some View {
         GeometryReader { geo in
             let m = margins(width: geo.size.width)
-            let plotSize = CGSize(width: max(1, geo.size.width - m.left - m.right), height: geo.size.height)
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !animating)) { timeline in
+            let plotSize = CGSize(width: max(1, geo.size.width - m.left - m.right), height: max(1, geo.size.height - Self.headerHeight))
+            TimelineView(.animation(minimumInterval: 1.0 / 45, paused: !animating)) { timeline in
                 Canvas(rendersAsynchronously: true) { context, size in
                     let now = timeline.date.timeIntervalSince1970
                     let layout = anim.current(at: now)
-                    draw(&context, layout: layout, offsetX: m.left, columnGap: plotSize.width / 3)
+                    drawHeader(&context, offsetX: m.left, plotWidth: plotSize.width)
+                    var body = context
+                    body.translateBy(x: 0, y: Self.headerHeight)
+                    draw(&body, layout: layout, offsetX: m.left, columnGap: plotSize.width / 3)
                     if anim.progress(at: now) >= 1 { DispatchQueue.main.async { if animating { animating = false } } }
                 }
             }
@@ -229,7 +234,7 @@ struct PPSankeyView: View {
                 switch phase {
                 case .active(let p):
                     hover = p
-                    updateFocus(at: CGPoint(x: p.x - m.left, y: p.y))
+                    updateFocus(at: CGPoint(x: p.x - m.left, y: p.y - Self.headerHeight))
                     onHoverChange(true)
                 case .ended:
                     hover = nil; focus = nil; tip = nil
@@ -241,8 +246,9 @@ struct PPSankeyView: View {
                     Text(verbatim: tip)
                         .font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .offset(x: min(hover.x + 12, geo.size.width - 260), y: max(0, hover.y - 34))
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
+                        .offset(x: min(hover.x + 12, geo.size.width - 260), y: max(0, hover.y - 38))
                         .allowsHitTesting(false)
                 }
             }
@@ -275,29 +281,47 @@ struct PPSankeyView: View {
 
     private func layer(of key: String) -> Int { Int(key.prefix { $0 != "|" }) ?? 0 }
 
+    /// 列标题：字母编号 + 名称，下方一条发丝线与节点列对齐的刻痕，像图纸的分区标注。
+    private func drawHeader(_ context: inout GraphicsContext, offsetX dx: CGFloat, plotWidth: CGFloat) {
+        let usable = plotWidth - PPSankeyLayout.nodeWidth
+        let baseY = Self.headerHeight - 8
+        var rule = Path()
+        rule.move(to: CGPoint(x: 0, y: baseY))
+        rule.addLine(to: CGPoint(x: dx + plotWidth + 200, y: baseY))
+        context.stroke(rule, with: .color(Color.primary.opacity(0.08)), lineWidth: 1)
+        for i in 0..<4 {
+            let x = dx + CGFloat(i) * usable / 3 + PPSankeyLayout.nodeWidth / 2
+            var tick = Path()
+            tick.move(to: CGPoint(x: x, y: baseY - 3))
+            tick.addLine(to: CGPoint(x: x, y: baseY + 3))
+            context.stroke(tick, with: .color(Color.primary.opacity(0.35)), lineWidth: 1)
+            let label = Text(verbatim: Self.layerMarks[i]).font(WgInk.mono(9.5, .semibold)).foregroundStyle(Color.primary.opacity(0.55))
+                + Text(verbatim: "  " + PPSankeyModel.layerTitles[i]).font(.system(size: 10.5)).foregroundStyle(Color.primary.opacity(0.5))
+            let anchor: UnitPoint = i == 0 ? .bottomTrailing : .bottomLeading
+            context.draw(label, at: CGPoint(x: i == 0 ? x + 4 : x - 4, y: baseY - 5), anchor: anchor)
+        }
+    }
+
     private func draw(_ context: inout GraphicsContext, layout: PPSankeyLayout, offsetX dx: CGFloat, columnGap: CGFloat) {
         // 中间两列的标签画在节点右侧，最大宽度 = 列距 − 节点宽 − 留白，超出按字符截断。
         let middleMax = max(40, columnGap - PPSankeyLayout.nodeWidth - 14)
         for ribbon in layout.ribbons.values.sorted(by: { $0.link.key < $1.link.key }) {
+            // 单色：流带是淡墨；悬停时只有被追踪的路径转为克莱因蓝，其余退到几乎不可见。
             let active = focus.map { $0.contains(ribbon.link.key) } ?? true
-            let c0 = Self.layerColors[layer(of: ribbon.link.source) % 4]
-            let c1 = Self.layerColors[layer(of: ribbon.link.target) % 4]
-            let opacity = focus == nil ? 0.32 : (active ? 0.62 : 0.06)
-            context.fill(ribbonPath(ribbon, dx: dx), with: .linearGradient(
-                Gradient(colors: [c0.opacity(opacity), c1.opacity(opacity)]),
-                startPoint: CGPoint(x: ribbon.x0 + dx, y: 0), endPoint: CGPoint(x: ribbon.x1 + dx, y: 0)))
+            let color: Color = focus == nil ? Color.primary.opacity(0.13) : (active ? WgInk.signal.opacity(0.45) : Color.primary.opacity(0.03))
+            context.fill(ribbonPath(ribbon, dx: dx), with: .color(color))
         }
         for box in layout.nodes.values {
             let active = focus.map { $0.contains(box.node.key) } ?? true
-            let color = Self.layerColors[box.node.layer % 4]
             let rect = box.rect.offsetBy(dx: dx, dy: 0)
-            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(color.opacity(active ? 1 : 0.25)))
+            let color: Color = focus != nil && active ? WgInk.signal : Color.primary.opacity(active ? 0.78 : 0.18)
+            context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
             guard rect.height >= 7 else { continue }
             var name = truncate(box.node.name, limit: labelLimit)
             if box.node.layer == 1 || box.node.layer == 2 {
                 while name.count > 2 && Self.textWidth(name) > middleMax { name = String(name.dropLast(2)) + "…" }
             }
-            let text = Text(verbatim: name).font(.system(size: 11)).foregroundStyle(active ? Color.primary : Color.secondary.opacity(0.5))
+            let text = Text(verbatim: name).font(.system(size: 11)).foregroundStyle(active ? Color.primary.opacity(0.86) : Color.primary.opacity(0.25))
             if box.node.layer == 0 {
                 context.draw(text, at: CGPoint(x: rect.minX - 6, y: rect.midY), anchor: .trailing)
             } else {

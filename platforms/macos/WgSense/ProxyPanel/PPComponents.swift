@@ -6,21 +6,22 @@ import SwiftUI
 // MARK: - 延迟配色
 
 extension ProxyPanelStore.LatencyLevel {
+    // 仪表语言：正常不上色（墨色），只有“慢”和“很慢/不通”才用琥珀与朱红，眼睛自然落在异常上。
     var color: Color {
         switch self {
-        case .none: return .secondary
-        case .low: return .green
-        case .medium: return .yellow
-        case .high: return .red
+        case .none: return WgInk.ink3
+        case .low: return WgInk.ink
+        case .medium: return WgInk.warn
+        case .high: return WgInk.alert
         }
     }
-    /// 预览点的底色（未连通用中性灰，与原版 bg-base-content/60 对应）。
+    /// 预览点的底色：未测为淡墨，正常为实墨。
     var dotColor: Color {
         switch self {
-        case .none: return Color.secondary.opacity(0.55)
-        case .low: return .green
-        case .medium: return .yellow
-        case .high: return .red
+        case .none: return WgInk.ink4
+        case .low: return Color.primary.opacity(0.72)
+        case .medium: return WgInk.warn
+        case .high: return WgInk.alert
         }
     }
 }
@@ -87,8 +88,8 @@ struct PPLatencyTag: View {
                 }
             }
             .frame(width: small ? 32 : 40, height: small ? 16 : 20)
-            .background(Capsule().fill(Color.primary.opacity(hovering ? 0.12 : 0.06)))
-            .contentShape(Capsule())
+            .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.primary.opacity(hovering ? 0.12 : 0.055)))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -166,7 +167,7 @@ struct PPPreview: View {
             }
         }
         .frame(height: 6)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
     }
 }
 
@@ -183,15 +184,17 @@ private struct PPDot: View, Equatable {
     }
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 12, height: 12)
+        // 方点：像示波器/矩阵屏的像素。当前节点 = 克莱因蓝实块。
+        Rectangle()
+            .fill(isCurrent ? WgInk.signal : color)
+            .frame(width: 9, height: 9)
+            .padding(2)
             .overlay {
-                if isCurrent { Circle().fill(Color.white).frame(width: 5, height: 5) }
+                if isCurrent { Rectangle().strokeBorder(WgInk.signal, lineWidth: 1) }
             }
             .scaleEffect(hovering ? 1.15 : 1)
             .animation(.easeOut(duration: 0.12), value: hovering)
-            .contentShape(Circle())
+            .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .onTapGesture(perform: action)
             .help(tip)
@@ -322,6 +325,7 @@ struct PPNodeCard: View {
 
     @State private var hovering = false
     @State private var flash = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let node = store.proxyMap[name]
@@ -348,17 +352,19 @@ struct PPNodeCard: View {
                 }
             }
         }
+        // 选中卡是克莱因蓝实底：内容一律按深色外观取色，浅色模式下读数才不会黑压在蓝上。
+        .environment(\.colorScheme, active ? .dark : colorScheme)
         .padding(store.smallCard ? 7 : 10)
         .frame(minWidth: store.minProxyCardWidth, maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(active ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.10 : 0.055)))
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(active ? AnyShapeStyle(WgInk.signal) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.075 : 0.035)))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(flash ? Color.accentColor.opacity(0.9) : Color.primary.opacity(0.06), lineWidth: flash ? 2 : 1)
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .strokeBorder(flash ? WgInk.signal : (active ? Color.clear : Color.primary.opacity(hovering ? 0.14 : 0.07)), lineWidth: flash ? 2 : 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
         .onHover { hovering = $0 }
         .onTapGesture { Task { await store.select(group: group, node: name) } }
         .onRightClick { test() }
