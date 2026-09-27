@@ -32,6 +32,8 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     @Published var traffic: TrafficStats?
     @Published private(set) var isAuthorizingDaemon = false
     @Published private(set) var serviceLifecycleError: String?
+    /// 安装失败后停止自动提权，界面显示“重试安装”。
+    @Published private(set) var serviceNeedsRetry = false
     @Published private(set) var pendingConnected: Bool?
     @Published private(set) var pendingGuardRunning: Bool?
     @Published private(set) var pendingPaused: Bool?
@@ -66,6 +68,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
             self?.isAuthorizingDaemon = true
             let result = await DaemonServiceCoordinator.shared.ensure(.firstLaunch)
             self?.isAuthorizingDaemon = false
+            self?.serviceNeedsRetry = result.needsExplicitRetry
             if !result.ok {
                 self?.serviceLifecycleError = result.message
                 self?.errorMsg = result.message
@@ -148,6 +151,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         isAuthorizingDaemon = authorizeIfNeeded
         defer { isAuthorizingDaemon = false }
         let result = await DaemonServiceCoordinator.shared.ensure(mode)
+        serviceNeedsRetry = result.needsExplicitRetry
         if result.ok {
             serviceLifecycleError = nil
             markDaemonUp()
@@ -156,6 +160,22 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
             errorMsg = result.message
         }
         return result.ok
+    }
+
+    /// 用户显式重试安装后台服务（唯一会在失败后再次弹密码的入口）。
+    func retryServiceInstall() async {
+        isAuthorizingDaemon = true
+        let result = await DaemonServiceCoordinator.shared.ensure(.maintenance)
+        isAuthorizingDaemon = false
+        serviceNeedsRetry = result.needsExplicitRetry
+        if result.ok {
+            serviceLifecycleError = nil
+            markDaemonUp()
+            await fetchStatus()
+        } else {
+            serviceLifecycleError = result.message
+            errorMsg = result.message
+        }
     }
 
     private func log(_ msg: String) {
@@ -1229,6 +1249,8 @@ final class DaemonServiceCoordinator {
     struct Outcome {
         let ok: Bool
         let message: String
+        /// 安装已失败过且安装包未变：不再自动弹密码，等用户显式点“重试安装”。
+        var needsExplicitRetry = false
         static let ready = Outcome(ok: true, message: "系统服务已就绪")
         static func failure(_ message: String) -> Outcome { Outcome(ok: false, message: message) }
     }
@@ -1382,6 +1404,14 @@ final class DaemonServiceCoordinator {
         }
 
         guard mode != .readOnly && mode != .stopOnly else { return .failure("系统服务尚未安装或无法识别") }
+        // 同一安装包上次已由安装程序判定失败：再弹密码也只会同样失败。自动路径（启动、
+        // 点连接/守护）到此为止，只有维护/重试入口才再次提权。取消密码框不写失败记录，不受影响。
+        if mode != .maintenance, let last = readInstallResult(), last.status == "error",
+           last.binary_sha256?.lowercased() == expectedHash {
+            var outcome = Outcome.failure("后台服务安装失败：\(last.message ?? "未知原因")")
+            outcome.needsExplicitRetry = true
+            return outcome
+        }
         return await submitInstall(daemon: daemon, mover: mover, expectedHash: expectedHash)
     }
 

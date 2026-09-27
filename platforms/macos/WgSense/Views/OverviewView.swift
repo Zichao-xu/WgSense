@@ -94,6 +94,12 @@ struct OverviewView: View {
         case .idle, .offline:
             Button("连接") { Task { await client.post("connect") } }
                 .buttonStyle(WgCapsuleButtonStyle(tint: .green))
+                .disabled(client.isAuthorizingDaemon)
+        case .setupFailed:
+            Button("重试安装") { Task { await client.retryServiceInstall() } }
+                .buttonStyle(WgCapsuleButtonStyle(tint: .orange))
+                .disabled(client.isAuthorizingDaemon)
+                .help("会再弹一次管理员密码框")
         case .disconnecting:
             ProgressView().controlSize(.small)
         }

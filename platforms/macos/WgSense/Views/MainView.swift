@@ -858,11 +858,16 @@ struct SidebarView: View {
 
     private func toggleVPN() {
         let vpn = client.vpnPresentation
+        if vpn.phase == .setupFailed {
+            Task { await client.retryServiceInstall() }
+            return
+        }
         Task { await client.post(vpn.canDisconnect ? "disconnect" : "connect") }
     }
 
     private func vpnToggleHelp(_ vpn: WgVPNPresentation) -> LocalizedStringKey {
         if vpn.canDisconnect { return "断开 VPN" }
+        if vpn.phase == .setupFailed { return "重试安装后台服务（会弹一次密码框）" }
         if vpn.phase == .home { return "在家由守护保持断开；关闭守护后可手动连接" }
         return "连接 VPN"
     }

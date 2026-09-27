@@ -4,6 +4,7 @@ import SwiftUI
 struct WgVPNPresentation {
     enum Phase: Equatable {
         case offline        // daemon 不可达
+        case setupFailed    // 后台服务安装失败，等待用户重试
         case connected
         case connecting
         case disconnecting
@@ -29,7 +30,16 @@ struct WgVPNPresentation {
 extension DaemonClient {
     var vpnPresentation: WgVPNPresentation {
         guard let s = status else {
-            return .init(phase: .offline, title: "服务未运行", detail: "后台服务未启动，操作时会自动拉起",
+            if serviceNeedsRetry {
+                return .init(phase: .setupFailed, title: "后台服务未安装",
+                             detail: LocalizedStringKey(serviceLifecycleError ?? "安装失败"),
+                             symbol: "exclamationmark.triangle.fill", tint: .orange)
+            }
+            if isAuthorizingDaemon {
+                return .init(phase: .offline, title: "正在安装后台服务", detail: "请在系统弹窗中输入管理员密码（仅需一次）",
+                             symbol: "power", tint: .gray)
+            }
+            return .init(phase: .offline, title: "服务未运行", detail: "首次连接时会安装后台服务，只需授权一次",
                          symbol: "power", tint: .gray)
         }
         if pendingConnected == true || s.state == "Connecting" {
