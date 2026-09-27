@@ -246,20 +246,30 @@ struct MainView: View {
             )
             .frame(width: 7)
 
-            ScrollView {
-                Group {
-                    switch selection {
-                    case .dashboard, .wireguard: OverviewView()
-                    case .proxy: ProxyView()
-                    case .profile: ProfileManagerView()
-                    case .transferReceive: TransferReceiveView()
-                    case .transferSend: TransferSendView()
-                    case .settings: SettingsView()
-                    case .logs: LogsView()
-                    case .about: AboutView()
+            // 代理页自己管理滚动（内部是懒加载列表）；套在外层 ScrollView 里会让懒加载失效、
+            // 屏幕外的卡片和图表也每次重绘。
+            Group {
+            if selection == .proxy {
+                ProxyView()
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                ScrollView {
+                    Group {
+                        switch selection {
+                        case .dashboard, .wireguard: OverviewView()
+                        case .proxy: EmptyView()
+                        case .profile: ProfileManagerView()
+                        case .transferReceive: TransferReceiveView()
+                        case .transferSend: TransferSendView()
+                        case .settings: SettingsView()
+                        case .logs: LogsView()
+                        case .about: AboutView()
+                        }
                     }
+                    .padding(28)
                 }
-                .padding(28)
+            }
             }
             .wgPageSurface()
         }

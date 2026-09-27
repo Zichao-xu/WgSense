@@ -5,7 +5,8 @@ import SwiftUI
 
 struct ProxyView: View {
     @EnvironmentObject private var client: DaemonClient
-    @State private var section: ProxySection = .overview
+    /// 记住上次所在的子页（原版 LAST_ROUTE_NAME_KEY）。
+    @AppStorage("pp.section") private var section: ProxySection = .proxies
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +36,6 @@ struct ProxyView: View {
         // 内容宽度与其他页面一致（WgPage 的 820 + 两侧内边距），切页时标题不跳位。
         .frame(maxWidth: 820 + WgTheme.pagePadding * 2, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .top)
-        .padding(.horizontal, -WgTheme.pagePadding)
     }
 
     @ViewBuilder
@@ -44,7 +44,8 @@ struct ProxyView: View {
         case .overview:
             ProxyOverviewPage(section: $section)
         case .proxies:
-            ProxyBrowserPage()
+            PPProxiesPage()
+                .padding(.horizontal, WgTheme.pagePadding)
         case .connections:
             ProxyConnectionsPage()
         case .rules:

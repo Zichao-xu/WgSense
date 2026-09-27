@@ -9,8 +9,11 @@
 /* Begin PBXBuildFile section */
 		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
 		043CC060D48805CE01C49DDC /* WgVPNPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */; };
+		0A2EC6E290092752B87FCA08 /* MihomoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3354F508C0653A08D63DBEEC /* MihomoModels.swift */; };
 		205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */; };
+		2D3FCB428630D7F9D10607AE /* ProxyPanelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827EB7C08699493703F29CA /* ProxyPanelStore.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
+		37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4455FF95397C153A2E668592 /* PPComponents.swift */; };
 		3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C9AEACF015695C43E09540 /* ShellCommand.swift */; };
 		3F5137C784574344F867063D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
 		46F0735DC4E70670DF3FE481 /* WgSenseWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */; };
@@ -23,7 +26,10 @@
 		7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */; };
 		80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */; };
 		85FC1CBD1AC639C275B65736 /* ProxyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C415A763228416E61BA81E86 /* ProxyModels.swift */; };
+		882F34D0761960552EDAA758 /* MihomoBackends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08446624B46672875126EF07 /* MihomoBackends.swift */; };
+		9A2198BA923E1789C7409A6F /* PPProxiesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */; };
 		A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */; };
+		A9184D24FC36095D400742E2 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */; };
 		AFA93798730A8E6F44DC3473 /* DaemonControlAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */; };
 		BE5EC6E099B4A5BDF8F2E894 /* DaemonMaintenanceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */; };
 		C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */; };
@@ -61,12 +67,17 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		08446624B46672875126EF07 /* MihomoBackends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoBackends.swift; sourceTree = "<group>"; };
 		0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileFileStore.swift; sourceTree = "<group>"; };
 		13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonMaintenanceService.swift; sourceTree = "<group>"; };
 		25978E89B4CCD23B64EA7345 /* DaemonModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonModels.swift; sourceTree = "<group>"; };
 		2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonAPIClient.swift; sourceTree = "<group>"; };
+		3354F508C0653A08D63DBEEC /* MihomoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoModels.swift; sourceTree = "<group>"; };
 		3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseWidget.swift; sourceTree = "<group>"; };
+		4455FF95397C153A2E668592 /* PPComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPComponents.swift; sourceTree = "<group>"; };
 		54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferModels.swift; sourceTree = "<group>"; };
+		6827EB7C08699493703F29CA /* ProxyPanelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPanelStore.swift; sourceTree = "<group>"; };
+		6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProxiesPage.swift; sourceTree = "<group>"; };
 		7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVPNPresentation.swift; sourceTree = "<group>"; };
 		7DF23D4A47461A7F12D1F16B /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WgSenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -82,6 +93,7 @@
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
 		A6F32A96612A010AB2B369F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B327C41F92B977872F228B46 /* WgSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSurfaces.swift; sourceTree = "<group>"; };
+		B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
 		B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferAPIClient.swift; sourceTree = "<group>"; };
 		BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonControlAPIClient.swift; sourceTree = "<group>"; };
@@ -112,6 +124,7 @@
 				E75714667C21CE70B43A065A /* WgSense.entitlements */,
 				89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */,
 				B327C41F92B977872F228B46 /* WgSurfaces.swift */,
+				C734104EC007BD5C57C76D33 /* ProxyPanel */,
 				7B4DD8305A92693258E523D8 /* Views */,
 			);
 			path = WgSense;
@@ -149,6 +162,19 @@
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		C734104EC007BD5C57C76D33 /* ProxyPanel */ = {
+			isa = PBXGroup;
+			children = (
+				B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */,
+				08446624B46672875126EF07 /* MihomoBackends.swift */,
+				3354F508C0653A08D63DBEEC /* MihomoModels.swift */,
+				4455FF95397C153A2E668592 /* PPComponents.swift */,
+				6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */,
+				6827EB7C08699493703F29CA /* ProxyPanelStore.swift */,
+			);
+			path = ProxyPanel;
 			sourceTree = "<group>";
 		};
 		FA2459F76587896772A17067 /* Products */ = {
@@ -312,12 +338,18 @@
 				D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */,
 				4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */,
 				80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */,
+				A9184D24FC36095D400742E2 /* MihomoAPI.swift in Sources */,
+				882F34D0761960552EDAA758 /* MihomoBackends.swift in Sources */,
+				0A2EC6E290092752B87FCA08 /* MihomoModels.swift in Sources */,
 				A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */,
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
+				37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */,
+				9A2198BA923E1789C7409A6F /* PPProxiesPage.swift in Sources */,
 				205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */,
 				00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */,
 				48ADE081313F1751E1A488D2 /* ProxyAPIClient.swift in Sources */,
 				85FC1CBD1AC639C275B65736 /* ProxyModels.swift in Sources */,
+				2D3FCB428630D7F9D10607AE /* ProxyPanelStore.swift in Sources */,
 				C4886BF191973A5EFEBDBB68 /* ProxyView.swift in Sources */,
 				3941C8336123C5CB8E9F31E6 /* ShellCommand.swift in Sources */,
 				F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */,
