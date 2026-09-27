@@ -37,12 +37,16 @@ final class PPRuleBrowserModel: ObservableObject {
         cache.loadIfNeeded()
         if refetch || rules.isEmpty { guard await fetchRules() else { return } }
         if group == RulePenetration.customPreKey || group == RulePenetration.customPostKey {
-            let sections = RulePenetration.customSections(rules)
-            let list = group == RulePenetration.customPreKey ? sections.pre : sections.post
-            var seen: Set<String> = []
-            items = list.compactMap(RulePenetration.entry(from:)).filter { seen.insert($0.id).inserted }
-            totalRules = list.count
-            missingProviders = []
+            // 与原版一致：自定义区读路由器上的自定义规则文件（可编辑），而非控制器规则。
+            do {
+                if cache.snapshot == nil { await cache.sync() }
+                let list = try await cache.customRules(mode: group == RulePenetration.customPreKey ? "pre" : "post")
+                items = list
+                totalRules = list.count
+                missingProviders = []
+            } catch {
+                self.error = error.localizedDescription
+            }
             return
         }
         let result = RulePenetration.expand(group: group, rules: rules, cache: cache, provider: provider)
@@ -277,15 +281,26 @@ struct PPDomainGroupView: View {
 
                 Spacer()
                 PPFamilyTabs(model: model)
+                PPCustomRuleActions(enabled: isCustom, mode: customMode) { reload() }
             }
             PPCacheHintBar(model: model) { reload() }
-            PPRuleTable(model: model)
-                .frame(maxHeight: .infinity)
+            if isCustom {
+                PPCustomRuleList(model: model, mode: customMode) { reload() }
+                    .frame(maxHeight: .infinity)
+            } else {
+                PPRuleTable(model: model)
+                    .frame(maxHeight: .infinity)
+            }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onChange(of: store.filter) { _, value in model.search = value }
         .task { await setup() }
     }
+
+    private var isCustom: Bool {
+        selectedGroup == RulePenetration.customPreKey || selectedGroup == RulePenetration.customPostKey
+    }
+    private var customMode: String { selectedGroup == RulePenetration.customPostKey ? "post" : "pre" }
 
     private func title(_ name: String) -> String {
         switch name {

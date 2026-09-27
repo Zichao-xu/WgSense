@@ -352,6 +352,8 @@ final class RuleCacheStore: ObservableObject {
     @Published private(set) var syncing = false
     @Published private(set) var progress: String = ""
     @Published private(set) var lastError: String?
+    /// 自定义规则已写入但尚未重启代理（原版 domainRuleConfigChanged）。
+    @Published var pendingRestart = false
     /// 规则集名 → 已解析条目（内存缓存，按需从磁盘加载）。
     private var parsed: [String: [RuleEntry]] = [:]
     private var bodies: [String: String] = [:]
