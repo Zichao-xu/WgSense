@@ -461,3 +461,17 @@ struct WgPillButtonStyle: ButtonStyle {
         }
     }
 }
+
+// MARK: - 语言
+
+/// 仅在确有必要时注入 locale（见 WgAppLanguage.needsLocaleOverride）。
+struct WgLocaleOverride: ViewModifier {
+    var language: WgAppLanguage
+    func body(content: Content) -> some View {
+        if language.needsLocaleOverride {
+            content.environment(\.locale, language.locale)
+        } else {
+            content
+        }
+    }
+}

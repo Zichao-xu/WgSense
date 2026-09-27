@@ -30,6 +30,44 @@ enum WgAppLanguage: String, CaseIterable, Identifiable {
         case .vietnamese: return "Tiếng Việt"
         }
     }
+    /// Bundle 本地化目录名；跟随系统时为 nil。
+    var localizationID: String? {
+        switch self {
+        case .system: return nil
+        case .zhHans: return "zh-Hans"
+        case .zhHant: return "zh-Hant"
+        case .english: return "en"
+        case .japanese: return "ja"
+        case .korean: return "ko"
+        case .russian: return "ru"
+        case .persian: return "fa"
+        case .arabic: return "ar"
+        case .turkish: return "tr"
+        case .vietnamese: return "vi"
+        }
+    }
+
+    /// 是否需要用 environment locale 强制指定语言。
+    ///
+    /// 强制指定会让 SwiftUI 每次解析文字都走“按指定语言查表”的路径，该路径不缓存，
+    /// 每个 Text 都重新读取并解析一次 Localizable.strings。启动时已把所选语言写入本 App 的
+    /// AppleLanguages，Bundle 默认就是该语言，只有运行中刚切换、尚未重启时才需要强制指定。
+    var needsLocaleOverride: Bool {
+        guard let id = localizationID else { return false }
+        return Bundle.main.preferredLocalizations.first != id
+    }
+
+    /// 启动时调用：让 Bundle 以所选语言为首选（只写本 App 域，不影响系统）。
+    static func applyPreferredLocalization() {
+        let defaults = UserDefaults.standard
+        let raw = defaults.string(forKey: "appLanguage") ?? WgAppLanguage.system.rawValue
+        if let id = WgAppLanguage(rawValue: raw)?.localizationID {
+            defaults.set([id], forKey: "AppleLanguages")
+        } else {
+            defaults.removeObject(forKey: "AppleLanguages")
+        }
+    }
+
     var locale: Locale {
         switch self {
         case .system: return .current
@@ -90,6 +128,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct WgSenseApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var client = DaemonClient()
+
+    init() {
+        WgAppLanguage.applyPreferredLocalization()
+    }
 
     var body: some Scene {
         // 主窗口：Surge 风格 sidebar + 详情

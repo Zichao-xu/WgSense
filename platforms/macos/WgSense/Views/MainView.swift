@@ -284,16 +284,13 @@ struct MainView: View {
                     .zIndex(100)
             }
         }
-        .environment(\.locale, selectedLanguage.locale)
+        .modifier(WgLocaleOverride(language: selectedLanguage))
         .preferredColorScheme(selectedAppearance.colorScheme)
         .animation(.easeInOut(duration: 0.3), value: appAppearanceRaw)
         .id("content-\(appLanguageRaw)")
         .task {
             await client.refresh()
             Self.openMenuPreviewIfRequested(client)
-        }
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-            Task { await client.fetchStatus() }
         }
     }
 
@@ -974,13 +971,6 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tile.size == .large ? .topLeading : .leading)
         .wgInteractiveSurface(isSelected: false, isEnabled: !isEditMode) {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
-        }
-        .task {
-            await client.fetchTraffic()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await client.fetchTraffic()
-            }
         }
     }
 

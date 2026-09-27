@@ -38,12 +38,7 @@ struct OverviewView: View {
             async let proxy: Void = client.fetchProxyStatus()
             _ = await (transfer, proxy)
         }
-        .task {
-            while !Task.isCancelled {
-                await client.fetchTraffic()
-                try? await Task.sleep(for: .seconds(3))
-            }
-        }
+
     }
 
     // MARK: - 主视觉

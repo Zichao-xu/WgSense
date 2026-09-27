@@ -47,7 +47,7 @@ struct MenuBarView: View {
         }
         .frame(width: 300)
         .focusEffectDisabled()
-        .environment(\.locale, selectedLanguage.locale)
+        .modifier(WgLocaleOverride(language: selectedLanguage))
         .preferredColorScheme(selectedAppearance.colorScheme)
         .animation(WgDesign.spring, value: vpn.phase)
         .id("menu-content-\(appLanguageRaw)")

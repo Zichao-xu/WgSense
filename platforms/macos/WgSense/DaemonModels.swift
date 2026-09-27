@@ -1,6 +1,6 @@
 import Foundation
 
-struct DaemonStatus: Codable {
+struct DaemonStatus: Codable, Equatable {
     var trusted_network: Bool?
     var at_home: Bool
     var state: String
@@ -31,7 +31,7 @@ struct DaemonStatus: Codable {
     }
 }
 
-struct NetworkInterface: Codable {
+struct NetworkInterface: Codable, Equatable {
     var name: String
     var hardware_port: String?
     var ipv4s: [String]
@@ -40,7 +40,7 @@ struct NetworkInterface: Codable {
     var speed_mbps: Int?
 }
 
-struct TrafficStats: Codable {
+struct TrafficStats: Codable, Equatable {
     var tx_speed: Double
     var rx_speed: Double
     var tx_bytes: UInt64

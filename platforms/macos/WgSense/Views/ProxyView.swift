@@ -293,6 +293,7 @@ private struct ProxyUnavailableView: View {
 
 private struct ProxyOverviewPage: View {
     @EnvironmentObject private var client: DaemonClient
+    @ObservedObject private var live = ProxyLiveStore.shared
 	@AppStorage("proxyEmojiEnabled") private var emojiEnabled = true
     @Binding var section: ProxySection
     @State private var samples: [ProxyOverviewSample] = []
@@ -2229,6 +2230,7 @@ private struct ProxyProviderRow: View {
 
 private struct ProxyConnectionsPage: View {
     @EnvironmentObject private var client: DaemonClient
+    @ObservedObject private var live = ProxyLiveStore.shared
     @State private var search = ""
     @State private var confirmCloseAll = false
 

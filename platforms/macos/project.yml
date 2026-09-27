@@ -8,6 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    # 二进制 plist 可内存映射，比默认 XML(UTF-16) 解析快一个量级。
+    STRINGS_FILE_OUTPUT_ENCODING: binary
     DEVELOPMENT_TEAM: ""
 
 targets:

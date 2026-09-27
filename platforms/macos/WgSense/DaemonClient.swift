@@ -184,32 +184,45 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
 
     /// 重置可达状态（供轮询成功后调用）
     func markDaemonUp() {
-        if serviceLifecycleError == nil { errorMsg = nil }
+        if serviceLifecycleError == nil && errorMsg != nil { errorMsg = nil }
     }
 
     deinit {
         pollTimer?.invalidate()
     }
 
-    /// 启动定时轮询，确保菜单栏图标状态始终最新
+    /// 全 App 唯一的状态轮询。窗口可见时 2 秒一轮；只剩菜单栏图标时 10 秒一轮，
+    /// 流量只在隧道连通且窗口可见时拉取。各页面不再各自起定时器重复请求。
     func startPolling(interval: TimeInterval = 2.0) {
         pollTimer?.invalidate()
         var tick = 0
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             Task { @MainActor in
-                await self.fetchStatus()
-                if self.status != nil { await self.fetchTransferState() }
-                // 每 3 次轮询拉一次流量（约 6 秒间隔）
                 tick += 1
-                if tick % 3 == 0 { await self.fetchTraffic() }
+                let visible = Self.hasVisibleWindow()
+                guard visible || tick % 5 == 0 else { return }
+                await self.fetchStatus()
+                guard visible else { return }
+                if self.status != nil { await self.fetchTransferState() }
+                if self.isTunnelUp {
+                    await self.fetchTraffic()
+                } else if self.traffic != nil {
+                    self.traffic = nil
+                }
             }
         }
+        pollTimer?.tolerance = interval * 0.25
         // 立即拉一次
         Task {
             await fetchStatus()
             if status != nil { await fetchTransferState() }
             await fetchTraffic()
         }
+    }
+
+    /// 主窗口或菜单栏面板是否真的在屏幕上（被遮挡、最小化、隐藏都不算）。
+    private static func hasVisibleWindow() -> Bool {
+        NSApp.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) && $0.frame.height > 60 }
     }
 
     func stopPolling() {
@@ -223,16 +236,22 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         await fetchTraffic()
     }
 
+    // 只有数据真的变了才赋值：@Published 每次赋值都会让所有订阅视图重算，
+    // 轮询拿回同样的数据时不应触发重绘；@AppStorage 同理还会写磁盘。
     func fetchStatus() async {
         do {
-            status = try await controlAPI.status()
-            desiredVPNEnabled = status?.desired_vpn_enabled ?? (status?.state == "Connected")
-            guardAutomationEnabled = status?.desired_guard_enabled ?? !(status?.paused ?? true)
+            let next = try await controlAPI.status()
+            if status != next { status = next }
+            let wantVPN = next.desired_vpn_enabled ?? (next.state == "Connected")
+            if desiredVPNEnabled != wantVPN { desiredVPNEnabled = wantVPN }
+            let wantGuard = next.desired_guard_enabled ?? !next.paused
+            if guardAutomationEnabled != wantGuard { guardAutomationEnabled = wantGuard }
             markDaemonUp()
         } catch {
-            status = nil
-            transferState = nil
-            errorMsg = serviceLifecycleError ?? "daemon 未连接"
+            if status != nil { status = nil }
+            if transferState != nil { transferState = nil }
+            let message = serviceLifecycleError ?? "daemon 未连接"
+            if errorMsg != message { errorMsg = message }
         }
     }
 
@@ -282,8 +301,11 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     /// 拉取实时流量统计
     func fetchTraffic() async {
         do {
-            traffic = try await controlAPI.traffic()
-        } catch { traffic = nil }
+            let next = try await controlAPI.traffic()
+            if traffic != next { traffic = next }
+        } catch {
+            if traffic != nil { traffic = nil }
+        }
     }
 
     func post(_ endpoint: String) async {
@@ -835,11 +857,13 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     /// 获取传输接收状态
     func fetchTransferState() async {
         do {
-            transferState = try await transferAPI.receiveState()
-            transferError = nil
+            let next = try await transferAPI.receiveState()
+            if transferState != next { transferState = next }
+            if transferError != nil { transferError = nil }
         } catch {
-            transferState = nil
-            transferError = daemonConnectionMessage(error)
+            if transferState != nil { transferState = nil }
+            let message = daemonConnectionMessage(error)
+            if transferError != message { transferError = message }
         }
     }
 
@@ -951,7 +975,12 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     @Published var proxyNotice: String?
     @Published var mihomoVersion: MihomoVersion?
     @Published var proxies: [String: ProxyInfo] = [:]
-    @Published var connections: ConnectionsResponse?
+    /// 连接列表每秒刷新，单独放在 ProxyLiveStore：挂在这里当 @Published 的话，每次刷新
+    /// 都会让侧栏等所有订阅 DaemonClient 的视图一起重算。只有代理页订阅 ProxyLiveStore。
+    var connections: ConnectionsResponse? {
+        get { ProxyLiveStore.shared.connections }
+        set { ProxyLiveStore.shared.connections = newValue }
+    }
     @Published var rules: [RuleInfo] = []
     @Published var proxyProviders: [String: ProxyProviderInfo] = [:]
     @Published var ruleProviders: [String: RuleProviderInfo] = [:]
@@ -1519,4 +1548,12 @@ final class DaemonServiceCoordinator {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: resultPath)) else { return nil }
         return try? JSONDecoder().decode(InstallResult.self, from: data)
     }
+}
+
+
+/// 代理页的高频数据源（见 DaemonClient.connections）。
+@MainActor
+final class ProxyLiveStore: ObservableObject {
+    static let shared = ProxyLiveStore()
+    @Published var connections: ConnectionsResponse?
 }

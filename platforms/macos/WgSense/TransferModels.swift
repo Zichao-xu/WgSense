@@ -1,6 +1,6 @@
 import Foundation
 
-struct TransferDevice: Codable, Identifiable {
+struct TransferDevice: Codable, Identifiable, Equatable {
     let id: String
     let alias: String
     let ip: String?
@@ -19,7 +19,7 @@ struct TransferDevice: Codable, Identifiable {
     }
 }
 
-struct TransferReceiveState: Codable {
+struct TransferReceiveState: Codable, Equatable {
     let alias: String
     let downloads: String
     let port: Int
@@ -29,7 +29,7 @@ struct TransferReceiveState: Codable {
     let history: [TransferFileProgress]?
 }
 
-struct TransferFileProgress: Codable, Identifiable {
+struct TransferFileProgress: Codable, Identifiable, Equatable {
     let id: String
     let sessionID: String
     let fileID: String
@@ -58,7 +58,7 @@ struct TransferFileProgress: Codable, Identifiable {
     }
 }
 
-struct TransferSendFileProgress: Codable, Identifiable {
+struct TransferSendFileProgress: Codable, Identifiable, Equatable {
     let id: String
     let name: String
     let totalBytes: Int64
@@ -73,7 +73,7 @@ struct TransferSendFileProgress: Codable, Identifiable {
     }
 }
 
-struct TransferSendTask: Codable, Identifiable {
+struct TransferSendTask: Codable, Identifiable, Equatable {
     let id: String
     let deviceID: String
     let deviceAlias: String
@@ -98,19 +98,19 @@ struct TransferSendTask: Codable, Identifiable {
     }
 }
 
-struct TransferSendTasksState: Codable {
+struct TransferSendTasksState: Codable, Equatable {
     let active: [TransferSendTask]
     let history: [TransferSendTask]
 }
 
-struct TransferPendingFile: Codable, Identifiable {
+struct TransferPendingFile: Codable, Identifiable, Equatable {
     var id: String { "\(name)|\(size)" }
     let name: String
     let size: Int64
     let type: String
 }
 
-struct TransferPendingRequest: Codable, Identifiable {
+struct TransferPendingRequest: Codable, Identifiable, Equatable {
     let id: String
     let alias: String
     let ip: String
