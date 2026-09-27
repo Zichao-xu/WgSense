@@ -24,6 +24,7 @@
 		65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF23D4A47461A7F12D1F16B /* OverviewView.swift */; };
 		6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */; };
 		7BA20522BA79D9DA1270B018 /* WireGuardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */; };
+		7FCDB9B317084D1468793764 /* PPProviderSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */; };
 		80D283F2D9F26F374C273E94 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8BEADBFB4F30FEA8CAE2D2 /* MenuBarView.swift */; };
 		85FC1CBD1AC639C275B65736 /* ProxyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C415A763228416E61BA81E86 /* ProxyModels.swift */; };
 		882F34D0761960552EDAA758 /* MihomoBackends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08446624B46672875126EF07 /* MihomoBackends.swift */; };
@@ -93,6 +94,7 @@
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
 		A6F32A96612A010AB2B369F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B327C41F92B977872F228B46 /* WgSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSurfaces.swift; sourceTree = "<group>"; };
+		B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProviderSupport.swift; sourceTree = "<group>"; };
 		B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
 		B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferAPIClient.swift; sourceTree = "<group>"; };
 		BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				08446624B46672875126EF07 /* MihomoBackends.swift */,
 				3354F508C0653A08D63DBEEC /* MihomoModels.swift */,
 				4455FF95397C153A2E668592 /* PPComponents.swift */,
+				B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */,
 				6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */,
 				6827EB7C08699493703F29CA /* ProxyPanelStore.swift */,
 			);
@@ -344,6 +347,7 @@
 				A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */,
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
 				37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */,
+				7FCDB9B317084D1468793764 /* PPProviderSupport.swift in Sources */,
 				9A2198BA923E1789C7409A6F /* PPProxiesPage.swift in Sources */,
 				205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */,
 				00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */,

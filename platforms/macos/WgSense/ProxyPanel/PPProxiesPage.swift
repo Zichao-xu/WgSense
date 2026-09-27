@@ -259,9 +259,17 @@ struct PPGroupCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 header(group)
                 if expanded {
-                    PPNodeGrid(group: name, names: rendered)
-                        .transition(.opacity)
+                    Group {
+                        if store.groupProxiesByProvider {
+                            PPProviderSectionsView(group: name, names: rendered, previewOnly: false) { select($0) }
+                        } else {
+                            PPNodeGrid(group: name, names: rendered)
+                        }
+                    }
+                    .transition(.opacity)
                     if !embedded { PPPenetrationSection(root: name) }
+                } else if store.groupProxiesByProvider {
+                    PPProviderSectionsView(group: name, names: rendered, previewOnly: true) { select($0) }
                 } else {
                     PPPreview(nodes: rendered, now: group.now, group: name) { node in select(node) }
                 }
@@ -530,11 +538,19 @@ private struct PPProviderCard: View {
                         Text("更新于 ") + Text(updated, style: .relative)
                     } icon: { Image(systemName: "clock") }
                 }
+                Spacer()
+                if store.categoryFeatureEnabled {
+                    PPCategoryControls(provider: provider.name)
+                }
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
             if expanded {
-                PPNodeGrid(group: provider.name, names: names)
+                if store.categoryActive(provider: provider.name) {
+                    PPCategorySections(provider: provider.name, names: names)
+                } else {
+                    PPNodeGrid(group: provider.name, names: names)
+                }
             } else {
                 PPPreview(nodes: names, now: nil, group: provider.name) { _ in }
             }

@@ -102,6 +102,19 @@ final class ProxyPanelStore: ObservableObject {
     @Published var penetrationModeMap: [String: String] = PPPersist.dict("penetrationModeMap") {
         didSet { PPPersist.save(penetrationModeMap, "penetrationModeMap") }
     }
+    // 订阅通配符分类（P-V04）：按提供商记住开关、通配符、分类顺序、分类折叠。
+    @Published var categoryEnabledMap: [String: Bool] = PPPersist.dict("categoryEnabledMap") {
+        didSet { PPPersist.save(categoryEnabledMap, "categoryEnabledMap") }
+    }
+    @Published var categoryWildcardMap: [String: String] = PPPersist.dict("categoryWildcardMap") {
+        didSet { PPPersist.save(categoryWildcardMap, "categoryWildcardMap") }
+    }
+    @Published var categoryOrderMap: [String: [String]] = PPPersist.dict("categoryOrderMap") {
+        didSet { PPPersist.save(categoryOrderMap, "categoryOrderMap") }
+    }
+    @Published var categoryCollapseMap: [String: Bool] = PPPersist.dict("categoryCollapseMap") {
+        didSet { PPPersist.save(categoryCollapseMap, "categoryCollapseMap") }
+    }
 
     // MARK: 设置（默认值与原版一致）
 
@@ -127,6 +140,7 @@ final class ProxyPanelStore: ObservableObject {
     @AppStorage("pp.groupIconMargin") var proxyGroupIconMargin = 6.0
     @AppStorage("pp.displayGlobalByMode") var displayGlobalByMode = false
     @AppStorage("pp.groupTestUrls") var groupTestUrlsRaw = "{}"
+    @AppStorage("pp.categoryFeatureEnabled") var categoryFeatureEnabled = true
 
     var sortType: PPSortType {
         get { PPSortType(rawValue: sortTypeRaw) ?? .defaultsort }
@@ -819,6 +833,112 @@ final class ProxyPanelStore: ObservableObject {
     }
 
     func dismiss(_ id: String) { notices.removeAll { $0.id == id } }
+
+    // MARK: 按提供商分组 / 通配符分类（P-G12 · P-V04，对应 helper/proxyCategory.ts）
+
+    struct CategoryGroup: Identifiable, Equatable {
+        var id: String { name }
+        var name: String
+        var proxies: [String]
+        var available: Int
+        var total: Int
+    }
+
+    struct ProviderSection: Identifiable, Equatable {
+        var id: String
+        var title: String
+        var providerName: String
+        var categoryName: String?
+        var proxies: [String]
+    }
+
+    /// 节点所属提供商（优先用控制器给的 provider-name）。
+    func providerName(of proxy: String) -> String {
+        if let hinted = proxyMap[proxy]?.providerName {
+            return providers.contains { $0.name == hinted } ? hinted : ""
+        }
+        return providers.first { $0.proxies.contains { $0.name == proxy } }?.name ?? ""
+    }
+
+    static func categoryName(_ proxy: String, wildcard: String, fallback: String) -> String {
+        let w = wildcard.trimmingCharacters(in: .whitespaces)
+        guard !w.isEmpty, let range = proxy.range(of: w), range.lowerBound > proxy.startIndex else { return fallback }
+        let name = String(proxy[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? fallback : name
+    }
+
+    func categoryActive(provider: String) -> Bool {
+        guard categoryFeatureEnabled, categoryEnabledMap[provider] == true else { return false }
+        let w = (categoryWildcardMap[provider] ?? "").trimmingCharacters(in: .whitespaces)
+        guard !w.isEmpty else { return false }
+        let all = providers.first { $0.name == provider }?.proxies.map(\.name) ?? []
+        return all.contains { name in name.range(of: w).map { $0.lowerBound > name.startIndex } ?? false }
+    }
+
+    func categoryGroups(provider: String, proxies: [String]) -> [CategoryGroup] {
+        let wildcard = categoryWildcardMap[provider] ?? ""
+        let all = providers.first { $0.name == provider }?.proxies.map(\.name) ?? proxies
+        var totals: [String: Int] = [:]
+        var alive: [String: Int] = [:]
+        for name in all {
+            let c = Self.categoryName(name, wildcard: wildcard, fallback: "其他")
+            totals[c, default: 0] += 1
+            if latency(name) != mihomoNotConnected { alive[c, default: 0] += 1 }
+        }
+        var order: [String] = []
+        var grouped: [String: [String]] = [:]
+        for name in proxies {
+            let c = Self.categoryName(name, wildcard: wildcard, fallback: "其他")
+            if grouped[c] == nil { order.append(c) }
+            grouped[c, default: []].append(name)
+        }
+        var groups = order.map { CategoryGroup(name: $0, proxies: grouped[$0] ?? [], available: alive[$0] ?? 0, total: totals[$0] ?? 0) }
+        let saved = categoryOrderMap[categoryOrderKey(provider)] ?? []
+        if !saved.isEmpty {
+            let index = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+            groups.sort { (index[$0.name] ?? .max) < (index[$1.name] ?? .max) }
+        }
+        return groups
+    }
+
+    func categoryOrderKey(_ provider: String) -> String {
+        "\(provider)::\((categoryWildcardMap[provider] ?? "").trimmingCharacters(in: .whitespaces))"
+    }
+
+    func moveCategory(provider: String, from: String, to: String) {
+        var names = categoryGroups(provider: provider, proxies: providers.first { $0.name == provider }?.proxies.map(\.name) ?? []).map(\.name)
+        guard let src = names.firstIndex(of: from), let dst = names.firstIndex(of: to), src != dst else { return }
+        names.remove(at: src)
+        names.insert(from, at: dst)
+        categoryOrderMap[categoryOrderKey(provider)] = names
+    }
+
+    /// 组卡片“节点根据提供商分组”：无提供商的节点排最前，其余按首次出现顺序；启用分类的提供商再细分。
+    func providerSections(of proxies: [String]) -> [ProviderSection] {
+        var order: [String] = []
+        var grouped: [String: [String]] = [:]
+        for name in proxies {
+            let p = providerName(of: name)
+            if grouped[p] == nil {
+                if p.isEmpty { order.insert(p, at: 0) } else { order.append(p) }
+            }
+            grouped[p, default: []].append(name)
+        }
+        var sections: [ProviderSection] = []
+        for p in order {
+            let items = grouped[p] ?? []
+            if p.isEmpty {
+                sections.append(ProviderSection(id: "provider:root", title: "", providerName: "", proxies: items))
+            } else if categoryActive(provider: p) {
+                for c in categoryGroups(provider: p, proxies: items) {
+                    sections.append(ProviderSection(id: "\(p)::\(c.name)", title: "\(p) - \(c.name)", providerName: p, categoryName: c.name, proxies: c.proxies))
+                }
+            } else {
+                sections.append(ProviderSection(id: "provider:\(p)", title: p, providerName: p, proxies: items))
+            }
+        }
+        return sections
+    }
 }
 
 /// 小型持久化工具：界面状态字典存 UserDefaults（前缀 pp.）。
