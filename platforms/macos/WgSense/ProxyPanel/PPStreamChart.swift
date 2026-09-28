@@ -28,6 +28,18 @@ struct PPChartScale: Hashable {
         (0...4).map { i in (lo + Double(i) / 4 * span, Double(i) / 4) }
     }
 
+    /// 读数用：上下沿按 1024 进位的显示单位保留两位有效数字（小幅变化时读数不变，不必每秒闪一次）。
+    var rounded: PPChartScale { PPChartScale(lo: Self.round2(lo), hi: Self.round2(hi)) }
+
+    static func round2(_ v: Double) -> Double {
+        guard v > 0 else { return 0 }
+        var unit = 1.0
+        while v / unit >= 1024 && unit < pow(1024, 4) { unit *= 1024 }
+        let x = v / unit
+        let mag = pow(10, Foundation.floor(log10(x)) - 1)
+        return (x / mag).rounded() * mag * unit
+    }
+
     static func lerp(_ a: PPChartScale, _ b: PPChartScale, _ t: Double) -> PPChartScale {
         PPChartScale(lo: a.lo + (b.lo - a.lo) * t, hi: a.hi + (b.hi - a.hi) * t)
     }
@@ -35,64 +47,44 @@ struct PPChartScale: Hashable {
 
 // MARK: - 镜头
 
-/// 跟随笔头的纵向镜头：记录一段 from → to 的缓动过渡，任意时刻可求当前取景。
+/// 跟随笔头的纵向镜头：连续运动。
+///
+/// 每来一个样本记一个“目标取景点”，镜头的上下沿沿 Catmull-Rom 曲线穿过这些点连续移动（与曲线本身同一种平滑），
+/// 不做“动一下—停—再动”的分段缓动（每秒一段会显得一抽一抽）。
+/// 镜头整体滞后 lag 秒：目标取景用到了笔头尚未画到的最新样本，滞后正好让镜头与笔头同步——高峰滑到笔头时刚好被框住。
 final class ChartCamera {
-    private(set) var from = PPChartScale(lo: 0, hi: 1)
-    private(set) var to = PPChartScale(lo: 0, hi: 1)
-    private(set) var start: TimeInterval = 0
-    private(set) var duration: TimeInterval = 0
-    private var initialized = false
+    private var points: [(t: TimeInterval, s: PPChartScale)] = []
+    static let lag: TimeInterval = 1.2
 
-    static let expandDuration: TimeInterval = 0.35
-    static let shrinkDuration: TimeInterval = 0.7
-    /// 缓动曲线：先快后慢（与 Core Animation 侧使用同一条贝塞尔）。
-    static let timing = (0.22, 1.0, 0.36, 1.0)
+    /// 最新目标（纵轴读数显示它：镜头正要去的位置）。
+    var to: PPChartScale { points.last?.s ?? PPChartScale(lo: 0, hi: 1) }
+    /// 镜头到达最新目标的时刻。
+    var end: TimeInterval { (points.last?.t ?? 0) + Self.lag }
+    func isMoving(at t: TimeInterval) -> Bool { t < end }
+
+    func record(_ target: PPChartScale, now: TimeInterval) {
+        if let last = points.last, now - last.t < 0.3 {
+            points[points.count - 1] = (last.t, target)   // 同一次推送内重复求值：只更新，不新增点
+        } else {
+            points.append((now, target))
+        }
+        points.removeAll { now - $0.t > 12 }
+    }
 
     func scale(at t: TimeInterval) -> PPChartScale {
-        guard duration > 0, t < start + duration else { return to }
-        let p = max(0, (t - start) / duration)
-        return PPChartScale.lerp(from, to, UnitBezier.solve(p, Self.timing))
-    }
-
-    func isMoving(at t: TimeInterval) -> Bool { duration > 0 && t < start + duration }
-    var end: TimeInterval { start + duration }
-
-    /// 更新目标取景。变化小于当前跨度的 4% 时不动（克制，不做无意义的微颤）。
-    func retarget(_ target: PPChartScale, now: TimeInterval) {
-        guard initialized else {
-            from = target; to = target; start = now; duration = 0; initialized = true
-            return
+        guard let first = points.first, let last = points.last else { return PPChartScale(lo: 0, hi: 1) }
+        let q = t - Self.lag
+        if q <= first.t { return first.s }
+        if q >= last.t { return last.s }
+        var i = 0
+        while i < points.count - 2 && points[i + 1].t <= q { i += 1 }
+        let p0 = points[max(0, i - 1)].s, p1 = points[i].s, p2 = points[i + 1].s, p3 = points[min(points.count - 1, i + 2)].s
+        let u = (q - points[i].t) / max(0.001, points[i + 1].t - points[i].t)
+        func cr(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> Double {
+            let v = 0.5 * ((2 * b) + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (-a + 3 * b - 3 * c + d) * u * u * u)
+            return min(max(b, c), max(min(b, c), v))   // 夹在相邻两点之间，不过冲
         }
-        let tolerance = max(to.span, 1e-9) * 0.04
-        guard abs(target.lo - to.lo) > tolerance || abs(target.hi - to.hi) > tolerance else { return }
-        let current = scale(at: now)
-        let expanding = target.hi > current.hi || target.lo < current.lo
-        from = current
-        to = target
-        start = now
-        duration = expanding ? Self.expandDuration : Self.shrinkDuration
-    }
-}
-
-/// 三次贝塞尔缓动求值（CSS/CA 同款算法）。
-enum UnitBezier {
-    static func solve(_ x: Double, _ c: (Double, Double, Double, Double)) -> Double {
-        let (x1, y1, x2, y2) = c
-        let cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx
-        let cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by
-        func sx(_ t: Double) -> Double { ((ax * t + bx) * t + cx) * t }
-        func sy(_ t: Double) -> Double { ((ay * t + by) * t + cy) * t }
-        func dx(_ t: Double) -> Double { (3 * ax * t + 2 * bx) * t + cx }
-        var t = x
-        for _ in 0..<8 {
-            let err = sx(t) - x
-            if abs(err) < 1e-5 { break }
-            let d = dx(t)
-            if abs(d) < 1e-6 { break }
-            t -= err / d
-        }
-        t = min(1, max(0, t))
-        return sy(t)
+        return PPChartScale(lo: cr(p0.lo, p1.lo, p2.lo, p3.lo), hi: cr(p0.hi, p1.hi, p2.hi, p3.hi))
     }
 }
 
@@ -144,7 +136,7 @@ struct PPStreamChart: View {
     var body: some View {
         let samples = buffer.samples
         let now = frozenAt ?? Date().timeIntervalSince1970
-        if frozenAt == nil { camera.retarget(focusScale(samples, now: now), now: now) }
+        if frozenAt == nil, let latest = samples.last?.time { camera.record(focusScale(samples, now: now), now: latest) }
         return VStack(alignment: .leading, spacing: 8) {
             header(values: samples.last?.values ?? [])
             GeometryReader { geo in
@@ -154,12 +146,12 @@ struct PPStreamChart: View {
                     // 纵轴读数标出镜头的目标取景：换取景时 0.25s 淡入淡出（最多每秒一次），曲线自己平滑形变过去。
                     // 不逐帧滚动数字：四张图 × 20fps 的文字排版比曲线动画还贵。
                     ZStack {
-                        PPChartAxis(scale: camera.to, format: format, window: window, size: geo.size, plot: plot)
+                        PPChartAxis(scale: camera.to.rounded, format: format, window: window, size: geo.size, plot: plot)
                             .equatable()
-                            .id(camera.to)
+                            .id(camera.to.rounded)
                             .transition(.opacity)
                     }
-                    .animation(.easeInOut(duration: 0.25), value: camera.to)
+                    .animation(.easeInOut(duration: 0.4), value: camera.to.rounded)
                     PPChartTape(samples: samples, version: buffer.version, camera: camera, cameraEnd: camera.end,
                                 series: series, format: format, plot: plot, window: window, delay: delay, frozenAt: frozenAt)
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -389,8 +381,6 @@ final class TapeView: NSView {
     private var pens: [CAShapeLayer] = []
     private var last: Input?
 
-    static let timing = CAMediaTimingFunction(controlPoints: Float(ChartCamera.timing.0), Float(ChartCamera.timing.1),
-                                              Float(ChartCamera.timing.2), Float(ChartCamera.timing.3))
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -543,9 +533,12 @@ final class TapeView: NSView {
         let visible = input.samples.filter { $0.time >= start - 2 }
         let camera = input.camera
         let target = camera.to
-        let moving = input.frozenAt == nil && camera.isMoving(at: now)
-        let current = camera.scale(at: now)
-        let remaining = max(0.05, camera.end - now)
+        let frozen = input.frozenAt != nil
+        // 镜头运动的关键帧：从此刻到镜头到达最新目标，每 0.1s 一帧，交给 Core Animation 线性播放。
+        let horizon = frozen ? 0 : min(2.0, max(0, camera.end - now))
+        let steps = horizon > 0.05 ? max(1, Int((horizon / 0.1).rounded(.up))) : 0
+        let frameTimes = (0...steps).map { now + (steps == 0 ? 0 : horizon * Double($0) / Double(steps)) }
+        let frameScales = frameTimes.map { camera.scale(at: $0) }
         let background = resolved(NSColor.windowBackgroundColor)
 
         func paths(_ i: Int, _ scale: PPChartScale) -> (curve: CGPath, area: CGPath)? {
@@ -559,15 +552,15 @@ final class TapeView: NSView {
             area.closeSubpath()
             return (curve, area)
         }
-        func morph(_ layer: CAShapeLayer, from: CGPath?, to: CGPath) {
+        func play(_ layer: CAShapeLayer, _ frames: [CGPath]) {
             layer.removeAnimation(forKey: "camera")
-            layer.path = to
-            guard let from else { return }
-            let anim = CABasicAnimation(keyPath: "path")
-            anim.fromValue = from
-            anim.toValue = to
-            anim.duration = remaining
-            anim.timingFunction = Self.timing
+            layer.path = frames.last
+            guard frames.count >= 2 else { return }
+            let anim = CAKeyframeAnimation(keyPath: "path")
+            anim.values = frames
+            anim.keyTimes = (0..<frames.count).map { NSNumber(value: Double($0) / Double(frames.count - 1)) }
+            anim.duration = horizon
+            anim.calculationMode = .linear
             layer.add(anim, forKey: "camera")
         }
         for (i, style) in input.series.enumerated() {
@@ -577,20 +570,16 @@ final class TapeView: NSView {
             stroke.lineDashPattern = style.dashed ? [3, 2.5] : nil
             pens[i].fillColor = resolved(style.color)
             pens[i].strokeColor = background
-            let displayed = moving ? current : target
-            guard let new = paths(i, input.frozenAt == nil ? target : displayed) else { stroke.path = nil; mask.path = nil; continue }
-            let old = moving ? paths(i, current) : nil
-            morph(stroke, from: old?.curve, to: new.curve)
+            let frames = frameScales.compactMap { paths(i, $0) }
+            guard !frames.isEmpty else { stroke.path = nil; mask.path = nil; continue }
+            play(stroke, frames.map(\.curve))
             fill.isHidden = !style.fill
             if style.fill {
                 fill.frame = CGRect(x: 0, y: -h * 3, width: tape.bounds.width, height: h * 8)
                 fill.colors = nil
                 fill.backgroundColor = hatchColor(style.color)
                 // 面罩坐标相对 fill 层：fill 向上扩了 3h，路径整体下移 3h 对齐。
-                var shift = CGAffineTransform(translationX: 0, y: h * 3)
-                let newArea = new.area.copy(using: &shift)!
-                let oldArea = old.flatMap { o -> CGPath? in var s = CGAffineTransform(translationX: 0, y: h * 3); return o.area.copy(using: &s) }
-                morph(mask, from: oldArea, to: newArea)
+                play(mask, frames.map { f -> CGPath in var shift = CGAffineTransform(translationX: 0, y: h * 3); return f.area.copy(using: &shift)! })
             }
         }
         buildMarkers(input, visible: visible, start: start, pps: pps, target: target)
