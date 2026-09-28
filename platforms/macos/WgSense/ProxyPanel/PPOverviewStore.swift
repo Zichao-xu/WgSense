@@ -26,7 +26,8 @@ final class PPSampleBuffer: ObservableObject {
         if let first = samples.firstIndex(where: { $0.time >= cutoff }), first > 0 {
             samples.removeFirst(first)
         }
-        version = time
+        let key = "pp.buffer.\(ObjectIdentifier(self).hashValue)"
+        MainActor.assumeIsolated { WgScrollActivity.whenIdle(key) { [weak self] in self?.version = time } }
     }
 
     func reset() { samples.removeAll(); version = 0 }
@@ -143,7 +144,12 @@ final class PPOverviewStore: ObservableObject {
     // MARK: 统计条（1Hz）：放在独立的 PPOverviewStats，避免每秒的变化牵连其他卡片重算。
     var stats: Stats {
         get { PPOverviewStats.shared.stats }
-        set { if PPOverviewStats.shared.stats != newValue { PPOverviewStats.shared.stats = newValue } }
+        set {
+            // 滚动中暂缓上屏（见 WgScrollActivity）。
+            WgScrollActivity.whenIdle("pp.stats") {
+                if PPOverviewStats.shared.stats != newValue { PPOverviewStats.shared.stats = newValue }
+            }
+        }
     }
     struct Stats: Equatable {
         var connections = 0
@@ -283,7 +289,9 @@ final class PPOverviewStore: ObservableObject {
     }
 
     private func applyRules(_ new: [MihomoRule]) {
-        if rules != new { rules = new }
+        WgScrollActivity.whenIdle("pp.rules") { [weak self] in
+            if self?.rules != new { self?.rules = new }
+        }
     }
 
     // MARK: 连接快照（由 ProxyPanelStore 的连接推送转发）
@@ -301,7 +309,7 @@ final class PPOverviewStore: ObservableObject {
         if !topologyPaused, Date().timeIntervalSince(lastTopologyUpdate) >= 2 {
             lastTopologyUpdate = Date()
             if topologyConnections.map(\.id) != connections.map(\.id) || topologyConnections.count != connections.count {
-                topologyConnections = connections
+                WgScrollActivity.whenIdle("pp.topology") { [weak self] in self?.topologyConnections = connections }
             }
         }
 
@@ -349,7 +357,7 @@ final class PPOverviewStore: ObservableObject {
             }
             result[type] = rows
         }
-        history = result
+        WgScrollActivity.whenIdle("pp.history") { [weak self] in self?.history = result }
         historyStart = file.start
     }
 
@@ -389,7 +397,7 @@ final class PPOverviewStore: ObservableObject {
             }
             result[type] = rows
         }
-        history = result
+        WgScrollActivity.whenIdle("pp.history") { [weak self] in self?.history = result }
         historyDirty = true
         scheduleFlush()
     }

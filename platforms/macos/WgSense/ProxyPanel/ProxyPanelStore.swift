@@ -797,7 +797,9 @@ final class ProxyPanelStore: ObservableObject {
         activeConnections = connections
         lastConnectionBytes = bytes
         lastConnectionTime = now
-        if PPLiveStats.shared.groupDownloadSpeed != speed { PPLiveStats.shared.groupDownloadSpeed = speed }
+        WgScrollActivity.whenIdle("pp.groupSpeed") {
+            if PPLiveStats.shared.groupDownloadSpeed != speed { PPLiveStats.shared.groupDownloadSpeed = speed }
+        }
     }
 
     // MARK: 自动刷新（P-D11）

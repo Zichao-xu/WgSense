@@ -253,31 +253,30 @@ struct MainView: View {
                 ProxyView()
                     .padding(.vertical, 28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            } else if selection == .settings {
-                // 验证中：原生滚动容器（见 WgScrollView）。内容是独立宿主，环境需显式注入。
-                WgScrollView(content: AnyView(
-                    SettingsView()
-                        .padding(28)
-                        .environmentObject(client)
-                        .modifier(WgLocaleOverride(language: selectedLanguage))
-                        .tint(WgInk.signal)
-                ))
+            } else if selection == .logs {
+                // 日志页内部自带滚动区（跟随最新一行），保留 SwiftUI 容器。
+                ScrollView { LogsView().padding(28) }
             } else {
-                ScrollView {
+                // 普通页面统一用原生滚动容器（见 WgScrollView）：滚动时 SwiftUI 不再逐帧布局。
+                // 内容是独立宿主根，环境需显式注入。
+                WgScrollView(content: AnyView(
                     Group {
                         switch selection {
                         case .dashboard, .wireguard: OverviewView()
-                        case .proxy: EmptyView()
                         case .profile: ProfileManagerView()
                         case .transferReceive: TransferReceiveView()
                         case .transferSend: TransferSendView()
                         case .settings: SettingsView()
-                        case .logs: LogsView()
                         case .about: AboutView()
+                        case .proxy, .logs: EmptyView()
                         }
                     }
                     .padding(28)
-                }
+                    .environmentObject(client)
+                    .modifier(WgLocaleOverride(language: selectedLanguage))
+                    .tint(WgInk.signal)
+                ))
+                .id(selection)
             }
             }
             .wgPageSurface()

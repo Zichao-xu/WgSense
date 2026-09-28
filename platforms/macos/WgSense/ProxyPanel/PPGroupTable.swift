@@ -45,6 +45,7 @@ struct PPGroupTable: NSViewRepresentable {
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 20, right: 0)
         context.coordinator.table = table
+        context.coordinator.scrollObservers = WgScrollActivity.track(scroll)
         return scroll
     }
 
@@ -68,6 +69,7 @@ struct PPGroupTable: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
         weak var table: NSTableView?
+        var scrollObservers: [Any] = []
         var items: [PPListItem] = []
         var width: CGFloat = 0
         var heights: [PPListItem.ID: CGFloat] = [:]

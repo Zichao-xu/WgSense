@@ -177,7 +177,7 @@ private final class SankeyAnimation {
     }
 }
 
-struct PPSankeyView: View {
+struct PPSankeyView: View, Equatable {
     var model: PPSankeyModel
     /// 悬停时通知外部暂停数据更新（O-T03）。
     var onHoverChange: (Bool) -> Void = { _ in }
@@ -188,6 +188,9 @@ struct PPSankeyView: View {
     @State private var hover: CGPoint?
     @State private var focus: Set<String>?     // 高亮的节点/连线 key
     @State private var tip: String?
+
+    /// 只有模型或标签长度变了才重画（外层卡片订阅了整个概览数据，任何一项更新都会走到这里）。
+    static func == (a: PPSankeyView, b: PPSankeyView) -> Bool { a.model == b.model && a.labelLimit == b.labelLimit }
 
     /// 顶部列标题区高度（A 源IP地址 · B 规则匹配 …）。
     static let headerHeight: CGFloat = 28
@@ -216,7 +219,7 @@ struct PPSankeyView: View {
             let m = margins(width: geo.size.width)
             let plotSize = CGSize(width: max(1, geo.size.width - m.left - m.right), height: max(1, geo.size.height - Self.headerHeight))
             TimelineView(.animation(minimumInterval: 1.0 / 45, paused: !animating)) { timeline in
-                Canvas(rendersAsynchronously: true) { context, size in
+                Canvas { context, size in
                     let now = timeline.date.timeIntervalSince1970
                     let layout = anim.current(at: now)
                     drawHeader(&context, offsetX: m.left, plotWidth: plotSize.width)
@@ -226,7 +229,6 @@ struct PPSankeyView: View {
                     if anim.progress(at: now) >= 1 { DispatchQueue.main.async { if animating { animating = false } } }
                 }
             }
-            .drawingGroup()
             .onAppear { retarget(size: plotSize, animated: false) }
             .onChange(of: model) { _, _ in retarget(size: plotSize, animated: true) }
             .onChange(of: geo.size) { _, _ in retarget(size: plotSize, animated: false) }

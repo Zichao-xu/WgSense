@@ -30,7 +30,8 @@ struct PPProxiesPage: View {
         } else {
             switch store.tab {
             case .policy: PPGroupList(groups: store.policyGroups)
-            case .node: PPNodeGroupList()
+            // 与策略页共用表格容器（原先的分块 ScrollView 在展开时一次铺开上千张卡片）。
+            case .node: PPGroupList(groups: store.nodeGroups)
             case .provider: PPProviderList()
             case .domain:
                 PPDomainGroupView().padding(.bottom, 20)
@@ -261,27 +262,6 @@ extension PPGroupList {
     }
 }
 
-
-private struct PPNodeGroupList: View {
-    @EnvironmentObject private var store: ProxyPanelStore
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(store.nodeGroupBlocks, id: \.self) { block in
-                    VStack(spacing: 0) {
-                        ForEach(Array(block.enumerated()), id: \.element) { index, name in
-                            if index > 0 { Divider().padding(.horizontal, 16) }
-                            PPGroupCard(name: name, chromeless: true)
-                        }
-                    }
-                    .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
-                }
-            }
-            .padding(.bottom, 20)
-        }
-    }
-}
 
 // MARK: - 策略组卡片（P-G01…P-G16）
 
