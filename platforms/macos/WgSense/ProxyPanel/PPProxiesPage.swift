@@ -98,34 +98,33 @@ private struct PPToolbar: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: 2) {
+        // 与代理页一级页签同一语言：平行四边形咬合，当前项白色弱玻璃。
+        HStack(spacing: -6) {
             ForEach(PPTab.allCases) { tab in
+                let on = store.tab == tab
                 Button { withAnimation(WgDesign.spring) { store.tab = tab } } label: {
-                    HStack(spacing: 4) {
-                        Text(tab.title)
+                    HStack(spacing: 5) {
+                        Text(tab.title).font(.system(size: 12.5, weight: on ? .bold : .semibold))
+                            .foregroundStyle(on ? WgInk.ink : WgInk.ink2)
                         if tab != .domain {
-                            Text("\(store.count(for: tab))")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+                            Text("\(store.count(for: tab))").font(WgInk.mono(10.5)).foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
                         }
                     }
-                    .font(.system(size: 12, weight: store.tab == tab ? .semibold : .regular))
-                    .padding(.horizontal, 11)
-                    .frame(height: 26)
+                    .padding(.leading, 16).padding(.trailing, 20)
+                    .frame(height: 30)
                     .background {
-                        if store.tab == tab {
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill((colorScheme == .dark ? Color.white : Color.black).opacity(0.10))
+                        if on {
+                            Color.clear.wgGlassAccent(SlantShape(slant: 7))
                                 .matchedGeometryEffect(id: "ppTab", in: tabIndicator)
+                        } else {
+                            WgShapePlate(shape: SlantShape(slant: 7), fill: Color.primary.opacity(0.05), border: .clear, highlight: .clear)
                         }
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(3)
-        .wgInteractiveSurface(cornerRadius: 3)
         .fixedSize()
     }
 
@@ -188,6 +187,7 @@ private struct PPToolbar: View {
 private struct PPGroupList: View {
     @EnvironmentObject private var store: ProxyPanelStore
     var groups: [String]
+    @StateObject private var rail = WgScrollRailModel()
 
     var body: some View {
         GeometryReader { geo in
@@ -196,7 +196,7 @@ private struct PPGroupList: View {
             let twoColumns = geo.size.width >= 760 && groups.count > 1 && !anyExpanded
             let items = listItems(twoColumns: twoColumns, width: geo.size.width)
             // AppKit 表格容器（见 PPGroupTable 顶部说明）：按行种类复用，节点行高度直接算出。
-            PPGroupTable(items: items, width: geo.size.width, fixedHeight: { item in
+            PPGroupTable(items: items, rail: rail, width: geo.size.width, fixedHeight: { item in
                 guard case .nodes(_, _, let names, _) = item.kind else { return nil }
                 return (names.map { PPNodeCard.height(for: $0, store: store) }.max() ?? 0) + 8
             }, makeRow: { item in
@@ -208,6 +208,10 @@ private struct PPGroupList: View {
                         .tint(WgInk.control)
                 )
             })
+            // 刻度条放在左侧页边距里（列表本身左侧留有页面内边距）。
+            .overlay(alignment: .leading) {
+                WgScrollRail(model: rail).offset(x: -26).padding(.vertical, 12)
+            }
         }
     }
 }
@@ -397,30 +401,36 @@ struct PPSegmentChrome: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let dark = colorScheme == .dark
-        let border = dark ? Color.white.opacity(0.09) : Color.black.opacity(0.1)
-        let mark = Color.primary.opacity(dark ? 0.45 : 0.5)
+        // 分段拼接的斜切面板：顶段切右上角，底段切左下角，中段只画两侧边；与整卡 WgGlassPanel 外观一致。
+        let border = WgInk.panelBorder(colorScheme)
+        let highlight = Color.white.opacity(colorScheme == .dark ? 0.10 : 0.5)
+        let fill = WgInk.panelFill(colorScheme)
         Canvas { ctx, size in
-            let r = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0)
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(WgInk.panelFill(colorScheme)))
-            var edges = Path()
-            edges.move(to: CGPoint(x: r.minX, y: 0)); edges.addLine(to: CGPoint(x: r.minX, y: size.height))
-            edges.move(to: CGPoint(x: r.maxX, y: 0)); edges.addLine(to: CGPoint(x: r.maxX, y: size.height))
-            if top { edges.move(to: CGPoint(x: 0, y: 0.5)); edges.addLine(to: CGPoint(x: size.width, y: 0.5)) }
-            if bottom { edges.move(to: CGPoint(x: 0, y: size.height - 0.5)); edges.addLine(to: CGPoint(x: size.width, y: size.height - 0.5)) }
-            ctx.stroke(edges, with: .color(border), lineWidth: 1)
-            let l: CGFloat = 6, i: CGFloat = 0.75
-            var marks = Path()
+            let w = size.width, h = size.height, c = WgInk.cutPanel, i: CGFloat = 0.5
+            var outline = Path()
+            outline.move(to: CGPoint(x: i, y: top ? i : 0)); outline.addLine(to: CGPoint(x: i, y: bottom ? h - c : h))
+            outline.move(to: CGPoint(x: w - i, y: top ? c : 0)); outline.addLine(to: CGPoint(x: w - i, y: bottom ? h - i : h))
             if top {
-                marks.move(to: CGPoint(x: i, y: i + l)); marks.addLine(to: CGPoint(x: i, y: i)); marks.addLine(to: CGPoint(x: i + l, y: i))
-                marks.move(to: CGPoint(x: size.width - i - l, y: i)); marks.addLine(to: CGPoint(x: size.width - i, y: i)); marks.addLine(to: CGPoint(x: size.width - i, y: i + l))
+                outline.move(to: CGPoint(x: i, y: i)); outline.addLine(to: CGPoint(x: w - c, y: i)); outline.addLine(to: CGPoint(x: w - i, y: c))
             }
             if bottom {
-                let b = size.height - i
-                marks.move(to: CGPoint(x: i, y: b - l)); marks.addLine(to: CGPoint(x: i, y: b)); marks.addLine(to: CGPoint(x: i + l, y: b))
-                marks.move(to: CGPoint(x: size.width - i - l, y: b)); marks.addLine(to: CGPoint(x: size.width - i, y: b)); marks.addLine(to: CGPoint(x: size.width - i, y: b - l))
+                outline.move(to: CGPoint(x: i, y: h - c)); outline.addLine(to: CGPoint(x: c, y: h - i)); outline.addLine(to: CGPoint(x: w - i, y: h - i))
             }
-            ctx.stroke(marks, with: .color(mark), lineWidth: 1.5)
+            // 填充区域
+            var area = Path()
+            area.move(to: CGPoint(x: 0, y: 0))
+            area.addLine(to: CGPoint(x: top ? w - c : w, y: 0))
+            if top { area.addLine(to: CGPoint(x: w, y: c)) }
+            area.addLine(to: CGPoint(x: w, y: h))
+            area.addLine(to: CGPoint(x: bottom ? c : 0, y: h))
+            if bottom { area.addLine(to: CGPoint(x: 0, y: h - c)) }
+            area.closeSubpath()
+            ctx.fill(area, with: .color(fill))
+            ctx.stroke(outline, with: .color(border), lineWidth: 1)
+            if top {
+                var t = Path(); t.move(to: CGPoint(x: 0, y: 0.5)); t.addLine(to: CGPoint(x: w - c, y: 0.5))
+                ctx.stroke(t, with: .color(highlight), lineWidth: 1)
+            }
         }
         .allowsHitTesting(false)
     }

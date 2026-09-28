@@ -20,7 +20,7 @@ struct ProfileName: Identifiable {
 }
 
     var body: some View {
-        WgPage(title: "配置", subtitle: "WireGuard 隧道配置，当前使用的会标记为「使用中」") {
+        WgPage(title: "配置", subtitle: "WireGuard 隧道配置，当前使用的会标记为「使用中」", word: "PROFILES") {
             HStack(spacing: 8) {
                 Button { showImport = true } label: { Label("导入", systemImage: "square.and.arrow.down") }
                     .buttonStyle(WgPillButtonStyle())

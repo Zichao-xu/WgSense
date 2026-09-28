@@ -11,8 +11,24 @@ import SwiftUI
 // 内容是独立的宿主根：外层环境（EnvironmentObject、locale、tint）不会自动传进来，
 // 调用方在 content 里自行注入。
 
-struct WgScrollView: NSViewRepresentable {
+/// 原生滚动容器 + 左侧刻度条（系统滚动条隐藏）。
+struct WgScrollView: View {
     var content: AnyView
+    @StateObject private var rail = WgScrollRailModel()
+
+    init(content: AnyView) { self.content = content }
+
+    var body: some View {
+        WgNativeScrollView(content: content, rail: rail)
+            .overlay(alignment: .leading) {
+                WgScrollRail(model: rail).padding(.leading, 2).padding(.vertical, 20)
+            }
+    }
+}
+
+struct WgNativeScrollView: NSViewRepresentable {
+    var content: AnyView
+    var rail: WgScrollRailModel
     var contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -20,7 +36,7 @@ struct WgScrollView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = false   // 由左侧刻度条代替
         scroll.autohidesScrollers = true
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = contentInsets
@@ -30,6 +46,7 @@ struct WgScrollView: NSViewRepresentable {
         host.view.translatesAutoresizingMaskIntoConstraints = true
         document.addSubview(host.view)
         context.coordinator.attach(scroll: scroll, document: document)
+        context.coordinator.railLink = rail.link(scroll)
         return scroll
     }
 
@@ -45,6 +62,7 @@ struct WgScrollView: NSViewRepresentable {
         private weak var document: NSView?
         private var observers: [Any] = []
         private var pending = false
+        var railLink: Any?
 
         override init() {
             super.init()
@@ -160,5 +178,92 @@ struct WgScrollHitGate: ViewModifier {
     @ObservedObject private var state = WgScrollState.shared
     func body(content: Content) -> some View {
         content.allowsHitTesting(!state.isScrolling)
+    }
+}
+
+
+// MARK: - 刻度条
+
+/// 刻度条的数据：滚动位置（0–1）、视口占内容的比例、跳转回调。与某个 NSScrollView 绑定。
+@MainActor
+final class WgScrollRailModel: ObservableObject {
+    @Published private(set) var fraction: CGFloat = 0
+    @Published private(set) var scrollable = false
+    private weak var scroll: NSScrollView?
+
+    /// 绑定滚动框：监听剪裁区位置变化更新刻度；返回的观察者令牌需由调用方持有。
+    func link(_ scroll: NSScrollView) -> Any {
+        self.scroll = scroll
+        scroll.contentView.postsBoundsChangedNotifications = true
+        let token = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        DispatchQueue.main.async { [weak self] in self?.refresh() }
+        return token
+    }
+
+    func refresh() {
+        guard let scroll, let doc = scroll.documentView else { return }
+        let maxY = max(0, doc.frame.height - scroll.contentView.bounds.height)
+        let f = maxY > 0 ? min(1, max(0, scroll.contentView.bounds.origin.y / maxY)) : 0
+        if abs(f - fraction) > 0.001 { fraction = f }
+        let can = maxY > 4
+        if can != scrollable { scrollable = can }
+    }
+
+    /// 拖动 / 点击：把 0–1 的位置直接映射成滚动位置。
+    func seek(_ f: CGFloat) {
+        guard let scroll, let doc = scroll.documentView else { return }
+        let maxY = max(0, doc.frame.height - scroll.contentView.bounds.height)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: maxY * min(1, max(0, f))))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+}
+
+/// 左侧刻度条（ChatGPT 式）：一列细刻度，当前位置是加长的白色刻度；光标靠近时附近刻度按距离平滑拉长（吸附放大）；
+/// 按住上下拖动实时滑动页面，单击跳到该处。整列画在一个画布里（避免非矩形区域的逐帧计算）。
+struct WgScrollRail: View {
+    @ObservedObject var model: WgScrollRailModel
+    @State private var hoverY: CGFloat?
+
+    static let spacing: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { ctx, size in
+                let count = max(2, Int(size.height / Self.spacing))
+                let step = size.height / CGFloat(count - 1)
+                let active = Int((model.fraction * CGFloat(count - 1)).rounded())
+                for i in 0..<count {
+                    let y = CGFloat(i) * step
+                    var w: CGFloat = i % 10 == 0 ? 9 : 6
+                    if let hy = hoverY {
+                        let d = abs(y - hy)
+                        w += 18 * exp(-(d * d) / (2 * 20 * 20))
+                    }
+                    let isActive = i == active
+                    if isActive { w = max(w, 22) }
+                    var p = Path()
+                    p.move(to: CGPoint(x: 0, y: y))
+                    p.addLine(to: CGPoint(x: w, y: y))
+                    ctx.stroke(p, with: .color(Color.primary.opacity(isActive ? 1 : (i % 10 == 0 ? 0.42 : 0.24))),
+                               lineWidth: isActive ? 2 : 1)
+                }
+            }
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let p): hoverY = p.y
+                case .ended: hoverY = nil
+                }
+            }
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                hoverY = v.location.y
+                model.seek(v.location.y / max(1, geo.size.height))
+            })
+        }
+        .frame(width: 30)
+        .opacity(model.scrollable ? 1 : 0)
+        .allowsHitTesting(model.scrollable)
     }
 }

@@ -394,14 +394,7 @@ struct WgSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title {
-                HStack(spacing: 8) {
-                    Rectangle().fill(WgInk.ink).frame(width: 7, height: 7)
-                    Text(title)
-                        .font(.system(size: WgInk.sizeSubsection, weight: .semibold))
-                        .foregroundStyle(WgInk.ink)
-                }
-                .padding(.leading, 2)
-                .padding(.top, 6)
+                WgSectionMark(title: title).padding(.top, 10).padding(.bottom, 4)
             }
             VStack(spacing: 0) {
                 content()

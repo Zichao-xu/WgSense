@@ -12,6 +12,7 @@ import SwiftUI
 
 struct PPGroupTable: NSViewRepresentable {
     var items: [PPListItem]
+    var rail: WgScrollRailModel
     var width: CGFloat
     /// 行高的快速路径：能直接算出的行（节点行）返回高度，其余返回 nil 走测量。
     var fixedHeight: (PPListItem) -> CGFloat?
@@ -40,12 +41,13 @@ struct PPGroupTable: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = false   // 由左侧刻度条代替
         scroll.autohidesScrollers = true
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 20, right: 0)
         context.coordinator.table = table
         context.coordinator.scrollObservers = WgScrollActivity.track(scroll)
+        context.coordinator.scrollObservers.append(rail.link(scroll))
         return scroll
     }
 

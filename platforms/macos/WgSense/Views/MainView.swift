@@ -2035,7 +2035,7 @@ struct AboutView: View {
     }
 
     var body: some View {
-        WgPage(title: "关于") {
+        WgPage(title: "关于", word: "ABOUT") {
             VStack(spacing: 10) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
@@ -2158,7 +2158,7 @@ struct TransferReceiveView: View {
     @State private var startingDaemon = false
 
     var body: some View {
-        WgPage(title: "接收", subtitle: "兼容 LocalSend，隧道内的设备可以直接把文件发到这台 Mac") {
+        WgPage(title: "接收", subtitle: "兼容 LocalSend，隧道内的设备可以直接把文件发到这台 Mac", word: "RECEIVE") {
             if let state = client.transferState {
                 HStack(spacing: 8) {
                     if togglingReceive { ProgressView().controlSize(.small) }
@@ -2403,7 +2403,7 @@ struct TransferSendView: View {
     @State private var startingDaemon = false
 
     var body: some View {
-        WgPage(title: "发送", subtitle: "把文件发给隧道内运行 LocalSend 或 WgSense 的设备") {
+        WgPage(title: "发送", subtitle: "把文件发给隧道内运行 LocalSend 或 WgSense 的设备", word: "SEND") {
             HStack(spacing: 2) {
                 if isScanning { ProgressView().controlSize(.small).padding(.trailing, 6) }
                 Button { Task { await refreshDevices() } } label: { Image(systemName: "arrow.clockwise") }

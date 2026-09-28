@@ -386,12 +386,13 @@ struct PPNodeCard: View {
         let levelColor = active ? Color.white : store.level(latency).color
         Canvas { ctx, size in
             let rect = CGRect(origin: .zero, size: size)
-            let shape = Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3)
-            ctx.fill(shape, with: .color(active ? WgInk.signal : Color.primary.opacity(hovering ? 0.075 : 0.035)))
+            // 斜切节点卡（右上 + 左下）；选中 = 白色弱玻璃（半透明白 + 亮边），不再是实色块。
+            let shape = ChamferShape(WgInk.cutControl).path(in: rect.insetBy(dx: 0.5, dy: 0.5))
+            ctx.fill(shape, with: .color(active ? Color.white.opacity(0.17) : Color.primary.opacity(hovering ? 0.075 : 0.035)))
             if flash {
-                ctx.stroke(Path(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: 3), with: .color(WgInk.signal), lineWidth: 2)
-            } else if !active {
-                ctx.stroke(shape, with: .color(Color.primary.opacity(hovering ? 0.14 : 0.07)), lineWidth: 1)
+                ctx.stroke(ChamferShape(WgInk.cutControl).path(in: rect.insetBy(dx: 1, dy: 1)), with: .color(WgInk.ink), lineWidth: 2)
+            } else {
+                ctx.stroke(shape, with: .color(active ? Color.white.opacity(0.4) : Color.primary.opacity(hovering ? 0.14 : 0.07)), lineWidth: 1)
             }
             // 名称
             let nameX = pad + (hasIcon ? 18 : 0)

@@ -36,7 +36,7 @@ struct LogsView: View {
     }
 
     var body: some View {
-        WgPage(title: "日志", subtitle: client.status != nil ? "后台服务实时输出" : "后台服务未运行") {
+        WgPage(title: "日志", subtitle: client.status != nil ? "后台服务实时输出" : "后台服务未运行", word: "LOGS") {
             HStack(spacing: 10) {
                 Toggle("跟随", isOn: $autoScroll)
                     .toggleStyle(.switch)
@@ -159,7 +159,7 @@ struct SettingsView: View {
     private let maintenance = DaemonMaintenanceService()
 
     var body: some View {
-        WgPage(title: "设置") {
+        WgPage(title: "设置", word: "SETTINGS") {
             VStack(alignment: .leading, spacing: 22) {
                 generalSection
                 appearanceSection

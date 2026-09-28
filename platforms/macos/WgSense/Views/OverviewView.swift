@@ -10,7 +10,7 @@ struct OverviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            WgPageHeader(title: "概览", subtitleText: "WGSENSE · STATUS") { EmptyView() }
+            WgPageHeader(title: "概览", subtitleText: "WGSENSE · STATUS", word: "OVERVIEW") { EmptyView() }
 
             hero
 
