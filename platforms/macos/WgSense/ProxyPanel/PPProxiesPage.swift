@@ -172,7 +172,7 @@ private struct PPToolbar: View {
         }
     }
 
-    private var hasExpanded: Bool { targets.contains { store.collapseMap[$0] == true } }
+    private var hasExpanded: Bool { targets.contains { store.isExpanded($0) } }
 
     private func toggleCollapseAll() {
         let expand = !hasExpanded
@@ -191,7 +191,10 @@ private struct PPGroupList: View {
     var body: some View {
         GeometryReader { geo in
             ScrollView {
-                let twoColumns = geo.size.width >= 760 && groups.count > 1
+                // 自动双列只在全部折叠时启用：展开的组要整行宽度平铺节点（每行 5–6 张卡），
+                // 双列下每行只剩 2 张，反而难以点选。
+                let anyExpanded = groups.contains { store.isExpanded($0) }
+                let twoColumns = geo.size.width >= 760 && groups.count > 1 && !anyExpanded
                 Group {
                     if twoColumns {
                         HStack(alignment: .top, spacing: 12) {
@@ -252,7 +255,7 @@ struct PPGroupCard: View {
     @State private var showPenetration = false
 
     private var collapseKey: String { embedded ? "penetration:\(rootGroup ?? ""):level-\(level)" : name }
-    private var expanded: Bool { store.collapseMap[collapseKey] == true }
+    private var expanded: Bool { store.isExpanded(collapseKey, default: !embedded) }
 
     var body: some View {
         if let group = store.proxyMap[name] {
@@ -500,7 +503,7 @@ private struct PPProviderCard: View {
     var provider: MihomoProxyProvider
 
     private var key: String { "provider:" + provider.name }
-    private var expanded: Bool { store.collapseMap[key] == true }
+    private var expanded: Bool { store.isExpanded(key) }
 
     var body: some View {
         let names = provider.proxies.map(\.name)

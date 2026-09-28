@@ -93,8 +93,22 @@ final class ProxyPanelStore: ObservableObject {
         didSet { UserDefaults.standard.set(tab.rawValue, forKey: "pp.tab") }
     }
     @Published var filter = ""
-    @Published var collapseMap: [String: Bool] = PPPersist.dict("collapseGroupMap") {
+    /// 展开状态：true = 展开。没有记录时按默认（策略组/订阅默认展开——打开页面第一眼就能直接点选节点）。
+    @Published var collapseMap: [String: Bool] = ProxyPanelStore.loadCollapseMap() {
         didSet { PPPersist.save(collapseMap, "collapseGroupMap") }
+    }
+
+    func isExpanded(_ key: String, default value: Bool = true) -> Bool { collapseMap[key] ?? value }
+
+    /// 旧版默认全部折叠、只存“展开过的”；改为默认展开时清一次旧记录，否则历史里的折叠会一直压着。
+    private static func loadCollapseMap() -> [String: Bool] {
+        let migrated = "pp.collapseDefaultExpanded"
+        if !UserDefaults.standard.bool(forKey: migrated) {
+            UserDefaults.standard.set(true, forKey: migrated)
+            PPPersist.save([String: Bool](), "collapseGroupMap")
+            return [:]
+        }
+        return PPPersist.dict("collapseGroupMap")
     }
     @Published var hiddenGroupMap: [String: Bool] = PPPersist.dict("hiddenGroupMap") {
         didSet { PPPersist.save(hiddenGroupMap, "hiddenGroupMap") }
