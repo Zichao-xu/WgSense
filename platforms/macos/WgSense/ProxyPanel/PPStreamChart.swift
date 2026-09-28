@@ -5,10 +5,11 @@ import SwiftUI
 // 无极滚动图表（O-G01…O-G05）。
 //
 // 横向：样本按时间戳定位，右边界 = 当前时间 − 延迟，曲线随时间连续左移，线头（记录笔）贴住右缘。
-// 纵向：一台跟随笔头的“镜头”（ChartCamera）。取景只看笔头附近最近 12 秒的数据，
+// 纵向：一台跟随笔头的“镜头”（ChartCamera）。取景只看笔头附近最近几秒的数据，
 //      起伏大就拉远，起伏小就推近放大细节；比例尺只是镜头的读数，跟着镜头走。
+//      （取景 2.5 秒：高峰一来，下沿在 1–2 秒内就离开 0 框住平台。）
 //      更早的曲线不参与取景——被放大后冲出画面的旧尖峰在顶边截平，并标出峰值。
-//      镜头移动有阻尼：扩大快（0.4s，别让新尖峰冲出画面），收小慢（1.5s，平静后缓缓推近）。
+//      镜头移动有阻尼：扩大 0.35s，收小 0.7s，缓动先快后慢。
 //
 // 连续运动交给 Core Animation：纸带平移、曲线随镜头形变、笔头纵向运动都是系统动画，App 逐帧零开销。
 // 只有纵轴读数在镜头移动期间以 20fps 重绘（几条刻度线 + 五个数字）。
@@ -42,8 +43,8 @@ final class ChartCamera {
     private(set) var duration: TimeInterval = 0
     private var initialized = false
 
-    static let expandDuration: TimeInterval = 0.4
-    static let shrinkDuration: TimeInterval = 1.5
+    static let expandDuration: TimeInterval = 0.35
+    static let shrinkDuration: TimeInterval = 0.7
     /// 缓动曲线：先快后慢（与 Core Animation 侧使用同一条贝塞尔）。
     static let timing = (0.22, 1.0, 0.36, 1.0)
 
@@ -126,8 +127,9 @@ struct PPStreamChart: View {
     static let ruler: CGFloat = 16      // 底部时间尺
     /// 纸带比视窗多出的时长：左侧留出渐隐余量。
     static let tail: TimeInterval = 4
-    /// 镜头取景：只盯笔头附近此刻的数据（往回 5 秒）。更早的爬坡、旧尖峰冲出画面被裁掉。
-    static let focus: TimeInterval = 5
+    /// 镜头取景：只盯笔头附近此刻的数据（往回 2.5 秒 ≈ 最近 2–3 个样本；推送是 1Hz，这是反应下限）。
+    /// 更早的爬坡、旧尖峰冲出画面被裁掉。
+    static let focus: TimeInterval = 2.5
 
     init(title: LocalizedStringKey, buffer: PPSampleBuffer, series: [Series], format: @escaping (Double) -> String,
          window: TimeInterval = 60, floor: Double = 1) {
@@ -182,7 +184,7 @@ struct PPStreamChart: View {
         }
     }
 
-    /// 镜头目标取景：笔头往回 5 秒（含即将滑入的最新样本，镜头会提前一点拉远，尖峰不会冲出画面）。
+    /// 镜头目标取景：笔头往回 2.5 秒（含即将滑入的最新样本，镜头会提前一点拉远，尖峰不会冲出画面）。
     /// 上下各留 12% 余量；跨度小于 floor 时以当前值为中心展开 floor。底部不固定在 0。
     private func focusScale(_ samples: [PPSampleBuffer.Sample], now: TimeInterval) -> PPChartScale {
         let edge = now - delay
