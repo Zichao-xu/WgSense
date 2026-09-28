@@ -10,7 +10,7 @@ struct PPOverviewPage: View {
         WgScrollView(content: AnyView(
             PPOverviewContent()
                 .environmentObject(panel)
-                .tint(WgInk.signal)
+                .tint(WgInk.control)
         ))
         .onAppear {
             panel.activate()
@@ -72,16 +72,26 @@ struct PPCard<Accessory: View, Content: View>: View {
     @Environment(\.ppCardIndex) private var index
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            WgSectionMark(index: String(format: "%02d", index), title: title, caption: caption) {
-                HStack(spacing: 2) { accessory() }
+        // 章节卡：白色弱玻璃章节名压在面板上沿（一半在框外）；面板背后叠一层右下错位 8pt 的线框。
+        let shape = ChamferShape(WgInk.cutPanel)
+        ZStack(alignment: .topLeading) {
+            WgShapePlate(shape: shape, fill: .clear, border: Color.primary.opacity(0.2), highlight: .clear)
+                .offset(x: 8, y: 8)
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 16) {
+                content()
             }
-            content()
+            .padding(.horizontal, 24)
+            .padding(.top, 36)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .wgGlassPanel(shape)
+            WgSectionMark(title: title, caption: caption) { accessory() }
+                .padding(.leading, 18).padding(.trailing, 18)
+                .offset(y: -19)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
-        .padding(.bottom, 18)
-        .wgPanel()
+        .padding(.top, 19)
+        .padding(.trailing, 8).padding(.bottom, 8)
     }
 }
 
@@ -98,42 +108,37 @@ private struct PPStatsStrip: View {
 
     var body: some View {
         let s = live.stats
-        HStack(spacing: 0) {
-            metric("下载速度", "DOWN/S", WgFormat.speed(Double(s.downSpeed)))
-            divider
-            metric("上传速度", "UP/S", WgFormat.speed(Double(s.upSpeed)))
-            divider
-            metric("下载", "RX", WgFormat.size(UInt64(max(0, s.downloadTotal))))
-            divider
-            metric("上传", "TX", WgFormat.size(UInt64(max(0, s.uploadTotal))))
-            divider
-            metric("连接", "CONN", "\(s.connections)")
-            divider
-            metric("内存使用", "MEM", s.memory > 0 ? WgFormat.size(UInt64(s.memory)) : "—")
+        // 六个独立的斜切读数格，奇偶错落 10pt；下载、上传是主读数（亮一档 + 顶部短白线）。
+        HStack(alignment: .top, spacing: 6) {
+            metric("下载速度", "DOWN", WgFormat.speed(Double(s.downSpeed)), primary: true, index: 0)
+            metric("上传速度", "UP", WgFormat.speed(Double(s.upSpeed)), primary: true, index: 1)
+            metric("累计下载", "RX", WgFormat.size(UInt64(max(0, s.downloadTotal))), index: 2)
+            metric("累计上传", "TX", WgFormat.size(UInt64(max(0, s.uploadTotal))), index: 3)
+            metric("连接", "CONN", "\(s.connections)", index: 4)
+            metric("内存", "MEM", s.memory > 0 ? WgFormat.size(UInt64(s.memory)) : "—", index: 5)
         }
-        .padding(.vertical, 14)
-        .wgPanel()
+        .padding(.bottom, 10)
     }
 
-    private var divider: some View {
-        Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1, height: 40)
-    }
-
-    /// 读数格：上为中文名 + 等宽代号，下为读数（单位降级）。
-    private func metric(_ title: LocalizedStringKey, _ code: String, _ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(verbatim: code).font(WgInk.mono(9, .semibold)).tracking(1.2).foregroundStyle(WgInk.signal)
-                Text(title).font(.system(size: 11)).foregroundStyle(WgInk.ink3)
+    /// 读数格：上为等宽代号 + 中文名，下为读数（单位降级）。
+    private func metric(_ title: LocalizedStringKey, _ code: String, _ text: String, primary: Bool = false, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Text(verbatim: code).font(WgInk.mono(10, .medium)).tracking(1.4).foregroundStyle(WgInk.ink3)
+                Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(WgInk.ink2)
             }
             .lineLimit(1)
-            // 不用 numericText 过渡：它对每个字形做模糊+位移动画，6 个数字每秒变化等于持续的 CPU 模糊卷积
-            // （实测是概览页的最大开销）。等宽数字直接刷新，位置不跳。
-            WgReadout(text: text, size: 24, weight: .light)
-                .minimumScaleFactor(0.7)
+            // 不用 numericText 过渡：它对每个字形做模糊+位移动画，6 个数字每秒变化等于持续的 CPU 模糊卷积。
+            WgReadout(text: text, size: WgInk.sizeReadout, weight: .light)
+                .minimumScaleFactor(0.6)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 16).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topLeading) {
+            if primary { Rectangle().fill(WgInk.ink.opacity(0.85)).frame(width: 48, height: 2) }
+        }
+        .wgGlassPanel(ChamferShape(WgInk.cutControl + 2), raised: primary)
+        .offset(y: index % 2 == 1 ? 10 : 0)
     }
 }
 
@@ -148,20 +153,20 @@ private struct PPChartsCard: View {
             VStack(spacing: 22) {
                 // 下载、上传分成两条窄图，各自一个镜头：一方冲高不会把另一方压扁。
                 VStack(spacing: 16) {
-                    PPStreamChart(title: "下载", buffer: overview.downSpeed,
+                    PPStreamChart(title: "下载", code: "A1", buffer: overview.downSpeed,
                                   series: [.init(name: "下载", color: WgInk.ink)],
                                   format: { WgFormat.speed($0) }, floor: 512)
                         .frame(height: 128)
-                    PPStreamChart(title: "上传", buffer: overview.upSpeed,
+                    PPStreamChart(title: "上传", code: "A2", buffer: overview.upSpeed,
                                   series: [.init(name: "上传", color: WgInk.ink2)],
                                   format: { WgFormat.speed($0) }, floor: 512)
                         .frame(height: 128)
                 }
                 HStack(spacing: 28) {
-                    PPStreamChart(title: "内存使用", buffer: overview.memory,
+                    PPStreamChart(title: "内存", code: "B1", buffer: overview.memory,
                                   series: [.init(name: "内存使用", color: WgInk.ink2)],
                                   format: { WgFormat.size(UInt64(max(0, $0))) }, floor: 2 * 1024 * 1024)
-                    PPStreamChart(title: "连接", buffer: overview.connectionCount,
+                    PPStreamChart(title: "连接", code: "B2", buffer: overview.connectionCount,
                                   series: [.init(name: "连接", color: WgInk.ink2)],
                                   format: { String(Int($0.rounded())) }, floor: 6)
                 }
@@ -221,8 +226,7 @@ private struct PPNetworkCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(WgInk.field))
-        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
+        .background(Rectangle().fill(WgInk.well))
     }
 
     private func ipRow(_ source: String, _ result: PPIPResult?) -> some View {
@@ -623,7 +627,7 @@ private struct PPHistoryTable: View {
                 .padding(.top, 8)
             }
         }
-        .overlay(Rectangle().strokeBorder(WgInk.rule))
+        .background(Rectangle().fill(WgInk.well))
         .onChange(of: sortOrder) { _, _ in page = 0 }
     }
 

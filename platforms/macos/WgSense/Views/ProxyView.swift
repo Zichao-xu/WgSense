@@ -121,39 +121,39 @@ private struct ProxySectionTabs: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 2) {
+        // 平行四边形页签彼此咬合；当前页 = 白色弱玻璃（位置滑动过渡），其余为淡玻璃。
+        HStack(spacing: -6) {
             ForEach(ProxySection.allCases) { item in
                 Button {
                     withAnimation(WgDesign.spring) { selection = item }
                 } label: {
-                    // 页签 = 编号 + 名称；当前页整块克莱因蓝（位置滑动过渡）。
                     let index = (ProxySection.allCases.firstIndex(of: item) ?? 0) + 1
+                    let on = selection == item
                     HStack(spacing: 7) {
                         Text(verbatim: String(format: "%02d", index))
-                            .font(WgInk.mono(9.5, .medium))
-                            .opacity(selection == item ? 0.75 : 0.5)
+                            .font(WgInk.mono(10, .medium))
+                            .foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
                         Text(item.title)
-                            .font(.system(size: 12.5, weight: selection == item ? .semibold : .regular))
+                            .font(.system(size: 13.5, weight: on ? .bold : .semibold))
+                            .foregroundStyle(on ? WgInk.ink : WgInk.ink2)
                     }
-                    .foregroundStyle(selection == item ? Color.white : WgInk.ink2)
-                    .padding(.horizontal, 12)
-                    .frame(height: 28)
+                    .padding(.leading, 18).padding(.trailing, 22)
+                    .frame(height: 34)
                     .background {
-                        if selection == item {
-                            Rectangle()
-                                .fill(WgInk.signal)
+                        if on {
+                            Color.clear.wgGlassAccent(SlantShape(slant: 8))
                                 .matchedGeometryEffect(id: "tab", in: indicator)
+                        } else {
+                            WgShapePlate(shape: SlantShape(slant: 8), fill: Color.primary.opacity(0.05), border: .clear, highlight: .clear)
                         }
                     }
-                    .contentShape(Rectangle())
+                    .contentShape(Rectangle())   // 点击区域用矩形（见 WgInteractiveSurface 的说明）
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(item.title))
                 .accessibilityHint("切换代理页面")
             }
         }
-        .padding(2)
-        .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1))
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, WgTheme.pagePadding)
@@ -168,17 +168,25 @@ private struct ProxyPageHeader: View {
 
     var body: some View {
         WgPageHeader(title: "代理",
-                     subtitleText: client.proxyAddress.isEmpty ? "MIHOMO" : "MIHOMO · \(client.proxyAddress)") {
-            HStack(spacing: 7) {
-                WgStatusDot(color: WgInk.signal, isOn: client.proxyRunning)
-                statusLabel
-                    .font(WgInk.mono(10.5, .medium))
-                    .foregroundStyle(WgInk.ink2)
-                    .lineLimit(1)
+                     subtitleText: client.proxyAddress.isEmpty ? "MIHOMO" : "MIHOMO · \(client.proxyAddress)",
+                     word: "PROXY") {
+            // 节点信息块：左上斜切的黑色弱玻璃，等宽两列。
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
+                GridRow {
+                    Text(verbatim: "CORE").font(WgInk.mono(10)).tracking(1).foregroundStyle(WgInk.ink3)
+                    Text(verbatim: client.mihomoVersion?.version ?? "—").font(WgInk.mono(10.5, .medium)).foregroundStyle(WgInk.ink)
+                }
+                GridRow {
+                    Text(verbatim: "STATE").font(WgInk.mono(10)).tracking(1).foregroundStyle(WgInk.ink3)
+                    HStack(spacing: 5) {
+                        Rectangle().fill(client.proxyRunning ? WgInk.ink : WgInk.ink4).frame(width: 6, height: 6)
+                        statusLabel.font(WgInk.mono(10.5, .medium)).foregroundStyle(WgInk.ink)
+                    }
+                }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
+            .lineLimit(1)
+            .padding(.leading, 18).padding(.trailing, 14).padding(.vertical, 9)
+            .wgGlassPanel(ChamferShape(tl: 12))
 
             Button {
                 Task { await client.fetchProxyStatus() }
@@ -196,11 +204,7 @@ private struct ProxyPageHeader: View {
     @ViewBuilder
     private var statusLabel: some View {
         if client.proxyRunning {
-            if let version = client.mihomoVersion?.version {
-                Text(version)
-            } else {
-                Text("已连接")
-            }
+            Text(verbatim: "LINKED")
         } else if client.proxyServiceRunning {
             Text("控制器未连接")
         } else {

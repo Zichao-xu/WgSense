@@ -205,7 +205,7 @@ private struct PPGroupList: View {
                         .padding(.top, item.topInset)
                         .padding(.bottom, item.bottomInset)
                         .environmentObject(store)
-                        .tint(WgInk.signal)
+                        .tint(WgInk.control)
                 )
             })
         }
@@ -342,7 +342,7 @@ struct PPGroupCard: View {
                             .padding(.trailing, store.proxyGroupIconMargin - 6)
                     }
                     Text(verbatim: name)
-                        .font(.system(size: embedded ? 13 : 14, weight: .semibold))
+                        .font(.system(size: embedded ? 14 : 17, weight: .semibold))
                         .lineLimit(1)
                     if !embedded {
                         Button("域名穿透") { showPenetration = true }
@@ -402,7 +402,7 @@ struct PPSegmentChrome: View {
         let mark = Color.primary.opacity(dark ? 0.45 : 0.5)
         Canvas { ctx, size in
             let r = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0)
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(dark ? Color.white.opacity(0.028) : Color.white.opacity(0.6)))
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(WgInk.panelFill(colorScheme)))
             var edges = Path()
             edges.move(to: CGPoint(x: r.minX, y: 0)); edges.addLine(to: CGPoint(x: r.minX, y: size.height))
             edges.move(to: CGPoint(x: r.maxX, y: 0)); edges.addLine(to: CGPoint(x: r.maxX, y: size.height))

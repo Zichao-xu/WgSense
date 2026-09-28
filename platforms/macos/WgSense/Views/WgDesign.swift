@@ -37,14 +37,18 @@ struct WgCircleBadge: View {
         let shape = RoundedRectangle(cornerRadius: 2, style: .continuous)
         ZStack {
             if isOn {
-                shape.fill(onAccent ? Color.white : color)
+                if color == WgInk.warn || color == WgInk.alert {
+                    shape.fill(color)
+                } else {
+                    Color.clear.wgGlassAccent(shape)
+                }
             } else {
                 shape.fill(offFill)
-                shape.strokeBorder(Color.primary.opacity(0.16), lineWidth: 1)
+                shape.strokeBorder(Color.primary.opacity(0.28), lineWidth: 1)
             }
             Image(systemName: symbol)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(isOn ? (onAccent ? WgInk.signal : Color(nsColor: .windowBackgroundColor)) : Color.primary.opacity(0.7))
+                .font(.system(size: size * 0.46, weight: .semibold))
+                .foregroundStyle(isOn ? WgInk.ink : Color.primary.opacity(0.8))
                 .contentTransition(.symbolEffect(.replace))
             if isBusy {
                 shape
@@ -62,7 +66,7 @@ struct WgCircleBadge: View {
     }
 
     private var offFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03)
+        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)
     }
 }
 
@@ -117,34 +121,29 @@ struct WgInteractiveSurface: ViewModifier {
     @State private var hovering = false
     @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: min(cornerRadius, 3), style: .continuous)
+        // 磁贴 / 卡片：斜切（右上 + 左下）黑色弱玻璃；选中 = 白色弱玻璃；悬停抬亮一档。
+        let shape = ChamferShape(cornerRadius >= 10 ? WgInk.cutPanel : WgInk.cutTile)
         let hot = hovering && action != nil && isEnabled
-        let dark = colorScheme == .dark
-        content
-            // 选中 = 整块克莱因蓝实底，内容按深色外观反白。这是全局唯一的“大面积颜色”，
-            // 所以当前所在的位置永远一眼可辨。
-            .environment(\.colorScheme, isSelected ? .dark : colorScheme)
+        return content
             .environment(\.wgOnAccent, isSelected)
-            .background {
-                ZStack {
-                    if isSelected {
-                        shape.fill(WgInk.signal)
-                    } else {
-                        shape.fill(dark ? Color.white.opacity(hot ? 0.06 : 0.028) : Color.white.opacity(hot ? 0.8 : 0.6))
-                        shape.strokeBorder(dark ? Color.white.opacity(hot ? 0.2 : 0.09) : Color.black.opacity(hot ? 0.2 : 0.1), lineWidth: 1)
-                        WgCornerMarks(length: 6)
-                            .stroke(Color.primary.opacity(hot ? 0.8 : (dark ? 0.45 : 0.5)), lineWidth: 1.5)
-                            .padding(0.75)
-                    }
-                }
-                .allowsHitTesting(false)
-            }
-            .clipShape(shape)
-            .contentShape(shape)
+            .modifier(SurfaceFill(shape: shape, selected: isSelected, raised: hot))
+            // 斜切只画在背景（填充 + 描边）上，不用作遮罩/裁剪/点击区域：非矩形的裁剪与点击区域
+            // 会让窗口在滚动的每一帧重新计算区域，实测是滚动掉帧 5% → 55% 的来源。溢出内容用矩形裁剪。
+            .clipped()
+            .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .onTapGesture { if isEnabled { action?() } }
             .animation(.easeOut(duration: 0.12), value: hovering)
             .animation(.easeOut(duration: 0.18), value: isSelected)
+    }
+
+    private struct SurfaceFill: ViewModifier {
+        var shape: ChamferShape
+        var selected: Bool
+        var raised: Bool
+        func body(content: Content) -> some View {
+            if selected { content.wgGlassAccent(shape) } else { content.wgGlassPanel(shape, raised: raised) }
+        }
     }
 }
 
@@ -180,30 +179,34 @@ struct WgActionButtonStyle: ButtonStyle {
         @Environment(\.wgOnAccent) private var onAccent
 
         var body: some View {
-            configuration.label
-                .foregroundStyle(isActive ? (onAccent ? WgInk.signal : Color.white) : Color.primary.opacity(0.78))
+            // 斜切按钮：未激活 = 淡玻璃；激活 = 白色弱玻璃。异常（暂停 / 停止）只给图标着色。
+            let shape = ChamferShape(WgInk.cutControl)
+            let normalized = WgInk.normalize(tint)
+            let semantic = normalized == WgInk.warn || normalized == WgInk.alert
+            return configuration.label
+                .foregroundStyle(isActive ? (semantic ? normalized : WgInk.ink) : Color.primary.opacity(0.78))
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(fill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .strokeBorder(isActive ? .clear : Color.primary.opacity(hovering ? 0.22 : 0.1), lineWidth: 1)
-                )
+                .modifier(ButtonFill(shape: shape, active: isActive, hovering: hovering))
                 .opacity(isEnabled ? 1 : 0.4)
                 .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .contentShape(Rectangle())
                 .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
                 .animation(.easeOut(duration: 0.12), value: hovering)
         }
+    }
 
-        private var fill: Color {
-            if isActive { return onAccent ? Color.white : WgInk.normalize(tint) }
-            let base = colorScheme == .dark ? Color.white : Color.black
-            return base.opacity(hovering ? 0.10 : 0.055)
+    private struct ButtonFill: ViewModifier {
+        var shape: ChamferShape
+        var active: Bool
+        var hovering: Bool
+        func body(content: Content) -> some View {
+            if active {
+                content.wgGlassAccent(shape)
+            } else {
+                content.background(WgShapePlate(shape: shape, fill: Color.primary.opacity(hovering ? 0.11 : 0.065), border: .clear, highlight: .clear))
+            }
         }
     }
 }
@@ -226,20 +229,30 @@ struct WgCapsuleButtonStyle: ButtonStyle {
         @Environment(\.colorScheme) private var colorScheme
 
         var body: some View {
-            configuration.label
+            // 主操作：斜切白色弱玻璃（prominent）或淡玻璃；异常色（红/琥珀）只给文字。
+            let shape = ChamferShape(WgInk.cutControl)
+            let normalized = WgInk.normalize(tint)
+            let semantic = normalized == WgInk.warn || normalized == WgInk.alert
+            return configuration.label
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(prominent ? Color.white : tint)
+                .foregroundStyle(semantic ? normalized : WgInk.ink)
                 .padding(.horizontal, 18)
                 .frame(height: 32)
-                .background(
-                    RoundedRectangle(cornerRadius: 2, style: .continuous).fill(prominent ? AnyShapeStyle(WgInk.normalize(tint)) : AnyShapeStyle(WgInk.normalize(tint).opacity(colorScheme == .dark ? 0.18 : 0.12)))
-                )
-                .brightness(hovering && isEnabled ? 0.04 : 0)
+                .modifier(CapsuleFill(shape: shape, prominent: prominent, hovering: hovering))
                 .opacity(isEnabled ? 1 : 0.45)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                .contentShape(Rectangle())
                 .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+
+    private struct CapsuleFill: ViewModifier {
+        var shape: ChamferShape
+        var prominent: Bool
+        var hovering: Bool
+        func body(content: Content) -> some View {
+            if prominent { content.wgGlassAccent(shape) } else { content.background(WgShapePlate(shape: shape, fill: Color.primary.opacity(hovering ? 0.11 : 0.065), border: .clear, highlight: .clear)) }
         }
     }
 }
@@ -309,13 +322,14 @@ enum WgFormat {
 struct WgPage<Accessory: View, Content: View>: View {
     var title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
+    var word: String? = nil
     var maxWidth: CGFloat = 820
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            WgPageHeader(title: title, subtitle: subtitle, accessory: accessory)
+            WgPageHeader(title: title, subtitle: subtitle, word: word, accessory: accessory)
             content()
         }
         .frame(maxWidth: maxWidth, alignment: .topLeading)
@@ -324,9 +338,9 @@ struct WgPage<Accessory: View, Content: View>: View {
 }
 
 extension WgPage where Accessory == EmptyView {
-    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, maxWidth: CGFloat = 820,
+    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, word: String? = nil, maxWidth: CGFloat = 820,
          @ViewBuilder content: @escaping () -> Content) {
-        self.init(title: title, subtitle: subtitle, maxWidth: maxWidth, accessory: { EmptyView() }, content: content)
+        self.init(title: title, subtitle: subtitle, word: word, maxWidth: maxWidth, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -335,25 +349,36 @@ struct WgPageHeader<Accessory: View>: View {
     var title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
     var subtitleText: String? = nil
+    /// 标题背后放大淡出的英文词（如 PROXY / SETTINGS）：只做辨识度。
+    var word: String? = nil
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .lastTextBaseline, spacing: 12) {
-                WgSignalMark(size: 10).alignmentGuide(.lastTextBaseline) { $0[.bottom] + 4 }
-                Text(title)
-                    .font(.system(size: 30, weight: .semibold))
-                    .tracking(0.5)
-                Group {
-                    if let subtitle { Text(subtitle) } else if let subtitleText { Text(verbatim: subtitleText) }
-                }
-                .font(WgInk.mono(11))
-                .foregroundStyle(WgInk.ink3)
-                .lineLimit(1)
-                Spacer(minLength: 12)
-                accessory()
+        HStack(alignment: .lastTextBaseline, spacing: 16) {
+            Text(title)
+                .font(.system(size: WgInk.sizePage, weight: .heavy))
+                .tracking(1)
+            Group {
+                if let subtitle { Text(subtitle) } else if let subtitleText { Text(verbatim: subtitleText) }
             }
-            WgRuler()
+            .font(WgInk.mono(11))
+            .tracking(1.2)
+            .foregroundStyle(WgInk.ink3)
+            .lineLimit(1)
+            Spacer(minLength: 12)
+            accessory()
+        }
+        .background(alignment: .topLeading) {
+            if let word {
+                Text(verbatim: word)
+                    .font(.system(size: 118, weight: .black))
+                    .tracking(-1)
+                    .foregroundStyle(Color.primary.opacity(0.055))
+                    .fixedSize()
+                    .offset(x: -6, y: -44)
+                    .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .leading, endPoint: .trailing))
+                    .allowsHitTesting(false)
+            }
         }
     }
 }
@@ -369,13 +394,14 @@ struct WgSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title {
-                HStack(spacing: 6) {
-                    Rectangle().fill(WgInk.ink).frame(width: 5, height: 5)
+                HStack(spacing: 8) {
+                    Rectangle().fill(WgInk.ink).frame(width: 7, height: 7)
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(WgInk.ink2)
+                        .font(.system(size: WgInk.sizeSubsection, weight: .semibold))
+                        .foregroundStyle(WgInk.ink)
                 }
                 .padding(.leading, 2)
+                .padding(.top, 6)
             }
             VStack(spacing: 0) {
                 content()

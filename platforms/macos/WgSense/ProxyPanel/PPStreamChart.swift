@@ -23,13 +23,17 @@ struct PPChartScale: Hashable {
     func unit(_ v: Double) -> Double { (v - lo) / max(1e-9, hi - lo) }
     var span: Double { hi - lo }
 
-    /// 四等分刻度：(数值, 归一化高度)。
+    /// 三条刻度（底、中、顶）：够读数，又不把图表区画成格子纸。
     func ticks() -> [(value: Double, unit: Double)] {
-        (0...4).map { i in (lo + Double(i) / 4 * span, Double(i) / 4) }
+        (0...2).map { i in (lo + Double(i) / 2 * span, Double(i) / 2) }
     }
 
-    /// 读数用：上下沿按 1024 进位的显示单位保留两位有效数字（小幅变化时读数不变，不必每秒闪一次）。
-    var rounded: PPChartScale { PPChartScale(lo: Self.round2(lo), hi: Self.round2(hi)) }
+    /// 读数用：按跨度的 1/20 取整（小幅变化时读数不变，不必每秒闪一次；也不会把 155–160 MB 全取成 160）。
+    var rounded: PPChartScale {
+        guard span > 0 else { return self }
+        let q = pow(10, Foundation.floor(log10(span / 20)))
+        return PPChartScale(lo: (lo / q).rounded() * q, hi: (hi / q).rounded() * q)
+    }
 
     static func round2(_ v: Double) -> Double {
         guard v > 0 else { return 0 }
@@ -101,6 +105,8 @@ struct PPStreamChart: View {
     }
 
     let title: LocalizedStringKey
+    /// 图表代号（A1 / A2 …），显示在白色细框标签里。
+    var code: String = ""
     @ObservedObject var buffer: PPSampleBuffer
     let series: [Series]
     let format: (Double) -> String
@@ -123,9 +129,10 @@ struct PPStreamChart: View {
     /// 更早的爬坡、旧尖峰冲出画面被裁掉。
     static let focus: TimeInterval = 2.5
 
-    init(title: LocalizedStringKey, buffer: PPSampleBuffer, series: [Series], format: @escaping (Double) -> String,
+    init(title: LocalizedStringKey, code: String = "", buffer: PPSampleBuffer, series: [Series], format: @escaping (Double) -> String,
          window: TimeInterval = 60, floor: Double = 1) {
         self.title = title
+        self.code = code
         self.buffer = buffer
         self.series = series
         self.format = format
@@ -206,7 +213,7 @@ struct PPStreamChart: View {
 
     private func header(values: [Double]) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(WgInk.ink)
+            WgTagBox(code: code, title: title)
             ForEach(Array(series.enumerated()), id: \.offset) { index, s in
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Path { p in p.move(to: CGPoint(x: 0, y: 1)); p.addLine(to: CGPoint(x: 12, y: 1)) }
@@ -216,7 +223,7 @@ struct PPStreamChart: View {
                     if series.count > 1 {
                         Text(s.name).font(.system(size: 11)).foregroundStyle(WgInk.ink3)
                     }
-                    WgReadout(text: values[safe: index].map(format) ?? "—", size: 12.5, weight: .medium)
+                    WgReadout(text: values[safe: index].map(format) ?? "—", size: WgInk.sizeSubsection, weight: .regular)
                 }
             }
             Spacer()
@@ -302,7 +309,8 @@ private struct PPChartAxis: View, Equatable {
                 var line = Path()
                 line.move(to: CGPoint(x: plot.minX, y: y))
                 line.addLine(to: CGPoint(x: plot.maxX, y: y))
-                context.stroke(line, with: .color(tick.unit == 0 ? Color.primary.opacity(0.2) : rule), lineWidth: tick.unit == 0 ? 1 : 0.5)
+                context.stroke(line, with: .color(tick.unit == 0 ? Color.primary.opacity(0.3) : Color.primary.opacity(0.14)),
+                               style: StrokeStyle(lineWidth: 1, dash: tick.unit == 0 ? [] : [1, 4]))
                 // 左端短刻度，像直尺的刻痕。
                 var mark = Path()
                 mark.move(to: CGPoint(x: plot.minX - 4, y: y))
@@ -524,6 +532,20 @@ final class TapeView: NSView {
         return NSColor(patternImage: tile).cgColor
     }
 
+    /// 点阵图案：14pt 方块里散布几粒小点（固定伪随机，拼接无缝），颜色按当前外观解析。
+    private func stippleColor(_ color: NSColor) -> CGColor {
+        let tile = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { [weak self] _ in
+            guard let self else { return false }
+            var c = color
+            self.effectiveAppearance.performAsCurrentDrawingAppearance { c = (color.usingColorSpace(.sRGB) ?? color).withAlphaComponent(0.42) }
+            c.setFill()
+            let dots: [(CGFloat, CGFloat)] = [(1.5, 2), (8, 1), (4.5, 6), (11.5, 5.5), (2, 10.5), (7.5, 9), (12, 12), (5, 13)]
+            for (x, y) in dots { NSBezierPath(ovalIn: NSRect(x: x - 0.8, y: y - 0.8, width: 1.6, height: 1.6)).fill() }
+            return true
+        }
+        return NSColor(patternImage: tile).cgColor
+    }
+
     /// 曲线路径：按“此刻镜头”画出起点形状，按“镜头目标”画出终点形状，
     /// 镜头仍在移动时从起点形变到终点（剩余时长 + 同一条缓动），镜头的推拉就是曲线的伸缩。
     /// 超出取景的部分交给裁剪层截掉。
@@ -566,7 +588,9 @@ final class TapeView: NSView {
         for (i, style) in input.series.enumerated() {
             let stroke = strokes[i], fill = fills[i], mask = fillMasks[i]
             stroke.strokeColor = resolved(style.color)
+            // 原版画法：实线曲线 + 斜线剖面填充（对照点阵版保留在 stippleColor）。
             stroke.lineWidth = style.fill ? 1.5 : 1.2
+            stroke.lineCap = .round
             stroke.lineDashPattern = style.dashed ? [3, 2.5] : nil
             pens[i].fillColor = resolved(style.color)
             pens[i].strokeColor = background
@@ -589,39 +613,32 @@ final class TapeView: NSView {
     private func buildMarkers(_ input: Input, visible: [PPSampleBuffer.Sample], start: TimeInterval, pps: CGFloat, target: PPChartScale) {
         markers.sublayers?.forEach { $0.removeFromSuperlayer() }
         let scale = window?.backingScaleFactor ?? 2
+        // 只标整张图里最高的一个超量程峰：满屏标记是噪声。
+        var best: (time: TimeInterval, value: Double, color: NSColor)?
         for (i, style) in input.series.enumerated() where style.fill {
-            var runPeak: (time: TimeInterval, value: Double)?
-            func flush() {
-                guard let peak = runPeak else { return }
-                runPeak = nil
-                let x = CGFloat(peak.time - start) * pps
-                let tri = CAShapeLayer()
-                let path = CGMutablePath()
-                path.move(to: CGPoint(x: x - 3.5, y: 6)); path.addLine(to: CGPoint(x: x + 3.5, y: 6)); path.addLine(to: CGPoint(x: x, y: 1))
-                path.closeSubpath()
-                tri.path = path
-                tri.fillColor = resolved(style.color)
-                markers.addSublayer(tri)
-                let text = CATextLayer()
-                text.string = input.format(peak.value)
-                text.font = NSFont.monospacedSystemFont(ofSize: 8.5, weight: .medium)
-                text.fontSize = 8.5
-                text.foregroundColor = resolved(NSColor.labelColor, alpha: 0.55)
-                text.contentsScale = scale
-                text.alignmentMode = .left
-                text.frame = CGRect(x: x + 6, y: 0, width: 90, height: 12)
-                markers.addSublayer(text)
-            }
             for sample in visible {
                 let v = sample.values[safe: i] ?? 0
-                if v > target.hi {
-                    if runPeak == nil || v > runPeak!.value { runPeak = (sample.time, v) }
-                } else {
-                    flush()
-                }
+                if v > target.hi, v > (best?.value ?? -1) { best = (sample.time, v, style.color) }
             }
-            flush()
         }
+        guard let peak = best else { return }
+        let x = CGFloat(peak.time - start) * pps
+        let tri = CAShapeLayer()
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: x - 4, y: 7)); path.addLine(to: CGPoint(x: x + 4, y: 7)); path.addLine(to: CGPoint(x: x, y: 1))
+        path.closeSubpath()
+        tri.path = path
+        tri.fillColor = resolved(peak.color)
+        markers.addSublayer(tri)
+        let text = CATextLayer()
+        text.string = "PEAK " + input.format(peak.value)
+        text.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .medium)
+        text.fontSize = 9
+        text.foregroundColor = resolved(NSColor.labelColor, alpha: 0.7)
+        text.contentsScale = scale
+        text.alignmentMode = .left
+        text.frame = CGRect(x: x + 7, y: 0, width: 140, height: 13)
+        markers.addSublayer(text)
     }
 
     /// 记录笔：右缘时刻 te = t − delay 处的插值值，按每个关键帧时刻的镜头取景换算高度，

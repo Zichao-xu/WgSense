@@ -140,7 +140,7 @@ struct WgSenseApp: App {
             MainView()
                 .environmentObject(client)
                 // 仪表语言：全局强调色 = 克莱因蓝（开关、选中、焦点环统一）。
-                .tint(WgInk.signal)
+                .tint(WgInk.control)
                 .frame(minWidth: 720, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity)
                 .alert("操作失败", isPresented: Binding(
                     get: { client.alertMsg != nil },
@@ -158,7 +158,7 @@ struct WgSenseApp: App {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(client)
-                .tint(WgInk.signal)
+                .tint(WgInk.control)
         } label: {
             // 用 Label 渲染：图标 + 隐藏文字（辅助功能可读）
             Label("WgSense", systemImage: menuBarIcon)

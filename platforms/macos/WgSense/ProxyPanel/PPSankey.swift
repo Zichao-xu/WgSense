@@ -201,8 +201,8 @@ struct PPSankeyView: View, Equatable {
         func widest(_ layer: Int) -> CGFloat {
             model.nodes.filter { $0.layer == layer }.map { Self.textWidth(truncate($0.name, limit: labelLimit)) }.max() ?? 0
         }
-        let left = min(max(widest(0) + 10, 60), width * 0.2)
-        let right = min(max(widest(3) + 10, 80), width * 0.28)
+        let left = min(max(widest(0) + 22, 70), width * 0.2)
+        let right = min(max(widest(3) + 40, 96), width * 0.3)   // 出口标签块：左距 10 + 内边距 16 + 余量
         return (left, right)
     }
 
@@ -285,49 +285,84 @@ struct PPSankeyView: View, Equatable {
 
     /// 列标题：字母编号 + 名称，下方一条发丝线与节点列对齐的刻痕，像图纸的分区标注。
     private func drawHeader(_ context: inout GraphicsContext, offsetX dx: CGFloat, plotWidth: CGFloat) {
+        // 列头：等宽「A · 源IP地址」… 对齐到各列节点。
         let usable = plotWidth - PPSankeyLayout.nodeWidth
-        let baseY = Self.headerHeight - 8
-        var rule = Path()
-        rule.move(to: CGPoint(x: 0, y: baseY))
-        rule.addLine(to: CGPoint(x: dx + plotWidth + 200, y: baseY))
-        context.stroke(rule, with: .color(Color.primary.opacity(0.08)), lineWidth: 1)
+        let baseY = Self.headerHeight - 10
         for i in 0..<4 {
             let x = dx + CGFloat(i) * usable / 3 + PPSankeyLayout.nodeWidth / 2
-            var tick = Path()
-            tick.move(to: CGPoint(x: x, y: baseY - 3))
-            tick.addLine(to: CGPoint(x: x, y: baseY + 3))
-            context.stroke(tick, with: .color(Color.primary.opacity(0.35)), lineWidth: 1)
-            let label = Text(verbatim: Self.layerMarks[i]).font(WgInk.mono(9.5, .semibold)).foregroundStyle(Color.primary.opacity(0.55))
-                + Text(verbatim: "  " + PPSankeyModel.layerTitles[i]).font(.system(size: 10.5)).foregroundStyle(Color.primary.opacity(0.5))
-            let anchor: UnitPoint = i == 0 ? .bottomTrailing : .bottomLeading
-            context.draw(label, at: CGPoint(x: i == 0 ? x + 4 : x - 4, y: baseY - 5), anchor: anchor)
+            let label = Text(verbatim: "\(Self.layerMarks[i]) · \(PPSankeyModel.layerTitles[i])")
+                .font(WgInk.mono(10, .medium)).foregroundStyle(Color.primary.opacity(0.45))
+            context.draw(label, at: CGPoint(x: i == 0 ? x + 4 : x - 4, y: baseY), anchor: i == 0 ? .trailing : .leading)
         }
     }
 
+    /// 稳定的伪随机（按字符串 + 序号），让同一条轨迹每次重画的弯曲一致。
+    private static func jitter(_ key: String, _ k: Int) -> CGFloat {
+        var h: UInt64 = 1469598103934665603
+        for b in key.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
+        h = (h ^ UInt64(k + 1)) &* 1099511628211
+        return CGFloat(h % 1000) / 1000 - 0.5
+    }
+
+    /// 粒子轨迹：每条连接画成若干根虚点曲线（连接越多越密），节点是实心点 + 淡竖线表示体量，
+    /// 出口节点用细框标签块。悬停追踪的整条路径变亮白、变粗，其余压暗。
     private func draw(_ context: inout GraphicsContext, layout: PPSankeyLayout, offsetX dx: CGFloat, columnGap: CGFloat) {
-        // 中间两列的标签画在节点右侧，最大宽度 = 列距 − 节点宽 − 留白，超出按字符截断。
-        let middleMax = max(40, columnGap - PPSankeyLayout.nodeWidth - 14)
+        let middleMax = max(40, columnGap - PPSankeyLayout.nodeWidth - 18)
+        let dotted = StrokeStyle(lineWidth: 1.25, lineCap: .round, dash: [0.1, 3])
+        let dottedHot = StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [0.1, 2.6])
         for ribbon in layout.ribbons.values.sorted(by: { $0.link.key < $1.link.key }) {
-            // 单色：流带是淡墨；悬停时只有被追踪的路径转为克莱因蓝，其余退到几乎不可见。
             let active = focus.map { $0.contains(ribbon.link.key) } ?? true
-            let color: Color = focus == nil ? Color.primary.opacity(0.13) : (active ? WgInk.signal.opacity(0.45) : Color.primary.opacity(0.03))
-            context.fill(ribbonPath(ribbon, dx: dx), with: .color(color))
+            let strands = min(6, max(1, Int((Double(ribbon.link.count)).squareRoot().rounded(.up))))
+            let opacity: Double = focus == nil ? 0.42 : (active ? 0.95 : 0.07)
+            for k in 0..<strands {
+                let f = (CGFloat(k) + 0.5) / CGFloat(strands)
+                let y0 = ribbon.y0.lowerBound + (ribbon.y0.upperBound - ribbon.y0.lowerBound) * f
+                let y1 = ribbon.y1.lowerBound + (ribbon.y1.upperBound - ribbon.y1.lowerBound) * f
+                let x0 = ribbon.x0 + dx - PPSankeyLayout.nodeWidth / 2, x1 = ribbon.x1 + dx + PPSankeyLayout.nodeWidth / 2
+                let span = x1 - x0
+                let j = Self.jitter(ribbon.link.key, k) * span * 0.25
+                var p = Path()
+                p.move(to: CGPoint(x: x0, y: y0))
+                p.addCurve(to: CGPoint(x: x1, y: y1),
+                           control1: CGPoint(x: x0 + span * 0.5 + j, y: y0),
+                           control2: CGPoint(x: x0 + span * 0.5 - j, y: y1))
+                context.stroke(p, with: .color(Color.primary.opacity(opacity)), style: focus != nil && active ? dottedHot : dotted)
+            }
         }
         for box in layout.nodes.values {
             let active = focus.map { $0.contains(box.node.key) } ?? true
+            let hot = focus != nil && active
             let rect = box.rect.offsetBy(dx: dx, dy: 0)
-            let color: Color = focus != nil && active ? WgInk.signal : Color.primary.opacity(active ? 0.78 : 0.18)
-            context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
-            guard rect.height >= 7 else { continue }
+            let cx = rect.midX
+            // 体量竖线
+            var bar = Path()
+            bar.move(to: CGPoint(x: cx, y: rect.minY)); bar.addLine(to: CGPoint(x: cx, y: rect.maxY))
+            context.stroke(bar, with: .color(Color.primary.opacity(active ? 0.28 : 0.08)), lineWidth: 1)
+            let r: CGFloat = hot ? 4.5 : 3.5
+            context.fill(Path(ellipseIn: CGRect(x: cx - r, y: rect.midY - r, width: r * 2, height: r * 2)),
+                         with: .color(Color.primary.opacity(active ? 1 : 0.25)))
             var name = truncate(box.node.name, limit: labelLimit)
             if box.node.layer == 1 || box.node.layer == 2 {
                 while name.count > 2 && Self.textWidth(name) > middleMax { name = String(name.dropLast(2)) + "…" }
             }
-            let text = Text(verbatim: name).font(.system(size: 11)).foregroundStyle(active ? Color.primary.opacity(0.86) : Color.primary.opacity(0.25))
-            if box.node.layer == 0 {
-                context.draw(text, at: CGPoint(x: rect.minX - 6, y: rect.midY), anchor: .trailing)
-            } else {
-                context.draw(text, at: CGPoint(x: rect.maxX + 6, y: rect.midY), anchor: .leading)
+            switch box.node.layer {
+            case 0:
+                context.draw(Text(verbatim: name).font(WgInk.mono(10.5)).foregroundStyle(Color.primary.opacity(active ? 0.8 : 0.25)),
+                             at: CGPoint(x: cx - 10, y: rect.midY), anchor: .trailing)
+            case 3:
+                // 出口：细框标签块；被追踪时为白色弱玻璃。
+                let resolved = context.resolve(Text(verbatim: name).font(.system(size: 11.5, weight: hot ? .bold : .medium))
+                    .foregroundStyle(Color.primary.opacity(active ? 0.95 : 0.3)))
+                let size = resolved.measure(in: CGSize(width: 400, height: 40))
+                let chip = CGRect(x: cx + 10, y: rect.midY - 10, width: size.width + 16, height: 20)
+                let chipPath = Path(chip)
+                context.fill(chipPath, with: .color(hot ? Color.white.opacity(0.18) : Color.black.opacity(0.35)))
+                context.stroke(chipPath, with: .color(Color.primary.opacity(hot ? 0.8 : (active ? 0.45 : 0.15))), lineWidth: 1)
+                if hot { context.stroke(Path(chip.offsetBy(dx: 3, dy: 3)), with: .color(Color.primary.opacity(0.3)), lineWidth: 1) }
+                context.draw(resolved, at: CGPoint(x: chip.minX + 8, y: chip.midY), anchor: .leading)
+            default:
+                context.draw(Text(verbatim: name).font(WgInk.mono(10)).foregroundStyle(Color.primary.opacity(hot ? 0.95 : (active ? 0.55 : 0.2))),
+                             at: CGPoint(x: cx + 8, y: rect.midY - 9), anchor: .leading)
             }
         }
     }

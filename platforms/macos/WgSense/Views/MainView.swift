@@ -274,7 +274,7 @@ struct MainView: View {
                     .padding(28)
                     .environmentObject(client)
                     .modifier(WgLocaleOverride(language: selectedLanguage))
-                    .tint(WgInk.signal)
+                    .tint(WgInk.control)
                 ))
                 .id(selection)
             }
@@ -462,6 +462,22 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// 磁贴右上角的等宽代号。
+    var code: String {
+        switch self {
+        case .vpn: return "VPN"
+        case .pause: return "PS"
+        case .stop: return "ST"
+        case .transferReceive: return "RX"
+        case .transferSend: return "TX"
+        case .proxy: return "PX"
+        case .profile: return "CF"
+        case .logs: return "LG"
+        case .about: return "AB"
+        case .connection: return "NET"
+        }
+    }
+
     var activeColor: Color {
         switch self {
         // 仪表语言：“开启”统一克莱因蓝；只有暂停（警示）与停止（告警）保留状态色。
@@ -583,7 +599,8 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            headerBar
+            // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
+            Color.clear.frame(height: 40)
 
             // 磁贴网格区域
             GeometryReader { geometry in
@@ -592,7 +609,7 @@ struct SidebarView: View {
                 }
             }
 
-            Spacer(minLength: 0)
+            brandFoot
         }
         // 排序、增删、改大小都会走到这里，落盘一次。
         .onChange(of: tiles) { _, _ in saveTiles() }
@@ -618,13 +635,19 @@ struct SidebarView: View {
         }
     }
 
-    // MARK: - 头部
+    // MARK: - 底部品牌栏
 
-    private var headerBar: some View {
-        HStack(spacing: 9) {
-            WgSquareBadge(symbol: "lock.shield.fill", tint: .green, size: 24)
-            Text("WgSense")
-                .font(.system(size: 14, weight: .semibold))
+    /// 品牌栏：细分隔线 + 几何标 + 名称 / 版本，右侧是添加、编辑、设置。
+    private var brandFoot: some View {
+        HStack(spacing: 10) {
+            WgLogoMark()
+                .stroke(WgInk.ink, style: StrokeStyle(lineWidth: 1.6, lineJoin: .miter))
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "WgSense").font(.system(size: 15, weight: .heavy)).tracking(0.6)
+                Text(verbatim: "V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") · WIREGUARD / MIHOMO")
+                    .font(WgInk.mono(8.5)).tracking(1).foregroundStyle(WgInk.ink3).lineLimit(1)
+            }
             Spacer(minLength: 4)
 
             Button { showAddSheet = true } label: { Image(systemName: "plus") }
@@ -646,8 +669,9 @@ struct SidebarView: View {
                 .help("设置")
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .overlay(alignment: .top) { Rectangle().fill(WgInk.rule).frame(height: 1).padding(.horizontal, 16) }
         .focusEffectDisabled()
     }
 
@@ -749,34 +773,36 @@ struct SidebarView: View {
     }
 
     private func standardModule(_ tile: TileData) -> some View {
+        // 磁贴：左上白色短竖条 + 右上等宽代号 + 标题 / 状态 + 右下放大淡出的图标（只做辨识度）。
         let info = moduleInfo(tile.kind)
         let compact = tile.size == .small
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                WgCircleBadge(symbol: info.symbol, tint: info.tint, isOn: info.isOn, size: compact ? 30 : 32)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(tile.kind.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    info.status
-                        .font(.system(size: 11))
-                        .foregroundStyle(info.highlight ? info.tint : Color.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if !compact {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tile.kind.title)
+                    .font(.system(size: 15, weight: .bold))
+                    .lineLimit(1)
+                info.status
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(info.highlight ? info.tint : WgInk.ink3)
+                    .lineLimit(1)
             }
             if !compact {
                 moduleDetail(tile)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .padding(compact ? 11 : 14)
+        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, compact ? 13 : 15)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: compact ? .leading : .topLeading)
+        .background(alignment: .bottomTrailing) {
+            WgGhostSymbol(symbol: info.symbol, size: compact ? 58 : 72, opacity: info.isOn ? 0.2 : 0.12)
+                .offset(x: 12, y: 16)
+        }
+        .overlay(alignment: .topLeading) {
+            Rectangle().fill(WgInk.ink.opacity(info.isOn ? 0.9 : 0.45)).frame(width: 3, height: 20)
+        }
+        .overlay(alignment: .topTrailing) {
+            Text(verbatim: tile.kind.code).font(WgInk.mono(9.5)).tracking(1).foregroundStyle(WgInk.ink4).padding(9)
+        }
         .wgInteractiveSurface(isSelected: isSelected(tile.kind), isEnabled: !isEditMode) {
             handleSmallTileTap(tile)
         }
@@ -831,7 +857,7 @@ struct SidebarView: View {
                         symbol: vpn.symbol,
                         tint: vpn.tint,
                         isOn: vpn.isConnected,
-                        size: compact ? 30 : 44,
+                        size: compact ? 36 : 46,
                         isBusy: vpn.isBusy
                     )
                 }
@@ -960,10 +986,10 @@ struct SidebarView: View {
         let compact = tile.size == .small
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                WgCircleBadge(symbol: TileKind.connection.icon, tint: .cyan, isOn: up, size: compact ? 30 : 32)
+                WgCircleBadge(symbol: TileKind.connection.icon, tint: .cyan, isOn: up, size: compact ? 36 : 38)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(TileKind.connection.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                     Group {
                         if compact && up {
                             Text(verbatim: "↓ \(WgFormat.speed(rx))")
