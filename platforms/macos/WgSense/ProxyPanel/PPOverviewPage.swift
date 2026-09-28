@@ -146,17 +146,24 @@ private struct PPChartsCard: View {
         // 单色：主系列亮墨铺面，次系列淡墨描线；颜色不承担区分，靠明度与粗细。
         PPCard(title: "实时", caption: "Realtime · 60s") {
             VStack(spacing: 22) {
-                PPStreamChart(title: "速度", buffer: overview.speed,
-                              series: [.init(name: "上传", color: WgInk.ink2, fill: false, dashed: true), .init(name: "下载", color: WgInk.ink)],
-                              format: { WgFormat.speed($0) }, floor: 1024)
-                    .frame(height: 190)
+                // 下载、上传分成两条窄图，各自一个镜头：一方冲高不会把另一方压扁。
+                VStack(spacing: 16) {
+                    PPStreamChart(title: "下载", buffer: overview.downSpeed,
+                                  series: [.init(name: "下载", color: WgInk.ink)],
+                                  format: { WgFormat.speed($0) }, floor: 512)
+                        .frame(height: 128)
+                    PPStreamChart(title: "上传", buffer: overview.upSpeed,
+                                  series: [.init(name: "上传", color: WgInk.ink2)],
+                                  format: { WgFormat.speed($0) }, floor: 512)
+                        .frame(height: 128)
+                }
                 HStack(spacing: 28) {
                     PPStreamChart(title: "内存使用", buffer: overview.memory,
                                   series: [.init(name: "内存使用", color: WgInk.ink2)],
-                                  format: { WgFormat.size(UInt64(max(0, $0))) }, floor: 1024 * 1024)
+                                  format: { WgFormat.size(UInt64(max(0, $0))) }, floor: 2 * 1024 * 1024)
                     PPStreamChart(title: "连接", buffer: overview.connectionCount,
                                   series: [.init(name: "连接", color: WgInk.ink2)],
-                                  format: { String(Int($0.rounded())) }, floor: 5)
+                                  format: { String(Int($0.rounded())) }, floor: 6)
                 }
                 .frame(height: 150)
             }

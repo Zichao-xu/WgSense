@@ -186,6 +186,7 @@ final class ProxyPanelStore: ObservableObject {
     func activate() {
         Task { await fetchAll() }
         startConnectionStream()
+        PPOverviewStore.shared.startSampling()
     }
 
     /// 代理页离开时调用：停掉推送与自动刷新，不在后台消耗。

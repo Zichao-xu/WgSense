@@ -137,7 +137,9 @@ final class PPOverviewStore: ObservableObject {
     static let shared = PPOverviewStore()
 
     // MARK: 图表缓冲（不 @Published）
-    let speed = PPSampleBuffer(series: 2)      // [up, down]
+    // 下载、上传各一个缓冲：两条图各自有镜头，互不压制。
+    let downSpeed = PPSampleBuffer(series: 1)
+    let upSpeed = PPSampleBuffer(series: 1)
     let memory = PPSampleBuffer(series: 1)
     let connectionCount = PPSampleBuffer(series: 1)
 
@@ -237,11 +239,27 @@ final class PPOverviewStore: ObservableObject {
     /// 概览可见时启动流量/内存推送与规则轮询。
     func activate() {
         loadHistoryIfNeeded()
+        startSampling()
+        guard rulesTask == nil, let api else { return }
+        rulesTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if let rules = try? await api.rules() { self?.applyRules(rules) }
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        }
+        if autoIPCheck && chinaIP == nil { Task { await checkIP() } }
+        if autoConnectionCheck && latencies.isEmpty { Task { await checkLatency() } }
+    }
+
+    /// 速度/内存采样（图表缓存）：App 启动后即开始，常驻后台，不随页面启停。
+    func startSampling() {
         guard streamTasks.isEmpty, let api else { return }
         streamTasks.append(Task { [weak self] in
             for await traffic in api.trafficStream() {
                 guard let self, !Task.isCancelled else { break }
-                self.speed.append([Double(traffic.up), Double(traffic.down)])
+                let now = Date().timeIntervalSince1970
+                self.downSpeed.append([Double(traffic.down)], at: now)
+                self.upSpeed.append([Double(traffic.up)], at: now)
                 var s = self.stats
                 s.upSpeed = traffic.up
                 s.downSpeed = traffic.down
@@ -259,19 +277,11 @@ final class PPOverviewStore: ObservableObject {
                 self.stats = s
             }
         })
-        rulesTask = Task { [weak self] in
-            while !Task.isCancelled {
-                if let rules = try? await api.rules() { self?.applyRules(rules) }
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-            }
-        }
-        if autoIPCheck && chinaIP == nil { Task { await checkIP() } }
-        if autoConnectionCheck && latencies.isEmpty { Task { await checkLatency() } }
     }
 
+    /// 离开概览页时只停规则轮询；速度/内存推送（1Hz、极轻）继续在后台采样，
+    /// 回到概览时曲线直接接上最近 75 秒，而不是从右边从零开始。
     func deactivate() {
-        streamTasks.forEach { $0.cancel() }
-        streamTasks.removeAll()
         rulesTask?.cancel()
         rulesTask = nil
         flushHistory()
@@ -279,7 +289,9 @@ final class PPOverviewStore: ObservableObject {
 
     func backendChanged() {
         deactivate()
-        speed.reset(); memory.reset(); connectionCount.reset()
+        streamTasks.forEach { $0.cancel() }
+        streamTasks.removeAll()
+        downSpeed.reset(); upSpeed.reset(); memory.reset(); connectionCount.reset()
         stats = Stats()
         topologyConnections = []
         lastSnapshot = [:]

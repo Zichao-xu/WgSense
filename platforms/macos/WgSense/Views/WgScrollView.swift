@@ -50,8 +50,12 @@ struct WgScrollView: NSViewRepresentable {
             super.init()
             // preferredContentSize 只用作“内容尺寸变了”的信号；真实高度按当前宽度另行测量。
             controller.sizingOptions = [.preferredContentSize]
-            observers.append(controller.observe(\.preferredContentSize, options: [.new]) { [weak self] _, _ in
-                self?.scheduleRelayout()
+            // 只在内容理想高度真的变化时重测：内容里的局部动画（图表读数等）会频繁触发这个通知，
+            // 每次都整页重测会连带重画页面里所有画布（实测桑基图因此持续重绘）。
+            observers.append(controller.observe(\.preferredContentSize, options: [.old, .new]) { [weak self] _, change in
+                guard let old = change.oldValue, let new = change.newValue, abs(old.height - new.height) < 0.5 else {
+                    self?.scheduleRelayout(); return
+                }
             })
         }
 

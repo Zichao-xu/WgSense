@@ -281,6 +281,17 @@ struct MainView: View {
             }
             .wgPageSurface()
         }
+        // 图表缓存：启动即开始后台采样速度/内存，首次打开代理概览时曲线已有历史。
+        .task { PPOverviewStore.shared.startSampling() }
+        // 调试用：`--args -WgSenseSwitchTab proxy:40` 启动 40 秒后切到指定页面（验证后台缓存，仅命令行参数域）。
+        .task {
+            let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            guard let spec = args["WgSenseSwitchTab"] as? String else { return }
+            let parts = spec.split(separator: ":")
+            guard parts.count == 2, let tab = SidebarTab(rawValue: String(parts[0])), let delay = Double(parts[1]) else { return }
+            try? await Task.sleep(for: .seconds(delay))
+            selection = tab
+        }
         // 整窗一块玻璃：侧栏与内容区都坐在它上面，不再各自铺底色。
         .background {
             WgBackdrop(

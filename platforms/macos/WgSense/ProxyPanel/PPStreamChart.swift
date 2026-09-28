@@ -4,20 +4,104 @@ import SwiftUI
 
 // 无极滚动图表（O-G01…O-G05）。
 //
-// 样本按时间戳定位，右边界 = 当前时间 − 延迟，曲线随时间连续左移，线头贴住右边缘推进。
+// 横向：样本按时间戳定位，右边界 = 当前时间 − 延迟，曲线随时间连续左移，线头（记录笔）贴住右缘。
+// 纵向：一台跟随笔头的“镜头”（ChartCamera）。取景只看笔头附近最近 12 秒的数据，
+//      起伏大就拉远，起伏小就推近放大细节；比例尺只是镜头的读数，跟着镜头走。
+//      更早的曲线不参与取景——被放大后冲出画面的旧尖峰在顶边截平，并标出峰值。
+//      镜头移动有阻尼：扩大快（0.4s，别让新尖峰冲出画面），收小慢（1.5s，平静后缓缓推近）。
 //
-// 连续运动完全交给 Core Animation：
-//   · 曲线画成比视窗略宽的一条“纸带”（CAShapeLayer），每来一个样本（1Hz）重建一次路径；
-//   · 纸带的平移是一段匀速的 position 动画，由系统渲染服务器逐帧执行，App 进程逐帧零开销；
-//   · 右缘“记录笔”的纵向运动是按样本插值的关键帧动画；
-//   · 纵轴上限变化时，纸带在纵向做一次缓动缩放过渡，不跳变。
-// 之前用 TimelineView 逐帧求值/栅格化，三张图 24–60fps 占掉 10–15% CPU。
+// 连续运动交给 Core Animation：纸带平移、曲线随镜头形变、笔头纵向运动都是系统动画，App 逐帧零开销。
+// 只有纵轴读数在镜头移动期间以 20fps 重绘（几条刻度线 + 五个数字）。
+
+// MARK: - 比例尺（镜头取景的数值区间）
+
+struct PPChartScale: Hashable {
+    var lo: Double
+    var hi: Double
+
+    func unit(_ v: Double) -> Double { (v - lo) / max(1e-9, hi - lo) }
+    var span: Double { hi - lo }
+
+    /// 四等分刻度：(数值, 归一化高度)。
+    func ticks() -> [(value: Double, unit: Double)] {
+        (0...4).map { i in (lo + Double(i) / 4 * span, Double(i) / 4) }
+    }
+
+    static func lerp(_ a: PPChartScale, _ b: PPChartScale, _ t: Double) -> PPChartScale {
+        PPChartScale(lo: a.lo + (b.lo - a.lo) * t, hi: a.hi + (b.hi - a.hi) * t)
+    }
+}
+
+// MARK: - 镜头
+
+/// 跟随笔头的纵向镜头：记录一段 from → to 的缓动过渡，任意时刻可求当前取景。
+final class ChartCamera {
+    private(set) var from = PPChartScale(lo: 0, hi: 1)
+    private(set) var to = PPChartScale(lo: 0, hi: 1)
+    private(set) var start: TimeInterval = 0
+    private(set) var duration: TimeInterval = 0
+    private var initialized = false
+
+    static let expandDuration: TimeInterval = 0.4
+    static let shrinkDuration: TimeInterval = 1.5
+    /// 缓动曲线：先快后慢（与 Core Animation 侧使用同一条贝塞尔）。
+    static let timing = (0.22, 1.0, 0.36, 1.0)
+
+    func scale(at t: TimeInterval) -> PPChartScale {
+        guard duration > 0, t < start + duration else { return to }
+        let p = max(0, (t - start) / duration)
+        return PPChartScale.lerp(from, to, UnitBezier.solve(p, Self.timing))
+    }
+
+    func isMoving(at t: TimeInterval) -> Bool { duration > 0 && t < start + duration }
+    var end: TimeInterval { start + duration }
+
+    /// 更新目标取景。变化小于当前跨度的 4% 时不动（克制，不做无意义的微颤）。
+    func retarget(_ target: PPChartScale, now: TimeInterval) {
+        guard initialized else {
+            from = target; to = target; start = now; duration = 0; initialized = true
+            return
+        }
+        let tolerance = max(to.span, 1e-9) * 0.04
+        guard abs(target.lo - to.lo) > tolerance || abs(target.hi - to.hi) > tolerance else { return }
+        let current = scale(at: now)
+        let expanding = target.hi > current.hi || target.lo < current.lo
+        from = current
+        to = target
+        start = now
+        duration = expanding ? Self.expandDuration : Self.shrinkDuration
+    }
+}
+
+/// 三次贝塞尔缓动求值（CSS/CA 同款算法）。
+enum UnitBezier {
+    static func solve(_ x: Double, _ c: (Double, Double, Double, Double)) -> Double {
+        let (x1, y1, x2, y2) = c
+        let cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx
+        let cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by
+        func sx(_ t: Double) -> Double { ((ax * t + bx) * t + cx) * t }
+        func sy(_ t: Double) -> Double { ((ay * t + by) * t + cy) * t }
+        func dx(_ t: Double) -> Double { (3 * ax * t + 2 * bx) * t + cx }
+        var t = x
+        for _ in 0..<8 {
+            let err = sx(t) - x
+            if abs(err) < 1e-5 { break }
+            let d = dx(t)
+            if abs(d) < 1e-6 { break }
+            t -= err / d
+        }
+        t = min(1, max(0, t))
+        return sy(t)
+    }
+}
+
+// MARK: - 图表
 
 struct PPStreamChart: View {
     struct Series {
         var name: LocalizedStringKey
         var color: Color
-        /// 是否铺面积（主系列铺，次系列只描线，避免两层半透明叠成一团）。
+        /// 是否铺面积（主系列铺，次系列只描线，避免两层叠成一团）。
         var fill = true
         /// 虚线描边：单色体系里区分次系列的方式。
         var dashed = false
@@ -30,9 +114,11 @@ struct PPStreamChart: View {
     var window: TimeInterval = 60
     /// 显示延迟：≥ 推送间隔（1s），保证右端总有样本可衔接。
     var delay: TimeInterval = 1.2
+    /// 镜头最小取景跨度：再平静也不会推近到比这更细（避免把噪声放大成满屏起伏）。
     var floor: Double = 1
 
     @State private var paused = false
+    @State private var camera = ChartCamera()
     @State private var hoverX: CGFloat?
     @State private var frozenAt: TimeInterval?
 
@@ -40,6 +126,8 @@ struct PPStreamChart: View {
     static let ruler: CGFloat = 16      // 底部时间尺
     /// 纸带比视窗多出的时长：左侧留出渐隐余量。
     static let tail: TimeInterval = 4
+    /// 镜头取景：只盯笔头附近此刻的数据（往回 5 秒）。更早的爬坡、旧尖峰冲出画面被裁掉。
+    static let focus: TimeInterval = 5
 
     init(title: LocalizedStringKey, buffer: PPSampleBuffer, series: [Series], format: @escaping (Double) -> String,
          window: TimeInterval = 60, floor: Double = 1) {
@@ -53,21 +141,29 @@ struct PPStreamChart: View {
 
     var body: some View {
         let samples = buffer.samples
-        let scale = scale(for: samples)
-        VStack(alignment: .leading, spacing: 8) {
+        let now = frozenAt ?? Date().timeIntervalSince1970
+        if frozenAt == nil { camera.retarget(focusScale(samples, now: now), now: now) }
+        return VStack(alignment: .leading, spacing: 8) {
             header(values: samples.last?.values ?? [])
             GeometryReader { geo in
                 let plot = CGRect(x: Self.gutter, y: 4, width: max(1, geo.size.width - Self.gutter - 2),
                                   height: max(1, geo.size.height - Self.ruler - 6))
                 ZStack(alignment: .topLeading) {
-                    PPChartAxis(scale: scale, format: format, window: window, size: geo.size, plot: plot)
-                        .equatable()
-                    PPChartTape(samples: samples, version: buffer.version, scale: scale, series: series,
-                                plot: plot, window: window, delay: delay, frozenAt: frozenAt)
+                    // 纵轴读数标出镜头的目标取景：换取景时 0.25s 淡入淡出（最多每秒一次），曲线自己平滑形变过去。
+                    // 不逐帧滚动数字：四张图 × 20fps 的文字排版比曲线动画还贵。
+                    ZStack {
+                        PPChartAxis(scale: camera.to, format: format, window: window, size: geo.size, plot: plot)
+                            .equatable()
+                            .id(camera.to)
+                            .transition(.opacity)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: camera.to)
+                    PPChartTape(samples: samples, version: buffer.version, camera: camera, cameraEnd: camera.end,
+                                series: series, format: format, plot: plot, window: window, delay: delay, frozenAt: frozenAt)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .allowsHitTesting(false)
                     if let hx = hoverX, hx >= plot.minX, let at = frozenAt {
-                        hoverLayer(hx: hx, now: at, scale: scale, plot: plot, samples: samples)
+                        hoverLayer(hx: hx, now: at, scale: camera.scale(at: at), plot: plot, samples: samples)
                     }
                 }
                 .contentShape(Rectangle())
@@ -84,6 +180,32 @@ struct PPStreamChart: View {
             }
             .frame(minHeight: 110)
         }
+    }
+
+    /// 镜头目标取景：笔头往回 5 秒（含即将滑入的最新样本，镜头会提前一点拉远，尖峰不会冲出画面）。
+    /// 上下各留 12% 余量；跨度小于 floor 时以当前值为中心展开 floor。底部不固定在 0。
+    private func focusScale(_ samples: [PPSampleBuffer.Sample], now: TimeInterval) -> PPChartScale {
+        let edge = now - delay
+        var values: [Double] = []
+        for sample in samples.reversed() {
+            if sample.time < edge - Self.focus { break }
+            values.append(contentsOf: sample.values)
+        }
+        // 取景左端恰好落在两个样本之间：补上该时刻的插值，避免边界样本滑出时取景跳一下。
+        for i in series.indices {
+            if let v = Self.value(at: edge - Self.focus, series: i, in: samples) { values.append(v) }
+        }
+        guard !values.isEmpty else { return PPChartScale(lo: 0, hi: floor) }
+        // 取景 = 笔头附近这几秒的最低到最高：平台在 30–47 MB/s，画面就是 30–47 MB/s。
+        let lo = values.min()!
+        let hi = values.max()!
+        if hi - lo < floor {
+            let mid = (lo + hi) / 2
+            let base = max(0, mid - floor / 2)
+            return PPChartScale(lo: base, hi: base + floor)
+        }
+        let pad = (hi - lo) * 0.12
+        return PPChartScale(lo: max(0, lo - pad), hi: hi + pad)
     }
 
     // MARK: 标题行：图例 + 当前读数
@@ -117,31 +239,9 @@ struct PPStreamChart: View {
         frozenAt = paused ? Date().timeIntervalSince1970 : nil
     }
 
-    /// 纵轴上限 = 视窗内最大值 × 1.15，再取整。
-    private func scale(for samples: [PPSampleBuffer.Sample]) -> Double {
-        let start = (frozenAt ?? Date().timeIntervalSince1970) - delay - window - 2
-        var visibleMax = 0.0
-        for sample in samples.reversed() {
-            if sample.time < start { break }
-            for v in sample.values where v > visibleMax { visibleMax = v }
-        }
-        return nice(max(floor, visibleMax * 1.15))
-    }
-
-    /// 上限取整，使四等分刻度都是整数读数。字节类数据先按 1024 进位换算到显示单位再取整，
-    /// 否则 100000 B 这种“十进制整数”显示出来是 97.7 KB。
-    private func nice(_ v: Double) -> Double {
-        var unit = 1.0
-        while v / unit >= 1024 && unit < pow(1024, 4) { unit *= 1024 }
-        let x = v / unit
-        let exp = pow(10, Foundation.floor(log10(x)))
-        for m in [1.0, 1.2, 1.6, 2, 2.4, 3.2, 4, 6, 8, 10] where m * exp >= x { return m * exp * unit }
-        return 10 * exp * unit
-    }
-
     // MARK: 悬停
 
-    private func hoverLayer(hx: CGFloat, now: TimeInterval, scale: Double, plot: CGRect, samples: [PPSampleBuffer.Sample]) -> some View {
+    private func hoverLayer(hx: CGFloat, now: TimeInterval, scale: PPChartScale, plot: CGRect, samples: [PPSampleBuffer.Sample]) -> some View {
         let end = now - delay
         let t = end - window + Double((hx - plot.minX) / plot.width) * window
         let values: [(Int, Double)] = series.indices.compactMap { i in Self.value(at: t, series: i, in: samples).map { (i, $0) } }
@@ -150,7 +250,7 @@ struct PPStreamChart: View {
                 .position(x: hx, y: plot.midY)
             ForEach(values, id: \.0) { i, v in
                 Circle().fill(series[i].color).frame(width: 6, height: 6)
-                    .position(x: hx, y: plot.maxY - CGFloat(min(v, scale * 1.5) / scale) * plot.height)
+                    .position(x: hx, y: plot.maxY - CGFloat(min(1, max(0, scale.unit(v)))) * plot.height)
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: Date(timeIntervalSince1970: t).formatted(date: .omitted, time: .standard))
@@ -192,7 +292,7 @@ struct PPStreamChart: View {
 // MARK: - 坐标层：横向刻度线 + 纵轴读数 + 底部时间尺
 
 private struct PPChartAxis: View, Equatable {
-    let scale: Double
+    let scale: PPChartScale
     let format: (Double) -> String
     let window: TimeInterval
     let size: CGSize
@@ -203,24 +303,19 @@ private struct PPChartAxis: View, Equatable {
     var body: some View {
         Canvas { context, _ in
             let rule = Color.primary.opacity(0.07)
-            for i in 0...4 {
-                let y = plot.maxY - plot.height * CGFloat(i) / 4
+            for tick in scale.ticks() {
+                let y = plot.maxY - plot.height * CGFloat(tick.unit)
                 var line = Path()
                 line.move(to: CGPoint(x: plot.minX, y: y))
                 line.addLine(to: CGPoint(x: plot.maxX, y: y))
-                context.stroke(line, with: .color(i == 0 ? Color.primary.opacity(0.2) : rule), lineWidth: i == 0 ? 1 : 0.5)
+                context.stroke(line, with: .color(tick.unit == 0 ? Color.primary.opacity(0.2) : rule), lineWidth: tick.unit == 0 ? 1 : 0.5)
                 // 左端短刻度，像直尺的刻痕。
-                var tick = Path()
-                tick.move(to: CGPoint(x: plot.minX - 4, y: y))
-                tick.addLine(to: CGPoint(x: plot.minX, y: y))
-                context.stroke(tick, with: .color(Color.primary.opacity(0.28)), lineWidth: 1)
-                if i > 0, i % 2 == 0 || plot.height > 120 {
-                    let label = format(scale * Double(i) / 4)
-                        .replacingOccurrences(of: ".00 ", with: " ")
-                        .replacingOccurrences(of: ".0 ", with: " ")
-                    context.draw(Text(verbatim: label).font(WgInk.mono(9)).foregroundStyle(Color.primary.opacity(0.42)),
-                                 at: CGPoint(x: plot.minX - 8, y: y), anchor: .trailing)
-                }
+                var mark = Path()
+                mark.move(to: CGPoint(x: plot.minX - 4, y: y))
+                mark.addLine(to: CGPoint(x: plot.minX, y: y))
+                context.stroke(mark, with: .color(Color.primary.opacity(0.28)), lineWidth: 1)
+                context.draw(Text(verbatim: format(tick.value)).font(WgInk.mono(9)).foregroundStyle(Color.primary.opacity(0.42)),
+                             at: CGPoint(x: plot.minX - 8, y: y), anchor: .trailing)
             }
             // 时间尺：每 5s 一个细刻痕，每 15s 一个长刻痕 + 读数（相对“现在”）。
             let base = plot.maxY
@@ -248,8 +343,11 @@ private struct PPChartAxis: View, Equatable {
 private struct PPChartTape: NSViewRepresentable {
     let samples: [PPSampleBuffer.Sample]
     let version: TimeInterval
-    let scale: Double
+    let camera: ChartCamera
+    /// 镜头过渡的结束时刻：镜头重新取景时它会变，驱动纸带重建。
+    let cameraEnd: TimeInterval
     let series: [PPStreamChart.Series]
+    let format: (Double) -> String
     let plot: CGRect
     let window: TimeInterval
     let delay: TimeInterval
@@ -258,9 +356,9 @@ private struct PPChartTape: NSViewRepresentable {
     func makeNSView(context: Context) -> TapeView { TapeView() }
 
     func updateNSView(_ view: TapeView, context: Context) {
-        view.update(TapeView.Input(samples: samples, version: version, scale: scale,
+        view.update(TapeView.Input(samples: samples, version: version, camera: camera, cameraEnd: cameraEnd,
                                    series: series.map { .init(color: NSColor($0.color), fill: $0.fill, dashed: $0.dashed) },
-                                   plot: plot, window: window, delay: delay, frozenAt: frozenAt))
+                                   format: format, plot: plot, window: window, delay: delay, frozenAt: frozenAt))
     }
 }
 
@@ -269,8 +367,10 @@ final class TapeView: NSView {
     struct Input {
         var samples: [PPSampleBuffer.Sample]
         var version: TimeInterval
-        var scale: Double
+        var camera: ChartCamera
+        var cameraEnd: TimeInterval
         var series: [SeriesStyle]
+        var format: (Double) -> String
         var plot: CGRect
         var window: TimeInterval
         var delay: TimeInterval
@@ -279,13 +379,16 @@ final class TapeView: NSView {
 
     private let clip = CALayer()        // 视窗：裁剪 + 左缘渐隐
     private let fade = CAGradientLayer()
-    private let scaler = CALayer()      // 纵轴缩放过渡
     private let tape = CALayer()        // 平移的纸带
+    private let markers = CALayer()     // 超量程标记（随纸带平移，不受裁剪）
     private var fills: [CAGradientLayer] = []
     private var fillMasks: [CAShapeLayer] = []
     private var strokes: [CAShapeLayer] = []
     private var pens: [CAShapeLayer] = []
     private var last: Input?
+
+    static let timing = CAMediaTimingFunction(controlPoints: Float(ChartCamera.timing.0), Float(ChartCamera.timing.1),
+                                              Float(ChartCamera.timing.2), Float(ChartCamera.timing.3))
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -299,18 +402,17 @@ final class TapeView: NSView {
         fade.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
         fade.locations = [0, 0.1, 1]
         clip.mask = fade
-        scaler.anchorPoint = CGPoint(x: 0.5, y: 1)
         tape.anchorPoint = .zero
+        markers.anchorPoint = .zero
         layer?.addSublayer(clip)
-        clip.addSublayer(scaler)
-        scaler.addSublayer(tape)
+        clip.addSublayer(tape)
+        tape.addSublayer(markers)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
 
-    /// AppKit 可能在挂载/布局时重设根图层几何，每次更新前确认原点在左上。
     private func ensureFlipped() {
         if layer?.isGeometryFlipped != true { layer?.isGeometryFlipped = true }
     }
@@ -340,9 +442,9 @@ final class TapeView: NSView {
         let pps = plot.width / input.window
         let span = input.window + PPStreamChart.tail
         let geometryChanged = previous?.plot != plot || previous?.window != input.window
-        let dataChanged = geometryChanged || previous?.version != input.version || previous?.scale != input.scale
+        let dataChanged = geometryChanged || previous?.version != input.version || previous?.cameraEnd != input.cameraEnd
             || previous?.series.count != input.series.count
-        let freezeChanged = (previous?.frozenAt == nil) != (input.frozenAt == nil) || previous?.frozenAt != input.frozenAt
+        let freezeChanged = previous?.frozenAt != input.frozenAt
         guard dataChanged || freezeChanged || previous == nil else { return }
 
         CATransaction.begin()
@@ -353,26 +455,16 @@ final class TapeView: NSView {
         if geometryChanged {
             clip.frame = plot
             fade.frame = CGRect(origin: .zero, size: plot.size)
-            scaler.bounds = CGRect(origin: .zero, size: plot.size)
-            scaler.position = CGPoint(x: plot.width / 2, y: plot.height)
         }
 
+        let now = input.frozenAt ?? Date().timeIntervalSince1970
         if dataChanged {
             tape.bounds = CGRect(x: 0, y: 0, width: CGFloat(span) * pps, height: plot.height)
-            buildPaths(input, latest: latest, span: span, pps: pps)
-            // 纵轴缩放过渡：新路径按新上限画，先把纸带纵向压/拉回旧比例，再缓动到 1。
-            if let old = previous?.scale, old > 0, old != input.scale, !geometryChanged {
-                let anim = CABasicAnimation(keyPath: "transform.scale.y")
-                anim.fromValue = input.scale / old
-                anim.toValue = 1
-                anim.duration = 0.55
-                anim.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
-                scaler.add(anim, forKey: "rescale")
-            }
+            markers.frame = tape.bounds
+            buildPaths(input, latest: latest, span: span, pps: pps, now: now)
         }
 
         // 平移：x(t) = (latest − t + delay − tail) × pps，匀速。
-        let now = input.frozenAt ?? Date().timeIntervalSince1970
         func x(_ t: TimeInterval) -> CGFloat { CGFloat(latest - t + input.delay - PPStreamChart.tail) * pps }
         tape.removeAnimation(forKey: "scroll")
         if input.frozenAt == nil {
@@ -406,8 +498,8 @@ final class TapeView: NSView {
             pen.path = CGPath(ellipseIn: CGRect(x: -2.5, y: -2.5, width: 5, height: 5), transform: nil)
             pen.lineWidth = 1.5
             // 次系列先画、主系列在上：后创建的是主系列，放在最上层。
-            tape.addSublayer(fill)
-            tape.addSublayer(stroke)
+            tape.insertSublayer(fill, below: markers)
+            tape.insertSublayer(stroke, below: markers)
             layer?.addSublayer(pen)
             fills.append(fill); fillMasks.append(mask); strokes.append(stroke); pens.append(pen)
         }
@@ -424,7 +516,7 @@ final class TapeView: NSView {
 
     /// 45° 剖面线图案（6pt 间距），颜色按当前外观解析。
     private func hatchColor(_ color: NSColor) -> CGColor {
-        let tile = NSImage(size: NSSize(width: 6, height: 6), flipped: false) { [weak self] rect in
+        let tile = NSImage(size: NSSize(width: 6, height: 6), flipped: false) { [weak self] _ in
             guard let self else { return false }
             var c = color
             self.effectiveAppearance.performAsCurrentDrawingAppearance { c = (color.usingColorSpace(.sRGB) ?? color).withAlphaComponent(0.34) }
@@ -440,73 +532,149 @@ final class TapeView: NSView {
         return NSColor(patternImage: tile).cgColor
     }
 
-    private func buildPaths(_ input: Input, latest: TimeInterval, span: TimeInterval, pps: CGFloat) {
+    /// 曲线路径：按“此刻镜头”画出起点形状，按“镜头目标”画出终点形状，
+    /// 镜头仍在移动时从起点形变到终点（剩余时长 + 同一条缓动），镜头的推拉就是曲线的伸缩。
+    /// 超出取景的部分交给裁剪层截掉。
+    private func buildPaths(_ input: Input, latest: TimeInterval, span: TimeInterval, pps: CGFloat, now: TimeInterval) {
         let h = input.plot.height
         let start = latest - span
         let visible = input.samples.filter { $0.time >= start - 2 }
-        let scale = input.scale
-        func pt(_ s: PPSampleBuffer.Sample, _ i: Int) -> CGPoint {
-            CGPoint(x: CGFloat(s.time - start) * pps, y: h - CGFloat(min(s.values[safe: i] ?? 0, scale * 1.5) / scale) * h)
-        }
+        let camera = input.camera
+        let target = camera.to
+        let moving = input.frozenAt == nil && camera.isMoving(at: now)
+        let current = camera.scale(at: now)
+        let remaining = max(0.05, camera.end - now)
         let background = resolved(NSColor.windowBackgroundColor)
+
+        func paths(_ i: Int, _ scale: PPChartScale) -> (curve: CGPath, area: CGPath)? {
+            let points = visible.map { CGPoint(x: CGFloat($0.time - start) * pps, y: h - CGFloat(scale.unit($0.values[safe: i] ?? 0)) * h) }
+            guard points.count >= 2 else { return nil }
+            let curve = Self.smoothPath(points)
+            let area = curve.mutableCopy()!
+            // 面积底边放在远低于取景框处：曲线被镜头推到框外时，填充仍连续。
+            area.addLine(to: CGPoint(x: points.last!.x, y: h * 4))
+            area.addLine(to: CGPoint(x: points.first!.x, y: h * 4))
+            area.closeSubpath()
+            return (curve, area)
+        }
+        func morph(_ layer: CAShapeLayer, from: CGPath?, to: CGPath) {
+            layer.removeAnimation(forKey: "camera")
+            layer.path = to
+            guard let from else { return }
+            let anim = CABasicAnimation(keyPath: "path")
+            anim.fromValue = from
+            anim.toValue = to
+            anim.duration = remaining
+            anim.timingFunction = Self.timing
+            layer.add(anim, forKey: "camera")
+        }
         for (i, style) in input.series.enumerated() {
-            let points = visible.map { pt($0, i) }
             let stroke = strokes[i], fill = fills[i], mask = fillMasks[i]
             stroke.strokeColor = resolved(style.color)
             stroke.lineWidth = style.fill ? 1.5 : 1.2
             stroke.lineDashPattern = style.dashed ? [3, 2.5] : nil
             pens[i].fillColor = resolved(style.color)
             pens[i].strokeColor = background
-            guard points.count >= 2 else { stroke.path = nil; mask.path = nil; continue }
-            let curve = Self.smoothPath(points)
-            stroke.path = curve
+            let displayed = moving ? current : target
+            guard let new = paths(i, input.frozenAt == nil ? target : displayed) else { stroke.path = nil; mask.path = nil; continue }
+            let old = moving ? paths(i, current) : nil
+            morph(stroke, from: old?.curve, to: new.curve)
             fill.isHidden = !style.fill
             if style.fill {
-                fill.frame = tape.bounds
-                // 剖面线填充：工程图的截面表示法，比半透明渐变更“硬”，也不会糊成一片。
+                fill.frame = CGRect(x: 0, y: -h * 3, width: tape.bounds.width, height: h * 8)
                 fill.colors = nil
                 fill.backgroundColor = hatchColor(style.color)
-                let area = curve.mutableCopy()!
-                area.addLine(to: CGPoint(x: points.last!.x, y: h))
-                area.addLine(to: CGPoint(x: points.first!.x, y: h))
-                area.closeSubpath()
-                mask.path = area
+                // 面罩坐标相对 fill 层：fill 向上扩了 3h，路径整体下移 3h 对齐。
+                var shift = CGAffineTransform(translationX: 0, y: h * 3)
+                let newArea = new.area.copy(using: &shift)!
+                let oldArea = old.flatMap { o -> CGPath? in var s = CGAffineTransform(translationX: 0, y: h * 3); return o.area.copy(using: &s) }
+                morph(mask, from: oldArea, to: newArea)
             }
+        }
+        buildMarkers(input, visible: visible, start: start, pps: pps, target: target)
+    }
+
+    /// 超量程标记：取景之上的曲线段，在顶边标一个小三角 + 该段峰值读数。每段只标一次。
+    private func buildMarkers(_ input: Input, visible: [PPSampleBuffer.Sample], start: TimeInterval, pps: CGFloat, target: PPChartScale) {
+        markers.sublayers?.forEach { $0.removeFromSuperlayer() }
+        let scale = window?.backingScaleFactor ?? 2
+        for (i, style) in input.series.enumerated() where style.fill {
+            var runPeak: (time: TimeInterval, value: Double)?
+            func flush() {
+                guard let peak = runPeak else { return }
+                runPeak = nil
+                let x = CGFloat(peak.time - start) * pps
+                let tri = CAShapeLayer()
+                let path = CGMutablePath()
+                path.move(to: CGPoint(x: x - 3.5, y: 6)); path.addLine(to: CGPoint(x: x + 3.5, y: 6)); path.addLine(to: CGPoint(x: x, y: 1))
+                path.closeSubpath()
+                tri.path = path
+                tri.fillColor = resolved(style.color)
+                markers.addSublayer(tri)
+                let text = CATextLayer()
+                text.string = input.format(peak.value)
+                text.font = NSFont.monospacedSystemFont(ofSize: 8.5, weight: .medium)
+                text.fontSize = 8.5
+                text.foregroundColor = resolved(NSColor.labelColor, alpha: 0.55)
+                text.contentsScale = scale
+                text.alignmentMode = .left
+                text.frame = CGRect(x: x + 6, y: 0, width: 90, height: 12)
+                markers.addSublayer(text)
+            }
+            for sample in visible {
+                let v = sample.values[safe: i] ?? 0
+                if v > target.hi {
+                    if runPeak == nil || v > runPeak!.value { runPeak = (sample.time, v) }
+                } else {
+                    flush()
+                }
+            }
+            flush()
         }
     }
 
-    /// 记录笔：右缘时刻 te = t − delay 处的插值值；关键帧覆盖到已知的最新样本为止。
+    /// 记录笔：右缘时刻 te = t − delay 处的插值值，按每个关键帧时刻的镜头取景换算高度，
+    /// 所以笔头与曲线一起随镜头推拉。关键帧覆盖到已知的最新样本为止。
     private func updatePens(_ input: Input, now: TimeInterval) {
         let plot = input.plot
-        let scale = input.scale
-        func y(_ v: Double) -> CGFloat { plot.maxY - CGFloat(min(v, scale * 1.5) / scale) * plot.height }
+        let camera = input.camera
+        func y(_ v: Double, at t: TimeInterval) -> CGFloat {
+            let u = CGFloat(min(1, max(0, camera.scale(at: input.frozenAt ?? t).unit(v))))
+            return plot.maxY - u * plot.height
+        }
         let edgeNow = now - input.delay
+        let latest = input.samples.last?.time ?? edgeNow
+        let horizon = input.frozenAt == nil ? max(latest - edgeNow, camera.end - now, 0) : 0
+        // 关键帧：每 0.1s 一个（覆盖镜头过渡与样本间插值）。
+        let steps = max(1, Int((horizon / 0.1).rounded(.up)))
         for (i, pen) in pens.enumerated() {
             pen.removeAnimation(forKey: "pen")
             guard i < input.series.count, let v0 = PPStreamChart.value(at: edgeNow, series: i, in: input.samples) else {
                 pen.isHidden = true; continue
             }
             pen.isHidden = false
-            var times: [TimeInterval] = [edgeNow]
-            var values: [CGFloat] = [y(v0)]
-            if input.frozenAt == nil {
-                for s in input.samples where s.time > edgeNow {
-                    times.append(s.time); values.append(y(s.values[safe: i] ?? 0))
+            var values: [CGFloat] = [y(v0, at: now)]
+            var times: [Double] = [0]
+            if horizon > 0.02 {
+                for k in 1...steps {
+                    let dt = min(horizon, Double(k) * 0.1)
+                    let v = PPStreamChart.value(at: edgeNow + dt, series: i, in: input.samples) ?? v0
+                    values.append(y(v, at: now + dt))
+                    times.append(dt / horizon)
                 }
             }
             pen.position = CGPoint(x: plot.maxX, y: values.last!)
-            let duration = times.last! - times.first!
-            guard values.count >= 2, duration > 0.02 else { continue }
+            guard values.count >= 2 else { continue }
             let anim = CAKeyframeAnimation(keyPath: "position.y")
             anim.values = values
-            anim.keyTimes = times.map { NSNumber(value: ($0 - edgeNow) / duration) }
-            anim.duration = duration
+            anim.keyTimes = times.map { NSNumber(value: $0) }
+            anim.duration = horizon
             anim.calculationMode = .linear
             pen.add(anim, forKey: "pen")
         }
     }
 
-    /// Catmull-Rom → 三次贝塞尔，控制点纵向夹在相邻点之间，避免过冲到负值。
+    /// Catmull-Rom → 三次贝塞尔，控制点纵向夹在相邻点之间，避免过冲。
     static func smoothPath(_ p: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
         path.move(to: p[0])
@@ -524,3 +692,4 @@ final class TapeView: NSView {
 extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
+
