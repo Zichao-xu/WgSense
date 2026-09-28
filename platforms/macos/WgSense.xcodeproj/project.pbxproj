@@ -10,6 +10,7 @@
 		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
 		043CC060D48805CE01C49DDC /* WgVPNPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */; };
 		0A2EC6E290092752B87FCA08 /* MihomoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3354F508C0653A08D63DBEEC /* MihomoModels.swift */; };
+		1D959CB4980AECC76DC532EA /* PPGroupTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9DCCE34E27D91EFD69FC1D /* PPGroupTable.swift */; };
 		205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */; };
 		2D3FCB428630D7F9D10607AE /* ProxyPanelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827EB7C08699493703F29CA /* ProxyPanelStore.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
@@ -46,6 +47,7 @@
 		D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */; };
 		D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25978E89B4CCD23B64EA7345 /* DaemonModels.swift */; };
 		D7AB1A8196C7B0C6B61A378E /* PPStreamChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB602039AF8027B15350431B /* PPStreamChart.swift */; };
+		DD547983D07C16536E2BE7B9 /* WgFrameProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025AA57CBF7107F99D3479A5 /* WgFrameProbe.swift */; };
 		E33B615695017685C12F046B /* PPSankey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5182A73E110DDF99E4F44865 /* PPSankey.swift */; };
 		EA45E94FFA4E175DB33049A1 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
 		F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75C77A4A22AD3006EA7C804 /* TransferAPIClient.swift */; };
@@ -77,7 +79,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		025AA57CBF7107F99D3479A5 /* WgFrameProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgFrameProbe.swift; sourceTree = "<group>"; };
 		08446624B46672875126EF07 /* MihomoBackends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoBackends.swift; sourceTree = "<group>"; };
+		0B9DCCE34E27D91EFD69FC1D /* PPGroupTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPGroupTable.swift; sourceTree = "<group>"; };
 		0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileFileStore.swift; sourceTree = "<group>"; };
 		13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonMaintenanceService.swift; sourceTree = "<group>"; };
 		23E71D9C541002874711CBA9 /* WgInk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgInk.swift; sourceTree = "<group>"; };
@@ -178,6 +182,7 @@
 				C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */,
 				842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */,
 				8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */,
+				025AA57CBF7107F99D3479A5 /* WgFrameProbe.swift */,
 				23E71D9C541002874711CBA9 /* WgInk.swift */,
 				7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */,
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
@@ -195,6 +200,7 @@
 				796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */,
 				4455FF95397C153A2E668592 /* PPComponents.swift */,
 				840FF9EAB81A5780AC273FE6 /* PPCustomRuleViews.swift */,
+				0B9DCCE34E27D91EFD69FC1D /* PPGroupTable.swift */,
 				6E158E212B731D8EB3325B66 /* PPOverviewPage.swift */,
 				940829B6D2F7309278E8000C /* PPOverviewStore.swift */,
 				B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */,
@@ -377,6 +383,7 @@
 				65F94DE5427036A4F67E7751 /* OverviewView.swift in Sources */,
 				37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */,
 				AD1CF9C11928FE18C9831B31 /* PPCustomRuleViews.swift in Sources */,
+				1D959CB4980AECC76DC532EA /* PPGroupTable.swift in Sources */,
 				4150CA738E54AD565B5F2D9A /* PPOverviewPage.swift in Sources */,
 				886B72719A189B081AB800E8 /* PPOverviewStore.swift in Sources */,
 				7FCDB9B317084D1468793764 /* PPProviderSupport.swift in Sources */,
@@ -394,6 +401,7 @@
 				F96EF933C0CBA66EA3D7C5B7 /* TransferAPIClient.swift in Sources */,
 				6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */,
 				D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */,
+				DD547983D07C16536E2BE7B9 /* WgFrameProbe.swift in Sources */,
 				B0ED1641322EEAFE01F82312 /* WgInk.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */,

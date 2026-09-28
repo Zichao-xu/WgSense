@@ -28,32 +28,64 @@ extension ProxyPanelStore.LatencyLevel {
 
 // MARK: - 右键直接触发（原版右键卡片 = 测速，不弹菜单）
 
-private struct RightClickCatcher: NSViewRepresentable {
-    var action: () -> Void
+// 实现：全局只有一个本地事件监听，卡片在悬停进出时把自己的动作压栈/出栈，右键时触发栈顶（最内层）。
+// 之前每张卡片挂一个 NSView 接右键，几百个 NSView 在滚动时每帧都要跟着重新布局。
+@MainActor
+final class PPRightClickRouter {
+    static let shared = PPRightClickRouter()
+    private var stack: [(id: UUID, action: () -> Void)] = []
+    private var monitor: Any?
 
-    final class CatcherView: NSView {
-        var action: (() -> Void)?
-        override func rightMouseDown(with event: NSEvent) { action?() }
-        // 只拦截右键，其余事件穿透给 SwiftUI。
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard let type = NSApp.currentEvent?.type,
-                  type == .rightMouseDown || type == .rightMouseUp else { return nil }
-            return super.hitTest(point)
+    func push(_ id: UUID, _ action: @escaping () -> Void) {
+        stack.removeAll { $0.id == id }
+        stack.append((id, action))
+        installIfNeeded()
+    }
+
+    func pop(_ id: UUID) { stack.removeAll { $0.id == id } }
+
+    private func installIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            guard let self, let top = self.stack.last else { return event }
+            top.action()
+            return nil
         }
     }
+}
 
-    func makeNSView(context: Context) -> CatcherView {
-        let view = CatcherView()
-        view.action = action
-        return view
+private struct RightClickTarget: ViewModifier {
+    var action: () -> Void
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside { PPRightClickRouter.shared.push(id, action) } else { PPRightClickRouter.shared.pop(id) }
+            }
+            .onDisappear { PPRightClickRouter.shared.pop(id) }
     }
+}
 
-    func updateNSView(_ view: CatcherView, context: Context) { view.action = action }
+/// 按需挂悬停监听。
+struct PPOptionalHover: ViewModifier {
+    var enabled: Bool
+    @Binding var hovering: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.onHover { hovering = $0 } } else { content }
+    }
 }
 
 extension View {
+    /// 只在悬停时挂提示：每个 `.help` 都会向 AppKit 注册一块光标/提示区域，滚动时逐帧重算，
+    /// 几百张卡片常驻提示是滚动掉帧的主要来源之一。
+    @ViewBuilder
+    func ppHelp(_ text: @autoclosure () -> String, when active: Bool) -> some View {
+        if active { help(text()) } else { self }
+    }
+
     func onRightClick(_ action: @escaping () -> Void) -> some View {
-        overlay(RightClickCatcher(action: action))
+        modifier(RightClickTarget(action: action))
     }
 }
 
@@ -65,9 +97,12 @@ struct PPLatencyTag: View {
     var group: String?
     var loading: Bool
     var small = false
+    /// 由外层卡片提供悬停状态时，标签自己不再挂悬停监听（几百张卡片 × 两个悬停区 = 滚动时的命中测试开销）。
+    var externalHover: Bool? = nil
     var action: () -> Void
 
-    @State private var hovering = false
+    @State private var ownHover = false
+    private var hovering: Bool { externalHover ?? ownHover }
 
     var body: some View {
         let latency = name.map { store.latency($0, group: group) } ?? mihomoNotConnected
@@ -92,18 +127,24 @@ struct PPLatencyTag: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .modifier(PPOptionalHover(enabled: externalHover == nil, hovering: $ownHover))
         .animation(.easeOut(duration: 0.6), value: latency)
-        .help(historyTip)
+        // 提示文本只在悬停时生成：几百张卡每次渲染都查历史、格式化时间是白花的开销。
+        .ppHelp(historyTip, when: hovering)
     }
+
+    private static let tipFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return fmt
+    }()
 
     /// 悬停显示测速历史（时间 + 延迟）。
     private var historyTip: String {
         guard let name else { return "" }
         let items = store.history(name, group: group)
         guard !items.isEmpty else { return "测速" }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let fmt = Self.tipFormatter
         return items.suffix(10).map { item in
             let time = PPPersist.parseDate(item.time).map { fmt.string(from: $0) } ?? item.time
             return "\(time)  \(item.delay == 0 ? "超时" : "\(item.delay)ms")"
@@ -197,7 +238,7 @@ private struct PPDot: View, Equatable {
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .onTapGesture(perform: action)
-            .help(tip)
+            .ppHelp(tip, when: hovering)
     }
 }
 
@@ -325,51 +366,137 @@ struct PPNodeCard: View {
 
     @State private var hovering = false
     @State private var flash = false
-    @Environment(\.colorScheme) private var colorScheme
+    @State private var clickID = UUID()
 
+    // 整张卡用一个 Canvas 画完（背景、边框、名称、协议、延迟标签），不再由十几层视图拼装。
+    // 滚动换向时列表要批量创建行，单卡的视图层数直接决定那几帧会不会掉。
     var body: some View {
         let node = store.proxyMap[name]
-        let testing = store.isTesting("node:\(group)/\(name)")
-        VStack(alignment: .leading, spacing: store.smallCard ? 3 : 6) {
-            HStack(spacing: 4) {
-                PPGroupIcon(icon: node?.icon, size: 14)
-                Text(verbatim: name)
-                    .font(.system(size: store.smallCard ? 12 : 13, weight: active ? .semibold : .regular))
-                    .foregroundStyle(active ? Color.white : Color.primary)
-                    .lineLimit(store.truncateProxyName ? 1 : 3)
-                    .truncationMode(.tail)
-                    .help(name)
+        let small = store.smallCard
+        let pad: CGFloat = small ? 7 : 10
+        let tagSize = CGSize(width: small ? 32 : 40, height: small ? 16 : 20)
+        let latency = store.latency(name, group: group)
+        let loading = store.isTesting("node:\(group)/\(name)")
+        let type = typeDescription(node)
+        let nameFont = NSFont.systemFont(ofSize: small ? 12 : 13, weight: active ? .semibold : .regular)
+        let lines = Self.lines(name, store: store)
+        let lineHeight: CGFloat = small ? 15 : 17
+        let height = Self.height(for: name, store: store)
+        let hasIcon = node?.icon != nil
+        let levelColor = active ? Color.white : store.level(latency).color
+        Canvas { ctx, size in
+            let rect = CGRect(origin: .zero, size: size)
+            let shape = Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3)
+            ctx.fill(shape, with: .color(active ? WgInk.signal : Color.primary.opacity(hovering ? 0.075 : 0.035)))
+            if flash {
+                ctx.stroke(Path(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: 3), with: .color(WgInk.signal), lineWidth: 2)
+            } else if !active {
+                ctx.stroke(shape, with: .color(Color.primary.opacity(hovering ? 0.14 : 0.07)), lineWidth: 1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
-                Text(verbatim: typeDescription(node))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(active ? Color.white.opacity(0.8) : Color.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                PPLatencyTag(name: name, group: group, loading: testing, small: store.smallCard) {
-                    test()
-                }
+            // 名称
+            let nameX = pad + (hasIcon ? 18 : 0)
+            let nameWidth = size.width - nameX - pad
+            let shown = lines == 1 ? Self.truncate(name, font: nameFont, width: nameWidth) : name
+            let title = Text(verbatim: shown)
+                .font(Font(nameFont))
+                .foregroundColor(active ? .white : .primary)
+            ctx.draw(title, in: CGRect(x: nameX, y: pad - 1, width: nameWidth, height: lineHeight * CGFloat(lines) + 2))
+            // 协议 / udp
+            let baseline = size.height - pad - tagSize.height / 2
+            let typeText = Text(verbatim: Self.truncate(type, font: .systemFont(ofSize: 10.5), width: size.width - pad * 2 - tagSize.width - 6))
+                .font(.system(size: 10.5))
+                .foregroundColor(active ? Color.white.opacity(0.8) : Color.secondary)
+            ctx.draw(typeText, at: CGPoint(x: pad, y: baseline), anchor: .leading)
+            // 延迟标签
+            let tag = CGRect(x: size.width - pad - tagSize.width, y: size.height - pad - tagSize.height, width: tagSize.width, height: tagSize.height)
+            ctx.fill(Path(roundedRect: tag, cornerRadius: 2), with: .color(Color.primary.opacity(active ? 0.0 : 0.055)))
+            if active { ctx.fill(Path(roundedRect: tag, cornerRadius: 2), with: .color(Color.white.opacity(0.14))) }
+            let center = CGPoint(x: tag.midX, y: tag.midY)
+            if loading {
+                ctx.draw(Text(verbatim: "···").font(.system(size: 11, weight: .bold)).foregroundColor(levelColor), at: center)
+            } else if latency == mihomoNotConnected {
+                ctx.draw(Text(Image(systemName: "bolt.fill")).font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(active ? Color.white.opacity(0.8) : Color.secondary), at: center)
+            } else {
+                ctx.draw(Text(verbatim: "\(latency)").font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundColor(levelColor), at: center)
             }
         }
-        // 选中卡是克莱因蓝实底：内容一律按深色外观取色，浅色模式下读数才不会黑压在蓝上。
-        .environment(\.colorScheme, active ? .dark : colorScheme)
-        .padding(store.smallCard ? 7 : 10)
-        .frame(minWidth: store.minProxyCardWidth, maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(active ? AnyShapeStyle(WgInk.signal) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.075 : 0.035)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .strokeBorder(flash ? WgInk.signal : (active ? Color.clear : Color.primary.opacity(hovering ? 0.14 : 0.07)), lineWidth: flash ? 2 : 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-        .onHover { hovering = $0 }
+        .frame(height: height)
+        .frame(minWidth: store.minProxyCardWidth, maxWidth: .infinity)
+        .overlay(alignment: .topLeading) {
+            if hasIcon { PPGroupIcon(icon: node?.icon, size: 14).padding(.leading, pad).padding(.top, pad + 1).allowsHitTesting(false) }
+        }
+        // 延迟标签的点击区（测速）。
+        .overlay(alignment: .bottomTrailing) {
+            Color.clear
+                .frame(width: tagSize.width, height: tagSize.height)
+                .contentShape(Rectangle())
+                .onTapGesture { test() }
+                .padding(pad)
+        }
+        .contentShape(Rectangle())
+        // 唯一的悬停监听：同时负责高亮、提示与右键测速的路由。
+        .onHover { inside in
+            hovering = inside
+            if inside { PPRightClickRouter.shared.push(clickID) { test() } } else { PPRightClickRouter.shared.pop(clickID) }
+        }
+        .onDisappear { PPRightClickRouter.shared.pop(clickID) }
         .onTapGesture { Task { await store.select(group: group, node: name) } }
-        .onRightClick { test() }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-        .animation(.easeOut(duration: 0.3), value: active)
+        .ppHelp(tooltip, when: hovering)
+    }
+
+    private var tooltip: String {
+        let items = store.history(name, group: group)
+        guard !items.isEmpty else { return name }
+        let fmt = PPNodeCard.tipFormatter
+        return ([name] + items.suffix(10).map { item in
+            let time = PPPersist.parseDate(item.time).map { fmt.string(from: $0) } ?? item.time
+            return "\(time)  \(item.delay == 0 ? "超时" : "\(item.delay)ms")"
+        }).joined(separator: "\n")
+    }
+
+    private static let tipFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return fmt
+    }()
+
+    private static var widthCache: [String: CGFloat] = [:]
+
+    private static func width(_ text: String, font: NSFont) -> CGFloat {
+        let key = "\(font.pointSize)|\(font.fontName)|\(text)"
+        if let w = widthCache[key] { return w }
+        let w = (text as NSString).size(withAttributes: [.font: font]).width
+        if widthCache.count > 4000 { widthCache.removeAll() }
+        widthCache[key] = w
+        return w
+    }
+
+    /// 单行截断（尾部省略号）。
+    static func truncate(_ text: String, font: NSFont, width: CGFloat) -> String {
+        guard width > 0, Self.width(text, font: font) > width else { return text }
+        var chars = Array(text)
+        while !chars.isEmpty && Self.width(String(chars) + "…", font: font) > width { chars.removeLast() }
+        return String(chars) + "…"
+    }
+
+    static func lines(_ name: String, store: ProxyPanelStore) -> Int {
+        guard !store.truncateProxyName else { return 1 }
+        let small = store.smallCard
+        let font = NSFont.systemFont(ofSize: small ? 12 : 13, weight: .semibold)
+        return lineCount(name, font: font, width: store.minProxyCardWidth - (small ? 14 : 20) - 18)
+    }
+
+    /// 卡片高度可直接算出（不依赖布局测量），列表据此给出节点行的精确行高。
+    static func height(for name: String, store: ProxyPanelStore) -> CGFloat {
+        let small = store.smallCard
+        let pad: CGFloat = small ? 7 : 10
+        let lineHeight: CGFloat = small ? 15 : 17
+        return pad * 2 + lineHeight * CGFloat(lines(name, store: store)) + (small ? 3 : 6) + (small ? 16 : 20)
+    }
+
+    static func lineCount(_ text: String, font: NSFont, width: CGFloat) -> Int {
+        min(3, max(1, Int(ceil(Self.width(text, font: font) / max(40, width)))))
     }
 
     private func test() {
@@ -413,10 +540,60 @@ struct PPNodeGrid: View {
 
     var body: some View {
         let now = store.proxyMap[group]?.now
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: store.minProxyCardWidth), spacing: 8)], spacing: 8) {
+        // 非懒加载网格：外层 LazyVStack 已按组懒加载；组内再套 LazyVGrid 会让每一帧滚动都重算可见区与摆放。
+        PPAdaptiveGrid(minWidth: store.minProxyCardWidth, spacing: 8) {
             ForEach(names, id: \.self) { name in
                 PPNodeCard(name: name, group: group, active: name == now)
             }
+        }
+    }
+}
+
+/// 自适应列宽网格（等价于 GridItem(.adaptive(minimum:))，但不懒加载；行高按宽度缓存）。
+struct PPAdaptiveGrid: Layout {
+    var minWidth: CGFloat
+    var spacing: CGFloat
+
+    struct Cache { var width: CGFloat = -1; var rows: [CGFloat] = [] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    private func columns(for width: CGFloat) -> Int { max(1, Int((width + spacing) / (minWidth + spacing))) }
+
+    private func rows(_ width: CGFloat, _ subviews: Subviews, _ cache: inout Cache) -> [CGFloat] {
+        if cache.width == width { return cache.rows }
+        let cols = columns(for: width)
+        let cellWidth = (width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
+        var rows: [CGFloat] = []
+        var index = 0
+        while index < subviews.count {
+            let slice = subviews[index..<min(index + cols, subviews.count)]
+            rows.append(slice.map { $0.sizeThatFits(ProposedViewSize(width: cellWidth, height: nil)).height }.max() ?? 0)
+            index += cols
+        }
+        cache = Cache(width: width, rows: rows)
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let width = proposal.width ?? minWidth
+        let r = rows(width, subviews, &cache)
+        return CGSize(width: width, height: r.reduce(0, +) + spacing * CGFloat(max(0, r.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let cols = columns(for: bounds.width)
+        let cellWidth = (bounds.width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
+        let r = rows(bounds.width, subviews, &cache)
+        var y = bounds.minY
+        for (rowIndex, rowHeight) in r.enumerated() {
+            for col in 0..<cols {
+                let i = rowIndex * cols + col
+                guard i < subviews.count else { break }
+                subviews[i].place(at: CGPoint(x: bounds.minX + CGFloat(col) * (cellWidth + spacing), y: y),
+                                  proposal: ProposedViewSize(width: cellWidth, height: rowHeight))
+            }
+            y += rowHeight + spacing
         }
     }
 }

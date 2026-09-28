@@ -131,6 +131,7 @@ struct WgSenseApp: App {
 
     init() {
         WgAppLanguage.applyPreferredLocalization()
+        WgFrameProbe.startIfRequested()
     }
 
     var body: some Scene {

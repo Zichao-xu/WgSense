@@ -190,33 +190,77 @@ private struct PPGroupList: View {
 
     var body: some View {
         GeometryReader { geo in
-            ScrollView {
-                // 自动双列只在全部折叠时启用：展开的组要整行宽度平铺节点（每行 5–6 张卡），
-                // 双列下每行只剩 2 张，反而难以点选。
-                let anyExpanded = groups.contains { store.isExpanded($0) }
-                let twoColumns = geo.size.width >= 760 && groups.count > 1 && !anyExpanded
-                Group {
-                    if twoColumns {
-                        HStack(alignment: .top, spacing: 12) {
-                            ForEach(0..<2, id: \.self) { column in
-                                LazyVStack(spacing: 12) {
-                                    ForEach(Array(groups.enumerated()).filter { $0.offset % 2 == column }.map(\.element), id: \.self) { name in
-                                        PPGroupCard(name: name)
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(groups, id: \.self) { PPGroupCard(name: $0) }
-                        }
-                    }
-                }
-                .padding(.bottom, 20)
-            }
+            // 自动双列只在全部折叠时启用：展开的组要整行宽度平铺节点，双列下每行只剩 2 张，反而难以点选。
+            let anyExpanded = groups.contains { store.isExpanded($0) }
+            let twoColumns = geo.size.width >= 760 && groups.count > 1 && !anyExpanded
+            let items = listItems(twoColumns: twoColumns, width: geo.size.width)
+            // AppKit 表格容器（见 PPGroupTable 顶部说明）：按行种类复用，节点行高度直接算出。
+            PPGroupTable(items: items, width: geo.size.width, fixedHeight: { item in
+                guard case .nodes(_, _, let names, _) = item.kind else { return nil }
+                return (names.map { PPNodeCard.height(for: $0, store: store) }.max() ?? 0) + 8
+            }, makeRow: { item in
+                AnyView(
+                    row(item, twoColumns: twoColumns)
+                        .padding(.top, item.topInset)
+                        .padding(.bottom, item.bottomInset)
+                        .environmentObject(store)
+                        .tint(WgInk.signal)
+                )
+            })
         }
     }
 }
+
+struct PPListItem: Identifiable, Hashable {
+    enum Kind: Hashable { case cards([String]), header(String), nodes(String, Int, [String], Int), footer(String) }
+    var kind: Kind
+    var id: Kind { kind }
+    var topInset: CGFloat {
+        switch kind { case .cards, .header: return 6; default: return 0 }
+    }
+    var bottomInset: CGFloat {
+        switch kind { case .cards, .footer: return 6; default: return 0 }
+    }
+}
+
+extension PPGroupList {
+    func listItems(twoColumns: Bool, width: CGFloat) -> [PPListItem] {
+        if twoColumns {
+            return stride(from: 0, to: groups.count, by: 2).map { PPListItem(kind: .cards(Array(groups[$0..<min($0 + 2, groups.count)]))) }
+        }
+        let inner = width - 32
+        let cols = max(1, Int((inner + 8) / (store.minProxyCardWidth + 8)))
+        var items: [PPListItem] = []
+        for g in groups {
+            guard store.isExpanded(g), !store.groupProxiesByProvider, store.proxyMap[g] != nil else {
+                items.append(PPListItem(kind: .cards([g]))); continue
+            }
+            items.append(PPListItem(kind: .header(g)))
+            let names = store.renderProxies(of: g)
+            for (i, start) in stride(from: 0, to: names.count, by: cols).enumerated() {
+                items.append(PPListItem(kind: .nodes(g, i, Array(names[start..<min(start + cols, names.count)]), cols)))
+            }
+            items.append(PPListItem(kind: .footer(g)))
+        }
+        return items
+    }
+
+    @ViewBuilder
+    func row(_ item: PPListItem, twoColumns: Bool) -> some View {
+        switch item.kind {
+        case .cards(let names):
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(names, id: \.self) { PPGroupCard(name: $0) }
+                if twoColumns && names.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+            }
+        case .header(let g): PPGroupCard(name: g, part: .header)
+        case .nodes(let g, _, let names, let cols):
+            PPNodeRow(group: g, names: names, columns: cols)
+        case .footer(let g): PPGroupCard(name: g, part: .footer)
+        }
+    }
+}
+
 
 private struct PPNodeGroupList: View {
     @EnvironmentObject private var store: ProxyPanelStore
@@ -250,6 +294,8 @@ struct PPGroupCard: View {
     var rootGroup: String?
     /// 在节点组块里时由外层提供外框。
     var chromeless = false
+    /// 列表分段渲染：展开的组拆成 组头 / 节点行 / 组尾 多个列表行，滚动时一次只创建一小段。
+    var part: PPGroupPart = .whole
     var onSelect: ((String, String) -> Void)?
 
     @State private var showPenetration = false
@@ -259,8 +305,25 @@ struct PPGroupCard: View {
 
     var body: some View {
         if let group = store.proxyMap[name] {
-            let rendered = store.renderProxies(of: name)
-            VStack(alignment: .leading, spacing: 10) {
+            switch part {
+            case .whole: whole(group)
+            case .header:
+                header(group)
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                    .background(PPSegmentChrome(top: true, bottom: false))
+                    .contentShape(Rectangle())
+                    .onRightClick { Task { await store.testGroup(name) } }
+            case .footer:
+                PPPenetrationSection(root: name)
+                    .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 16)
+                    .background(PPSegmentChrome(top: false, bottom: true))
+            }
+        }
+    }
+
+    private func whole(_ group: MihomoProxy) -> some View {
+        let rendered = store.renderProxies(of: name)
+        return VStack(alignment: .leading, spacing: 10) {
                 header(group)
                 if expanded {
                     Group {
@@ -284,7 +347,6 @@ struct PPGroupCard: View {
             .contentShape(Rectangle())
             .onRightClick { Task { await store.testGroup(name) } }
             .animation(WgDesign.spring, value: expanded)
-        }
     }
 
     private func header(_ group: MihomoProxy) -> some View {
@@ -342,6 +404,68 @@ struct PPGroupCard: View {
     private func select(_ node: String) {
         onSelect?(name, node)
         Task { await store.select(group: name, node: node) }
+    }
+}
+
+enum PPGroupPart: Hashable { case whole, header, footer }
+
+/// 分段外框：同一张卡拆成多个列表行时，每段只画自己那部分边（顶段画顶边与上角标，底段画底边与下角标），
+/// 上下拼接后与整卡 `wgInteractiveSurface` 的外观一致。
+struct PPSegmentChrome: View {
+    var top: Bool
+    var bottom: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let dark = colorScheme == .dark
+        let border = dark ? Color.white.opacity(0.09) : Color.black.opacity(0.1)
+        let mark = Color.primary.opacity(dark ? 0.45 : 0.5)
+        Canvas { ctx, size in
+            let r = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(dark ? Color.white.opacity(0.028) : Color.white.opacity(0.6)))
+            var edges = Path()
+            edges.move(to: CGPoint(x: r.minX, y: 0)); edges.addLine(to: CGPoint(x: r.minX, y: size.height))
+            edges.move(to: CGPoint(x: r.maxX, y: 0)); edges.addLine(to: CGPoint(x: r.maxX, y: size.height))
+            if top { edges.move(to: CGPoint(x: 0, y: 0.5)); edges.addLine(to: CGPoint(x: size.width, y: 0.5)) }
+            if bottom { edges.move(to: CGPoint(x: 0, y: size.height - 0.5)); edges.addLine(to: CGPoint(x: size.width, y: size.height - 0.5)) }
+            ctx.stroke(edges, with: .color(border), lineWidth: 1)
+            let l: CGFloat = 6, i: CGFloat = 0.75
+            var marks = Path()
+            if top {
+                marks.move(to: CGPoint(x: i, y: i + l)); marks.addLine(to: CGPoint(x: i, y: i)); marks.addLine(to: CGPoint(x: i + l, y: i))
+                marks.move(to: CGPoint(x: size.width - i - l, y: i)); marks.addLine(to: CGPoint(x: size.width - i, y: i)); marks.addLine(to: CGPoint(x: size.width - i, y: i + l))
+            }
+            if bottom {
+                let b = size.height - i
+                marks.move(to: CGPoint(x: i, y: b - l)); marks.addLine(to: CGPoint(x: i, y: b)); marks.addLine(to: CGPoint(x: i + l, y: b))
+                marks.move(to: CGPoint(x: size.width - i - l, y: b)); marks.addLine(to: CGPoint(x: size.width - i, y: b)); marks.addLine(to: CGPoint(x: size.width - i, y: b - l))
+            }
+            ctx.stroke(marks, with: .color(mark), lineWidth: 1.5)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// 展开组里的一行节点（固定列数，与同组其他行对齐）。
+struct PPNodeRow: View {
+    @EnvironmentObject private var store: ProxyPanelStore
+    var group: String
+    var names: [String]
+    var columns: Int
+
+    var body: some View {
+        let now = store.proxyMap[group]?.now
+        HStack(alignment: .top, spacing: 8) {
+            // 按列位置做身份（片段回收）：表格复用这一行显示别的节点时，卡片视图原地保留、只换数据重画，
+            // 不必拆掉重建整棵子树。
+            ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                PPNodeCard(name: name, group: group, active: name == now)
+            }
+            ForEach(0..<max(0, columns - names.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .background(PPSegmentChrome(top: false, bottom: false))
     }
 }
 
@@ -416,20 +540,13 @@ private struct PPPenetrationSection: View {
                 .buttonStyle(WgPillButtonStyle())
                 .disabled(!canPenetrate)
                 Spacer()
-                Picker("", selection: Binding(
-                    get: { mode },
-                    set: { newMode in
-                        store.penetrationModeMap[root] = newMode.rawValue
-                        lastSelectedGroup = ""
-                        if newMode == .stepwise { stepwiseVisible = 1 }
-                    }
-                )) {
-                    Text("逐层穿透").tag(PPPenetrationMode.stepwise)
-                    Text("穿透到底").tag(PPPenetrationMode.full)
+                // 自绘分段：系统分段控件是 AppKit 视图，每个组各建一个，滚动时创建与命中测试都偏重。
+                PPSegmented(options: [("逐层穿透", PPPenetrationMode.stepwise), ("穿透到底", PPPenetrationMode.full)],
+                            selection: mode) { newMode in
+                    store.penetrationModeMap[root] = newMode.rawValue
+                    lastSelectedGroup = ""
+                    if newMode == .stepwise { stepwiseVisible = 1 }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
                 .disabled(!canPenetrate || !canSwitch)
             }
             if isExpanded && !rendered.isEmpty {
@@ -710,5 +827,32 @@ private struct PPEmptyState: View {
         .frame(maxWidth: .infinity)
         .padding(40)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
+    }
+}
+
+/// 仪表风分段按钮：发丝框，选中项克莱因蓝实底。
+struct PPSegmented<Value: Hashable>: View {
+    var options: [(String, Value)]
+    var selection: Value
+    var onChange: (Value) -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                let selected = option.1 == selection
+                Text(LocalizedStringKey(option.0))
+                    .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.white : WgInk.ink2)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(selected ? WgInk.signal : Color.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !selected { onChange(option.1) } }
+            }
+        }
+        .padding(1)
+        .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }
