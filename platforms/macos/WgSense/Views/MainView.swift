@@ -253,6 +253,15 @@ struct MainView: View {
                 ProxyView()
                     .padding(.vertical, 28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else if selection == .settings {
+                // 验证中：原生滚动容器（见 WgScrollView）。内容是独立宿主，环境需显式注入。
+                WgScrollView(content: AnyView(
+                    SettingsView()
+                        .padding(28)
+                        .environmentObject(client)
+                        .modifier(WgLocaleOverride(language: selectedLanguage))
+                        .tint(WgInk.signal)
+                ))
             } else {
                 ScrollView {
                     Group {
