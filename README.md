@@ -55,7 +55,7 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 - [x] 磁贴布局持久化 — 排序、增删、改大小重启后保留，解码逐条容错
 - [ ] Windows / Linux / iOS / Android 平台
 
-> 系统要求 macOS 26 或更新：背景板用的 `NSGlassEffectView` 自 macOS 26 起提供。
+> 当前官方安装包面向 Apple Silicon Mac，系统要求 macOS 26 或更新：背景板用的 `NSGlassEffectView` 自 macOS 26 起提供。
 >
 > 当前没有 Apple Developer 签名与公证。个人使用候选版会在 App 首次运行时请求一次
 > 管理员授权安装常驻系统服务；之后启动 App、开关 VPN 与服务自动恢复使用已安装服务。
