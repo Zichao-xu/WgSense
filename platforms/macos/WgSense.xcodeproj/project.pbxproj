@@ -10,8 +10,11 @@
 		00ECE54738BD3FCF48919419 /* ProfileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C632B444F63E828AD86F00E4 /* ProfileManagerView.swift */; };
 		043CC060D48805CE01C49DDC /* WgVPNPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */; };
 		0A2EC6E290092752B87FCA08 /* MihomoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3354F508C0653A08D63DBEEC /* MihomoModels.swift */; };
+		126B53B2D18531AA83E35ADD /* WgHUDDisplayClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33584D349600AEC079B8873A /* WgHUDDisplayClock.swift */; };
 		1D959CB4980AECC76DC532EA /* PPGroupTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9DCCE34E27D91EFD69FC1D /* PPGroupTable.swift */; };
 		205BFAA4DA400C825AF59FDE /* ProfileFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */; };
+		252A580BB4B5F08FD1769CD1 /* WgHUDMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA9782B4A5C321CF31590D8 /* WgHUDMotion.swift */; };
+		2D32A2D89D6779DBB72483FF /* WgLinkStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 684844BC976187E7AFFE036B /* WgLinkStage.swift */; };
 		2D3FCB428630D7F9D10607AE /* ProxyPanelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827EB7C08699493703F29CA /* ProxyPanelStore.swift */; };
 		338D7410BCA0C8F503856E3E /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866A0A396B7DBCD9D7355E66 /* DaemonClient.swift */; };
 		37CC4467DE3F5215AF303A52 /* PPComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4455FF95397C153A2E668592 /* PPComponents.swift */; };
@@ -35,6 +38,7 @@
 		9A2198BA923E1789C7409A6F /* PPProxiesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */; };
 		A7708D45E8B5D47CDEAFB91E /* OtherViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */; };
 		A9184D24FC36095D400742E2 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4527B6C1A63B6D3C0730C4D /* MihomoAPI.swift */; };
+		A9FC1E8C8EA90AE0F05953B2 /* WgLinkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805B104167A8BA3A2EF94FBF /* WgLinkMonitor.swift */; };
 		AD1CF9C11928FE18C9831B31 /* PPCustomRuleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840FF9EAB81A5780AC273FE6 /* PPCustomRuleViews.swift */; };
 		AFA93798730A8E6F44DC3473 /* DaemonControlAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B95572549041E76B3DBD63 /* DaemonControlAPIClient.swift */; };
 		B0ED1641322EEAFE01F82312 /* WgInk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23E71D9C541002874711CBA9 /* WgInk.swift */; };
@@ -90,17 +94,20 @@
 		25978E89B4CCD23B64EA7345 /* DaemonModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonModels.swift; sourceTree = "<group>"; };
 		2B3455C78FB99740D40CFE98 /* DaemonAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonAPIClient.swift; sourceTree = "<group>"; };
 		3354F508C0653A08D63DBEEC /* MihomoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoModels.swift; sourceTree = "<group>"; };
+		33584D349600AEC079B8873A /* WgHUDDisplayClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgHUDDisplayClock.swift; sourceTree = "<group>"; };
 		3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSenseWidget.swift; sourceTree = "<group>"; };
 		4455FF95397C153A2E668592 /* PPComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPComponents.swift; sourceTree = "<group>"; };
 		5182A73E110DDF99E4F44865 /* PPSankey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPSankey.swift; sourceTree = "<group>"; };
 		54A3CE06A6A17BCEB2B3CE57 /* TransferModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferModels.swift; sourceTree = "<group>"; };
 		6827EB7C08699493703F29CA /* ProxyPanelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPanelStore.swift; sourceTree = "<group>"; };
+		684844BC976187E7AFFE036B /* WgLinkStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgLinkStage.swift; sourceTree = "<group>"; };
 		6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProxiesPage.swift; sourceTree = "<group>"; };
 		6E158E212B731D8EB3325B66 /* PPOverviewPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPOverviewPage.swift; sourceTree = "<group>"; };
 		796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWrtRuleSource.swift; sourceTree = "<group>"; };
 		7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVPNPresentation.swift; sourceTree = "<group>"; };
 		7DF23D4A47461A7F12D1F16B /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		7E48C549BB7D40A8B916CC0B /* WgSenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WgSenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		805B104167A8BA3A2EF94FBF /* WgLinkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgLinkMonitor.swift; sourceTree = "<group>"; };
 		808710A2E6EAD06A54381677 /* WgSense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WgSense.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83C9AEACF015695C43E09540 /* ShellCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellCommand.swift; sourceTree = "<group>"; };
 		840FF9EAB81A5780AC273FE6 /* PPCustomRuleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPCustomRuleViews.swift; sourceTree = "<group>"; };
@@ -113,6 +120,7 @@
 		8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireGuardView.swift; sourceTree = "<group>"; };
 		8E57ED7DA686D5363F4DCFBE /* OtherViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherViews.swift; sourceTree = "<group>"; };
 		940829B6D2F7309278E8000C /* PPOverviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPOverviewStore.swift; sourceTree = "<group>"; };
+		9DA9782B4A5C321CF31590D8 /* WgHUDMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgHUDMotion.swift; sourceTree = "<group>"; };
 		A6F32A96612A010AB2B369F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B327C41F92B977872F228B46 /* WgSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSurfaces.swift; sourceTree = "<group>"; };
 		B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProviderSupport.swift; sourceTree = "<group>"; };
@@ -185,7 +193,11 @@
 				842AA6F3E44BEA9F7D66B894 /* ProxyView.swift */,
 				8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */,
 				025AA57CBF7107F99D3479A5 /* WgFrameProbe.swift */,
+				33584D349600AEC079B8873A /* WgHUDDisplayClock.swift */,
+				9DA9782B4A5C321CF31590D8 /* WgHUDMotion.swift */,
 				23E71D9C541002874711CBA9 /* WgInk.swift */,
+				805B104167A8BA3A2EF94FBF /* WgLinkMonitor.swift */,
+				684844BC976187E7AFFE036B /* WgLinkStage.swift */,
 				1B1C9D2B646A6CA9B40C0EBC /* WgScrollView.swift */,
 				7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */,
 				8CDE2BD1AD0348E6C62734C6 /* WireGuardView.swift */,
@@ -405,7 +417,11 @@
 				6E1F049D995E07C2D53DCA04 /* TransferModels.swift in Sources */,
 				D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */,
 				DD547983D07C16536E2BE7B9 /* WgFrameProbe.swift in Sources */,
+				126B53B2D18531AA83E35ADD /* WgHUDDisplayClock.swift in Sources */,
+				252A580BB4B5F08FD1769CD1 /* WgHUDMotion.swift in Sources */,
 				B0ED1641322EEAFE01F82312 /* WgInk.swift in Sources */,
+				A9FC1E8C8EA90AE0F05953B2 /* WgLinkMonitor.swift in Sources */,
+				2D32A2D89D6779DBB72483FF /* WgLinkStage.swift in Sources */,
 				B724C8AC51CB0161D11D631B /* WgScrollView.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */,
@@ -496,7 +512,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -520,7 +536,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
-				INFOPLIST_KEY_LSMinimumSystemVersion = 14.0;
+				INFOPLIST_KEY_LSMinimumSystemVersion = 26.0;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -610,7 +626,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -635,7 +651,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
-				INFOPLIST_KEY_LSMinimumSystemVersion = 14.0;
+				INFOPLIST_KEY_LSMinimumSystemVersion = 26.0;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

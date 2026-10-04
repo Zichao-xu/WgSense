@@ -30,6 +30,8 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     @Published var actionToast: ActionToast?
     @Published var logLines: [LogLine] = []
     @Published var traffic: TrafficStats?
+    /// 链路事件（握手、重绑、能收不能发），只读状态字段推导。
+    let linkMonitor = WgLinkMonitor()
     @Published private(set) var isAuthorizingDaemon = false
     @Published private(set) var serviceLifecycleError: String?
     /// 安装失败后停止自动提权，界面显示“重试安装”。
@@ -242,12 +244,15 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         do {
             let next = try await controlAPI.status()
             if status != next { status = next }
+            linkMonitor.ingest(handshake: next.last_handshake, handshakeAge: next.last_handshake_age_seconds,
+                               tx: next.peer_tx_bytes, rx: next.peer_rx_bytes, rebinds: next.bind_rebinds, tunnelUp: isTunnelUp)
             let wantVPN = next.desired_vpn_enabled ?? (next.state == "Connected")
             if desiredVPNEnabled != wantVPN { desiredVPNEnabled = wantVPN }
             let wantGuard = next.desired_guard_enabled ?? !next.paused
             if guardAutomationEnabled != wantGuard { guardAutomationEnabled = wantGuard }
             markDaemonUp()
         } catch {
+            linkMonitor.markUnavailable()
             if status != nil { status = nil }
             if transferState != nil { transferState = nil }
             let message = serviceLifecycleError ?? "daemon 未连接"

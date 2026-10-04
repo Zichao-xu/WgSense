@@ -24,7 +24,15 @@ UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Andro
 
 ## 状态
 
-**v1.0.0** — macOS 常驻服务与网络恢复：
+**v1.0.1** — 交互式链路 HUD、原生代理面板与界面性能更新：
+
+- [x] 链路舞台 — 指针感应、收发聚焦、真实流量轨迹与自愈记录
+- [x] 非线性事件动画 — 按显示器刷新率更新，空闲暂停，支持减少动态效果
+- [x] HUD 回归 — 95 项模型/运动检查与极限遮挡像素检查
+
+本次更新及验证边界见 [v1.0.1 发布说明](docs/releases/v1.0.1.md)。120Hz 是活动动画目标，尚不保证所有交互稳定 120fps。
+
+已有能力：
 
 - [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
 - [x] wireguard-go 集成 — 真实隧道测试通过

@@ -22,6 +22,8 @@ struct DaemonStatus: Codable, Equatable {
     var last_handshake_age_seconds: Int?
     var peer_tx_bytes: UInt64?
     var peer_rx_bytes: UInt64?
+    /// 发包地址失效后自愈重绑（BindUpdate）的累计次数。
+    var bind_rebinds: Int?
     var network_interfaces: [NetworkInterface]?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }

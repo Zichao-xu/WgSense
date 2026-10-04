@@ -14,6 +14,8 @@ struct OverviewView: View {
 
             hero
 
+            linkStage
+
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 12
@@ -86,6 +88,22 @@ struct OverviewView: View {
         case .disconnecting:
             ProgressView().controlSize(.small)
         }
+    }
+
+    // MARK: - 链路舞台
+
+    /// 事件驱动 HUD：收发构成、握手刻度与最近 30 秒遥测轨迹。
+    private var linkStage: some View {
+        let phase: WgLinkPhase
+        switch client.vpnPresentation.phase {
+        case .connected: phase = .linked
+        case .home: phase = .home
+        case .connecting, .retrying: phase = .connecting
+        case .idle, .disconnecting: phase = .idle
+        case .offline, .setupFailed: phase = .offline
+        }
+        return WgLinkStage(phase: phase, monitor: client.linkMonitor)
+            .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 
     // MARK: - 信息卡

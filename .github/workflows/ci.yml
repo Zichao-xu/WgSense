@@ -33,6 +33,11 @@ jobs:
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
+      - name: Verify HUD model and motion
+        working-directory: .
+        run: |
+          ./tests/hud/check-monitor.sh
+          ./tests/hud/check-motion.sh
       - run: brew install xcodegen
       - run: xcodegen generate
       - run: xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Debug build -destination 'platform=macOS' CODE_SIGN_IDENTITY="-"
