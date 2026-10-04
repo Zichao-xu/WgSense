@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1254 1254">
+  <title>WgSense — bilateral breakthrough</title>
+  <defs><clipPath id="tile"><rect x="102" y="104" width="1050" height="1044" rx="154"/></clipPath></defs>
+  <g clip-path="url(#tile)">
+    <rect x="102" y="104" width="1050" height="1044" fill="#E9E8E2"/>
+    <polygon fill="#101214" points="474,599 574,359 740,277 619,598 1152,461 1152,588 574,738 600,649 533,665 560,579"/>
+    <polygon fill="#101214" points="102,700 474,599 433,714 588,677 509,886 318,966 403,764 102,840"/>
+    <polygon fill="#EF4236" points="742,479 1027,403 1027,461 742,534"/>
+  </g>
+</svg>

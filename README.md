@@ -1,134 +1,174 @@
-# WgSense
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/wgsense-icon.svg">
+    <img src="branding/wgsense-icon-light.svg" width="112" height="112" alt="WgSense：贯穿边缘的交错斜面与朱红短线">
+  </picture>
+</p>
 
-跨平台网络工具套件，以 WireGuard 为首个模块——带智能管理能力：位置感知自动开关、假连接检测、睡眠唤醒恢复、Mihomo 代理面板。
+<h1 align="center">WgSense</h1>
+<p align="center"><strong>看清链路，也管好连接。</strong></p>
+<p align="center">为 Mac 打造的原生网络工作台。WireGuard、动态链路 HUD、Mihomo 代理面板与局域网传输。</p>
 
-## 为什么
+<p align="center">
+  <a href="https://github.com/Zichao-xu/WgSense/releases/latest"><strong>下载 macOS 版</strong></a> ·
+  <a href="#开始使用">开始使用</a> ·
+  <a href="#常见问题">常见问题</a> ·
+  <a href="https://github.com/Zichao-xu/WgSense/releases">更新记录</a> ·
+  <a href="https://github.com/Zichao-xu/WgSense/issues">反馈问题</a>
+</p>
 
-官方 WireGuard 客户端缺少智能管理：
-- 出门后隧道进入"假 Connected"状态，流量黑洞，必须手动停启
-- 不会基于网络位置自动开关
-- 睡眠唤醒后不主动重建数据通道
-- 缺少统一的多协议代理管理界面
+<p align="center">Apple Silicon · macOS 26 或更新 · SwiftUI 原生界面 · Apache 2.0</p>
 
-WgSense 解决这些，并演进为**网络工具套件平台**（WireGuard + 局域网传输 + 代理管理等）。
+![WgSense 深色链路舞台，显示接收与发送速度、握手刻度和流量轨迹](docs/images/hud-dark.png)
 
-## 架构
+<p align="center"><sub>生产 HUD 组件的原生离线渲染，使用合成演示数据。实际读数来自你的连接。</sub></p>
 
-```
-UI 层(全原生)       macOS SwiftUI · Windows WinUI · Linux GTK · iOS/Android
-核心层(Go,跨平台)   wireguard-go 隧道 + 智能管理引擎
-平台绑定             gomobile → .framework / .dll / .so / .aar
-```
+> **下载前请了解：** 当前安装包尚未使用 Apple Developer ID 签名和公证，首次运行需要管理员授权安装后台服务。本机控制接口尚无调用者认证，当前更适合可信的个人 Mac；详见下方的安装与隐私说明。
 
-**原则**：UI 全原生，核心逻辑 Go 跨平台复用。不重写 WG 协议(安全风险)，智能逻辑跨平台一致。这是 WireGuard 官方客户端、Tailscale 的架构。
+## 你可以用它做什么
 
-## 状态
+| 想做的事 | WgSense 提供的入口 |
+| --- | --- |
+| 在外连接家里或自己的服务器 | 导入 WireGuard `.conf`，管理多份配置，查看握手、流量和连接状态。你需要已有的 WireGuard 服务端配置。 |
+| 少做重复的连接操作 | 自行设定受信任网段与自动连接策略；守护开启时，在受信任网络保持断开，在符合条件的外部网络尝试连接。 |
+| 看懂链路发生了什么 | 「链路舞台」把最近 30 秒的收发、握手新鲜度与观测到的自愈记录放在一起，支持聚焦和逐点查阅。 |
+| 管理已有的代理服务 | 连接自己的 Mihomo 控制器，查看策略组、节点、订阅与域名规则。需要另行运行 Mihomo。 |
+| 给同一局域网的设备传文件 | 使用兼容 LocalSend 协议的传输模块，发现设备、发送文件，并在接收前确认。 |
 
-**v1.0.1** — 交互式链路 HUD、原生代理面板与界面性能更新：
+## 链路有动态，也有依据
 
-- [x] 链路舞台 — 指针感应、收发聚焦、真实流量轨迹与自愈记录
-- [x] 非线性事件动画 — 按显示器刷新率更新，空闲暂停，支持减少动态效果
-- [x] HUD 回归 — 95 项模型/运动检查与极限遮挡像素检查
+收发斜面随速率变化，握手触发扫描，自愈事件留下刻度。动画采用缓动与有限回弹，停下来后暂停连续刷新；支持系统「减少动态效果」。
 
-本次更新及验证边界见 [v1.0.1 发布说明](docs/releases/v1.0.1.md)。120Hz 是活动动画目标，尚不保证所有交互稳定 120fps。
+- **移动指针**：构成轻微跟随，数值仍由真实流量决定。
+- **点击接收 / 发送**：聚焦一个方向，再点恢复全部。
+- **指向底部轨迹**：查看该次采样；点击固定，再点解除。
+- **遇到缺测**：读数留空，不用旧数据假装仍在连接。
 
-已有能力：
+<details>
+<summary><strong>展开观看 10 秒动态演示</strong></summary>
 
-- [x] Go 核心模块(config / location / tunnel / healthcheck / pause / policy)
-- [x] wireguard-go 集成 — 真实隧道测试通过
-- [x] macOS SwiftUI app — Surge 风格 sidebar + 菜单栏图标 + 磁贴仪表盘
-- [x] daemon HTTP API — `127.0.0.1:8765`
-- [x] Mihomo (Clash Meta) 代理面板 — 策略/域名/节点/订阅四页签
-- [x] 局域网传输模块 (LocalSend 协议兼容, 端口 53318)
-- [x] Profile CRUD — 导入/导出/编辑/切换，支持 daemon 离线操作
-- [x] 流量监控 — netstat 自动选活跃接口
-- [x] GitHub Actions CI
-- [x] 路由修复 — 握手门控 + endpoint 排除 + 连接期接管 DNS、断开恢复
-- [x] daemon 守护策略 — 回到受信任网络自动断开，网络切换后立即处理假连接
-- [x] 多网卡判断 — 有线/Apple USB LAN 优先，任一有效物理网卡命中信任网段即断开 VPN
-- [x] VPN 磁贴交互 — 执行动作后系统通知 + 全局 Liquid Glass 播报 + 紫色守护重启按钮
-- [x] 连接自愈 — 发包地址失效(网络切换/睡眠唤醒)时重建 UDP bind，路由与 DNS 保持不动
-- [x] 日志治理 — wireguard-go 调试日志默认关闭，重复错误折叠计数
-- [x] 背景板三档 — Liquid Glass 标准/通透 + 传统毛玻璃，整窗一块，透出桌面
-- [x] 实体层统一 — 磁贴/卡片/面板实色 + 描边，三级明度同源推导，不再各表面独立取值
-- [x] 外观参数 44 → 5 — 背景模式/浓度 + 内容底色/描边/状态色，全部实时生效
-- [x] 磁贴布局持久化 — 排序、增删、改大小重启后保留，解码逐条容错
-- [ ] Windows / Linux / iOS / Android 平台
+![链路 HUD 的入场、流量变化与事件动画演示](docs/images/hud-motion.gif)
 
-> 当前官方安装包面向 Apple Silicon Mac，系统要求 macOS 26 或更新：背景板用的 `NSGlassEffectView` 自 macOS 26 起提供。
->
-> 当前没有 Apple Developer 签名与公证。个人使用候选版会在 App 首次运行时请求一次
-> 管理员授权安装常驻系统服务；之后启动 App、开关 VPN 与服务自动恢复使用已安装服务。
-> 当前 macOS 发布版走 daemon 管理路径，不注册系统 VPN。
+原生组件离线生成，使用合成数据。GIF 为压缩展示版本，不代表 App 实际帧率。App 活动动画按显示器刷新率更新，最高请求 120Hz；目前不承诺所有场景稳定 120fps。测量方法与边界见 [HUD 验证记录](docs/link-stage-spec.md)。
 
-## 项目结构
+[查看清晰版视频](docs/images/hud-motion.mp4)
 
-```
-wgsense/
-├── core/                          # Go 核心层（跨平台 ~90% 复用）
-│   ├── cmd/wgsense-daemon/        # daemon 主入口
-│   ├── internal/
-│   │   ├── tunnel/                # WireGuard 隧道 (wireguard-go)
-│   │   ├── proxy/                 # Mihomo 代理 API 对接
-│   │   ├── transfer/              # 局域网传输 (LocalSend 协议)
-│   │   ├── logbuf/                # 日志环形缓冲区
-│   │   ├── policy/                # 智能策略引擎
-│   │   └── config/                # 配置管理
-│   └── api/                       # daemon HTTP API (:8765)
-├── platforms/macos/               # macOS 原生 UI (SwiftUI)
-│   └── WgSense/
-│       ├── DaemonClient.swift     # daemon API 客户端
-│       ├── Views/
-│       │   ├── MainView.swift     # 仪表盘 + 磁贴系统
-│       │   ├── ProxyView.swift    # Mihomo 代理面板
-│       │   ├── OverviewView.swift # WG 连接概览
-│       │   ├── ProfileManagerView.swift  # Profile 管理
-│       │   └── OtherViews.swift   # 设置/日志/关于
-│       └── WgSenseApp.swift       # App 入口
-└── .github/workflows/             # CI
-```
+</details>
 
-## 开发
+## 深色沉静，浅色清晰
 
-```bash
+黑白几何与少量状态色构成整个 HUD。浅色使用浅背景与黑色斜面，深色反转；品牌上的朱红短线保持一致。可在「设置 → 外观」选择浅色、深色或跟随系统，并调整背景材质。
+
+![WgSense 浅色链路舞台](docs/images/hud-light.png)
+
+<p align="center"><img src="docs/images/brand-appearance.png" width="680" alt="应用内品牌图标：浅色为浅底黑 X，深色为黑底白 X，红线保持同色"></p>
+
+<p align="center"><sub>应用内图标跟随外观；Dock、Finder 和通知使用固定的深色平面图标。</sub></p>
+
+## 开始使用
+
+### 1. 安装
+
+从 [最新发布页](https://github.com/Zichao-xu/WgSense/releases/latest) 下载 **WgSense-macOS.dmg**，打开后将 **WgSense.app** 拖入「应用程序」，再从「应用程序」启动。安装包已包含所需后台组件。
+
+当前官方包支持 **Apple Silicon（M 系列）Mac，macOS 26 或更新**。Intel Mac、Windows、Linux、iOS 和 Android 暂无本项目的官方安装包。
+
+首次打开可能遇到 macOS 的开发者验证提醒。确认文件来自本仓库后，可按 [Apple 的打开说明](https://support.apple.com/zh-cn/102445) 在「系统设置 → 隐私与安全性」中处理。发布页同时提供 `SHA256SUMS.txt`，用于检查下载文件是否完整。
+
+### 2. 完成首次授权
+
+按 App 提示授权安装常驻后台服务。它负责建立 WireGuard 隧道、管理路由与 DNS。安装完成后，日常启动和连接操作使用已安装的服务；重新安装或维护系统服务时仍可能需要授权。
+
+### 3. 导入你的 WireGuard 配置
+
+打开「配置」，点击「导入」，选择服务端提供的 `.conf` 文件，保存并选中配置。WgSense 不提供 VPN 服务器或代理订阅；配置中的私钥请自行妥善保管。
+
+### 4. 先手动连接，再按需开启守护
+
+先连接一次，在概览中确认握手和流量，并实际访问你要使用的资源。需要自动化时，再到「设置」填写「受信任网络前缀」与自动连接选项，点击「应用」，然后按需开启守护。**新安装默认不填写信任前缀，不自动开启 VPN 或守护。**
+
+前缀示例：`192.168.1.`；多个前缀用英文逗号分隔。这里按 IPv4 地址的开头匹配，不填写 `192.168.1.0/24` 这样的 CIDR。请按自己的实际网络填写。
+
+任一有效物理网卡的 IP 命中信任前缀即视为可信，不依赖 Wi-Fi 名称。多网卡同时在线时，请把这一点纳入你的策略设置。
+
+## 常见问题
+
+<details>
+<summary><strong>为什么在家里显示断开？</strong></summary>
+
+守护开启且当前网络命中你配置的受信任网段时，WgSense 会保持 VPN 断开。这是预期策略。先检查「设置」中的信任网段，避免把不应信任的网络范围填进去。
+
+</details>
+
+<details>
+<summary><strong>关闭窗口或退出 App，会断开 VPN 吗？</strong></summary>
+
+关闭主窗口后，菜单栏仍可使用；退出 App 也不会自动停止已安装的常驻后台。需要同时关闭 VPN 与自动守护时，请先在 App 内点击「停止」，再退出。
+
+</details>
+
+<details>
+<summary><strong>为什么系统设置里没有 WgSense 的 VPN 开关？</strong></summary>
+
+当前 macOS 版通过自己的后台服务管理 WireGuard，不注册系统 VPN。连接和守护状态请在 WgSense 内查看。
+
+</details>
+
+<details>
+<summary><strong>代理面板为空，或者发现不了传输设备？</strong></summary>
+
+代理面板需要能访问的 Mihomo 控制器，以及正确的地址与密钥；默认地址是本机 `127.0.0.1:9090`。WgSense 不内置 Mihomo 内核。
+
+局域网传输需要双方在可互通的网络上，并允许本地网络访问。默认端口为 `53317`；路由器的设备隔离、防火墙或 VPN 路由都可能影响发现。接收文件前会请求确认，也可在设置中关闭接收。
+
+</details>
+
+<details>
+<summary><strong>如何更新或彻底卸载？</strong></summary>
+
+**更新：** 下载新 DMG，先在 App 中点击「停止」，退出 App，再替换「应用程序」中的旧版。启动后按提示完成后台版本检查；后台升级可能重启服务，请在方便中断连接时进行。
+
+**卸载：** 先停止连接，在「设置 → 后台服务」中使用「卸载」，完成后退出并移除 App。只把 App 拖入废纸篓不会卸载常驻服务。卸载服务保留用户配置与接收文件；删除前如有需要，请先在配置页导出备份。
+
+</details>
+
+<details>
+<summary><strong>出现连接异常，反馈什么最有帮助？</strong></summary>
+
+先在「设置 → 后台服务」查看诊断，再到 [Issues](https://github.com/Zichao-xu/WgSense/issues) 说明 App 版本、macOS 版本、操作步骤，以及预期和实际结果。注明是有线、Wi-Fi 还是多网卡环境，会更容易定位。
+
+导出日志或诊断后，请先检查并隐去私钥、控制器密钥、个人地址和配置名称。不要把整份 WireGuard 配置直接贴到公开 Issue。异常动画表示遥测推断，不等同于已完成网络连通性检测。
+
+</details>
+
+## 隐私与当前边界
+
+- WireGuard 配置与应用设置保存在本机；安装包不附带个人私钥或可用的服务器配置。Mihomo 地址与密钥由你提供。
+- 连接会访问配置指定的服务器，代理管理会访问指定控制器。代理概览默认进行公网 IP 查询与连通性检测，会访问外部查询服务和测试站点；可在界面关闭自动检测。
+- 后台启动时会启用局域网设备发现与接收服务，产生本地网络流量；接收文件需确认，也可在设置中关闭接收。
+- 后台控制接口只监听本机 `127.0.0.1:8765`，**目前没有调用者认证**。本机其他进程或用户可能调用它；回环地址不构成权限隔离，不建议把当前版本用于不可信的多人共用环境。
+- Apple Developer ID 签名与公证、真实冷重启和网络切换的完整验收仍待完成。连接恢复机制已加入测试，但不能据此保证每种网络都能自动恢复。
+
+当前版本的变化与验证范围见 [v1.0.2 发布说明](docs/releases/v1.0.2.md)。
+
+## 开发与贡献
+
+界面使用 SwiftUI / AppKit，后台使用 Go 与 wireguard-go。当前交付重点是 macOS；其他平台仍属后续规划。
+
+准备 Xcode、Go（版本见 `core/go.mod`）与 XcodeGen 后：
+
+```sh
 # Go 核心
-cd core && go build ./...
+cd core
+go test ./...
+cd ..
 
-# macOS app
+# macOS App
 cd platforms/macos
 xcodegen generate
 open WgSense.xcodeproj
 ```
 
-## 安装
+[链路 HUD 设计与验证](docs/link-stage-spec.md) · [品牌资源规范](branding/README.md) · [配图来源](docs/images/README.md) · [项目规划](docs/PROJECT-PLAN.md)
 
-从 [Releases](../../releases) 下载 `WgSense-macOS.dmg`，打开后将
-`WgSense.app` 拖入 `Applications`。DMG 已内置 daemon 和维护脚本，不需要
-单独下载后台组件。未经公证的首次启动可能需要在“系统设置 → 隐私与安全性”中确认打开。
-
-v1.0.0 实现首次授权安装常驻服务、后续免密码控制、版本核验、升级与失败回滚。
-构建及隔离测试已通过；真实管理员弹窗次数、Mac 冷重启、VPN 握手与网络切换尚未验收。
-已知验收边界见 [v1.0.0 验证记录](docs/release-validation-v1.0.0.md)。
-
-自行编译：
-
-```bash
-cd platforms/macos
-xcodegen generate
-xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Release build
-```
-
-## 隐私与默认配置
-
-- 仓库和发布包不包含 WireGuard 私钥、Mihomo 密钥、个人路径或个人网络地址。
-- Mihomo 控制器默认连接 `127.0.0.1:9090`，远程控制器由用户自行配置。
-- 受信任网络列表默认留空，自动连接策略默认关闭。
-
-## 商业模式
-
-- **免费版(开源)**：WG 连接管理、多 profile、手动开关、基本状态
-- **付费版**：智能守护(位置感知/自动开关/假连接检测/暂停恢复)、配置云同步、高级路由分流
-
-## 许可证
-
-Apache 2.0。核心开源。高级功能为付费模块。
+欢迎提交问题或改进。仓库代码以 [Apache License 2.0](LICENSE) 发布；第三方组件遵循各自许可证。

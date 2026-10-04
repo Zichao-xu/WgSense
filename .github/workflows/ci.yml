@@ -38,6 +38,16 @@ jobs:
         run: |
           ./tests/hud/check-monitor.sh
           ./tests/hud/check-motion.sh
+      - name: Verify product README
+        working-directory: .
+        run: |
+          python3 tests/docs/check-readme.py
+          python3 docs/images/check-media.py --static
+      - name: Verify all app icon representations
+        working-directory: .
+        run: xcrun swift branding/GenerateAppIcon.swift --check
       - run: brew install xcodegen
       - run: xcodegen generate
-      - run: xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Debug build -destination 'platform=macOS' CODE_SIGN_IDENTITY="-"
+      - run: xcodebuild -project WgSense.xcodeproj -scheme WgSense -configuration Debug build -destination 'platform=macOS' CODE_SIGN_IDENTITY="-" -derivedDataPath build
+      - name: Verify native light and dark brand artwork
+        run: zsh ../../tests/branding/check-appearance.sh build/Build/Products/Debug/WgSense.app build/brand-checks

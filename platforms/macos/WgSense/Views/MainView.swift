@@ -640,8 +640,7 @@ struct SidebarView: View {
     /// 品牌栏：细分隔线 + 几何标 + 名称 / 版本，右侧是添加、编辑、设置。
     private var brandFoot: some View {
         HStack(spacing: 10) {
-            WgLogoMark()
-                .stroke(WgInk.ink, style: StrokeStyle(lineWidth: 1.6, lineJoin: .miter))
+            WgBrandIcon()
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: "WgSense").font(.system(size: 15, weight: .heavy)).tracking(0.6)
@@ -2037,10 +2036,8 @@ struct AboutView: View {
     var body: some View {
         WgPage(title: "关于", word: "ABOUT") {
             VStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
+                WgBrandIcon()
                     .frame(width: 88, height: 88)
-                    .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
                 Text("WgSense")
                     .font(.system(size: 22, weight: .bold))
                 Text(verbatim: "版本 \(version)（\(build)）")

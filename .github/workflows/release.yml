@@ -41,6 +41,17 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             -derivedDataPath build
 
+      - name: Verify all app icon representations
+        run: xcrun swift branding/GenerateAppIcon.swift --check
+
+      - name: Verify product README
+        run: |
+          python3 tests/docs/check-readme.py
+          python3 docs/images/check-media.py --static
+
+      - name: Verify native light and dark brand artwork
+        run: zsh tests/branding/check-appearance.sh platforms/macos/build/Build/Products/Release/WgSense.app "${{ runner.temp }}/wgsense-brand-checks"
+
       - name: Verify HUD model and motion
         run: |
           ./tests/hud/check-monitor.sh
@@ -61,6 +72,9 @@ jobs:
           test -f "docs/releases/$tag.md"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${tag#v}"
           widget="$app/Contents/PlugIns/WgSenseWidget.appex"
+          test "$(lipo -archs "$app/Contents/MacOS/WgSense")" = "arm64"
+          test "$(lipo -archs "$widget/Contents/MacOS/WgSenseWidget")" = "arm64"
+          test "$(lipo -archs "$app/Contents/Resources/libexec/wgsense-daemon")" = "arm64"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$widget/Contents/Info.plist")" = "${tag#v}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$widget/Contents/Info.plist")" = "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           codesign --verify --deep --strict "$app"

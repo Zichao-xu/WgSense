@@ -368,17 +368,3 @@ struct WgGhostSymbol: View {
             .allowsHitTesting(false)
     }
 }
-
-/// 应用标志：切角盾形外框 + W 折线 + 右上角切口标注线。
-struct WgLogoMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 100
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
-        var path = Path()
-        path.move(to: p(18, 10)); path.addLine(to: p(72, 10)); path.addLine(to: p(90, 28)); path.addLine(to: p(90, 70))
-        path.addLine(to: p(62, 92)); path.addLine(to: p(28, 92)); path.addLine(to: p(10, 74)); path.addLine(to: p(10, 18)); path.closeSubpath()
-        path.move(to: p(28, 30)); path.addLine(to: p(40, 70)); path.addLine(to: p(50, 44)); path.addLine(to: p(60, 70)); path.addLine(to: p(72, 30))
-        path.move(to: p(72, 10)); path.addLine(to: p(72, 28)); path.addLine(to: p(90, 28))
-        return path
-    }
-}

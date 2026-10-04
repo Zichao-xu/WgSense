@@ -1,0 +1,7 @@
+{
+  "images": [
+    { "filename": "brand-light.png", "idiom": "universal" },
+    { "filename": "brand-dark.png", "idiom": "universal", "appearances": [{ "appearance": "luminosity", "value": "dark" }] }
+  ],
+  "info": { "author": "xcode", "version": 1 }
+}
