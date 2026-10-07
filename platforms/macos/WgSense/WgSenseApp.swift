@@ -107,8 +107,10 @@ enum WgAppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
-// AppDelegate：防止关闭主窗口后应用退出，保证 MenuBarExtra 常驻
+// AppDelegate：防止关闭主窗口后应用退出，保证菜单栏入口常驻
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusBar: WgStatusBarController?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -116,6 +118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 如果是通过 Finder/单击图标启动，不自动弹窗（菜单栏优先）
         // 保留窗口逻辑由 SwiftUI 管理
+        statusBar = WgStatusBarController(client: WgSenseApp.sharedClient)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -127,7 +130,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct WgSenseApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var client = DaemonClient()
+    /// 主窗口与菜单栏（AppKit 管理，不在 Scene 里）共用同一个 client。
+    @MainActor static let sharedClient = DaemonClient()
+    @StateObject private var client = WgSenseApp.sharedClient
 
     init() {
         WgAppLanguage.applyPreferredLocalization()
@@ -153,28 +158,7 @@ struct WgSenseApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 900, height: 600)
-
-        // 菜单栏：状态 + 快速开关
-        MenuBarExtra {
-            MenuBarView()
-                .environmentObject(client)
-                .tint(WgInk.control)
-        } label: {
-            // 用 Label 渲染：图标 + 隐藏文字（辅助功能可读）
-            Label("WgSense", systemImage: menuBarIcon)
-        }
-        .menuBarExtraStyle(.window)
+        // 菜单栏入口见 WgStatusBarController（盾牌 + 网速 + 日期 + 时间）
     }
 
-    // 菜单栏图标：已连接实心；在家（守护保持断开，属正常）空心；安装失败/离线带提示。
-    private var menuBarIcon: String {
-        switch client.vpnPresentation.phase {
-        case .connected: return "lock.shield.fill"
-        case .connecting, .disconnecting, .retrying: return "shield.lefthalf.filled"
-        case .home: return "shield"
-        case .setupFailed: return "exclamationmark.shield"
-        case .offline: return "shield.slash"
-        case .idle: return "shield.slash"
-        }
-    }
 }
