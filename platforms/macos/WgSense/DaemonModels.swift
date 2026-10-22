@@ -38,26 +38,22 @@ struct DaemonStatus: Codable, Equatable {
 struct FirewallStatus: Codable, Equatable {
     var active: Bool
     var forced: Bool
-    var level: String
     var reason: String
     var interfaces: [String]?
-    var hosts_block: Bool
     var error: String?
     var updated_at: String?
 }
 
 /// 出站拦截设置，单独存于 daemon 的 firewall.json，不随 /api/config 同步。
 struct FirewallSettings: Codable, Equatable {
+    /// 拦截物理网卡上的境外直连（字段名沿用 v1.0.4）。
     var auto_block: Bool
     var force_domestic: Bool
-    var level: String
-    var ai_domains: [String]?
 }
 
 struct FirewallResponse: Codable, Equatable {
     var settings: FirewallSettings
     var status: FirewallStatus
-    var default_ai_domains: [String]
 }
 
 struct NetworkInterface: Codable, Equatable {

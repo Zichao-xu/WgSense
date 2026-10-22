@@ -315,9 +315,8 @@ func (s *Server) handleProfileDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 type firewallResponse struct {
-	Settings         firewall.Settings `json:"settings"`
-	Status           firewall.Status   `json:"status"`
-	DefaultAIDomains []string          `json:"default_ai_domains"`
+	Settings firewall.Settings `json:"settings"`
+	Status   firewall.Status   `json:"status"`
 }
 
 // handleFirewall GET 返回出站拦截设置与状态，POST 更新设置并立即生效。
@@ -343,7 +342,7 @@ func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, firewallResponse{Settings: fw.Settings(), Status: fw.Status(), DefaultAIDomains: firewall.DefaultAIDomains()})
+	writeJSON(w, firewallResponse{Settings: fw.Settings(), Status: fw.Status()})
 }
 
 // handleConfig GET 返回当前配置，POST 更新配置。

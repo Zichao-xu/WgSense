@@ -150,8 +150,6 @@ struct SettingsView: View {
     @State private var applyingConfig = false
     @State private var transferToggling = false
     @State private var firewallSaving = false
-    @State private var editingAIDomains = false
-    @State private var aiDomainsDraft = ""
     @State private var settingsMessage: String?
     @State private var shuttingDownDaemon = false
     @State private var diagnostics = DaemonDiagnostics()
@@ -347,11 +345,10 @@ struct SettingsView: View {
     @ViewBuilder
     private var firewallSection: some View {
         WgSection(title: "出站拦截",
-                  footer: "作用于整台电脑，与 WG 链路无关。自动拦截只挡从物理网卡直连出去的流量，走 WG 隧道不受影响；国内模式连隧道也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
+                  footer: "作用于整台电脑，任何网络都生效。物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器：WG 连着时流量走隧道不受影响；WG 断开时境外直连一律拒绝；在家时境外流量经网关代理照常。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
             if let response = client.firewall,
-               let autoBlock = firewallBinding(\.auto_block),
-               let forceDomestic = firewallBinding(\.force_domestic),
-               let level = firewallBinding(\.level) {
+               let block = firewallBinding(\.auto_block),
+               let forceDomestic = firewallBinding(\.force_domestic) {
                 let status = response.status
                 WgRow(symbol: status.active ? "hand.raised.fill" : "hand.raised",
                       tint: status.active ? .red : .gray,
@@ -365,87 +362,26 @@ struct SettingsView: View {
                     }
                 }
                 WgRowDivider()
-                WgRow(symbol: "shield.lefthalf.filled", tint: .orange, title: "离开受信任网络自动拦截",
-                      subtitle: Text("WG 断开、重连空窗或假连接时，直连流量一律挡住")) {
-                    Toggle("", isOn: autoBlock)
+                WgRow(symbol: "shield.lefthalf.filled", tint: .orange, title: "拦截境外直连",
+                      subtitle: Text("没走 WG 或网关代理的境外连接一律拒绝，含 IPv6")) {
+                    Toggle("", isOn: block)
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .controlSize(.small)
                 }
                 WgRowDivider()
                 WgRow(symbol: "lock.fill", tint: .red, title: "国内模式",
-                      subtitle: Text("强制拦截：任何网络、包括走 WG 隧道的流量")) {
+                      subtitle: Text("只上国内：WG 隧道和网关代理的境外流量也挡")) {
                     Toggle("", isOn: forceDomestic)
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .controlSize(.small)
-                }
-                WgRowDivider()
-                WgRow(symbol: "scope", tint: .purple, title: "拦截范围",
-                      subtitle: Text(response.settings.level == "foreign"
-                                     ? "只放行国内 IP、局域网和 WG 服务器"
-                                     : "Claude、ChatGPT、Gemini 等 AI 服务")) {
-                    Picker("拦截范围", selection: level) {
-                        Text("仅 AI").tag("ai")
-                        Text("全部境外").tag("foreign")
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                WgRowDivider()
-                let custom = response.settings.ai_domains ?? []
-                WgRow(symbol: "list.bullet", tint: .indigo, title: "AI 域名名单",
-                      subtitle: Text(custom.isEmpty
-                                     ? "使用内置名单（\(response.default_ai_domains.count) 个）"
-                                     : "自定义名单（\(custom.count) 个）")) {
-                    Button("编辑…") {
-                        aiDomainsDraft = (custom.isEmpty ? response.default_ai_domains : custom).joined(separator: "\n")
-                        editingAIDomains = true
-                    }
-                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
                 }
             } else {
                 WgRow(symbol: "hand.raised", tint: .gray, title: "出站拦截不可用",
                       subtitle: Text(client.firewallError ?? "需要以 root 运行的正式网络服务"))
             }
         }
-        .sheet(isPresented: $editingAIDomains) { aiDomainsSheet }
-    }
-
-    private var aiDomainsSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("AI 域名名单").font(.system(size: 15, weight: .semibold))
-            Text("一行一个。WG 未连通或国内模式下这些域名解析到 0.0.0.0；不支持通配符，子域名需单独列出。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            TextEditor(text: $aiDomainsDraft)
-                .font(.system(size: 12, design: .monospaced))
-                .frame(minWidth: 420, minHeight: 320)
-                .wgInteractiveSurface(cornerRadius: 3)
-            HStack {
-                Button("恢复内置名单") {
-                    aiDomainsDraft = (client.firewall?.default_ai_domains ?? []).joined(separator: "\n")
-                }
-                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
-                Spacer()
-                Button("取消") { editingAIDomains = false }
-                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
-                Button("保存") {
-                    guard var next = client.firewall?.settings else { return }
-                    let domains = aiDomainsDraft
-                        .split(whereSeparator: \.isNewline)
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
-                    // 与内置名单完全一致时存空，内置名单升级后自动跟随。
-                    next.ai_domains = domains == client.firewall?.default_ai_domains ? [] : domains
-                    saveFirewall(next)
-                    editingAIDomains = false
-                }
-                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
-            }
-        }
-        .padding(20)
     }
 
     @ViewBuilder

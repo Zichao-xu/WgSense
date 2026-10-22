@@ -95,31 +95,18 @@ func (e *Engine) SetPassive(passive bool) { e.passive = passive }
 // SetAppOwned marks a daemon that was started for the current GUI app session.
 func (e *Engine) SetAppOwned(appOwned bool) { e.appOwned = appOwned }
 
-// SetFirewall attaches the machine-wide outbound blocker. It follows every
-// policy tick independently of guard/pause, because it exists for the moments
-// when WireGuard is not protecting traffic.
+// SetFirewall attaches the machine-wide outbound blocker. Its rules do not
+// depend on network or tunnel state; ticks only refresh interfaces and the
+// WireGuard endpoint address.
 func (e *Engine) SetFirewall(fw *firewall.Controller) { e.fw = fw }
 
 // Firewall returns the attached blocker, or nil.
 func (e *Engine) Firewall() *firewall.Controller { return e.fw }
 
-// syncFirewall must run with opMu held so it sees a consistent tunnel state.
-func (e *Engine) syncFirewall(trusted bool, state tunnel.State) {
-	if e.fw == nil {
-		return
-	}
-	_ = e.fw.Sync(firewall.Observation{
-		Trusted:  trusted,
-		TunnelUp: state == tunnel.StateConnected && e.healthFailures == 0,
-	})
-}
-
 func (e *Engine) syncFirewallNow() {
-	if e.fw == nil {
-		return
+	if e.fw != nil {
+		_ = e.fw.Sync()
 	}
-	state, _ := e.tun.Status(e.service)
-	e.syncFirewall(e.loc.IsHome(e.cfg.TrustedNetworkPrefixes), state)
 }
 
 // SetConfigPath enables persistence for runtime configuration changes.
@@ -532,7 +519,6 @@ func (e *Engine) Connect() error {
 	e.healthFailures = 0
 	e.autoFailures = 0
 	e.nextAutoAttempt = time.Time{}
-	e.syncFirewallNow()
 	return nil
 }
 
@@ -545,9 +531,7 @@ func (e *Engine) Disconnect() error {
 		return err
 	}
 	e.healthFailures = 0
-	err := e.tun.Disconnect(e.service)
-	e.syncFirewallNow()
-	return err
+	return e.tun.Disconnect(e.service)
 }
 
 // BeginServiceMaintenance reserves a disconnected engine for an installer.
@@ -594,8 +578,6 @@ func (e *Engine) ShutdownCleanup() error {
 	e.shuttingDown = true
 	e.healthFailures = 0
 	e.shutdownErr = e.tun.Disconnect(e.service)
-	// 规则保持 fail-closed：隧道没了，按"未连通"重新落一次，而不是清掉。
-	e.syncFirewallNow()
 	return e.shutdownErr
 }
 

@@ -17,13 +17,6 @@ var cn4Data string
 //go:embed data/cn6.txt
 var cn6Data string
 
-// aiCIDRs 是 AI 服务自有、不与其他站点共用的地址段。
-// OpenAI/Google 等走共享 CDN，只做域名级拦截，避免误伤。
-var aiCIDRs = []string{
-	"160.79.104.0/23", // Anthropic
-	"2607:6bc0::/48",  // Anthropic
-}
-
 // localCIDRs 永远放行：本机、局域网、CGNAT/Tailscale、链路本地、组播、广播。
 var localCIDRs = []string{
 	"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
@@ -31,42 +24,16 @@ var localCIDRs = []string{
 	"::1/128", "fe80::/10", "fc00::/7", "ff00::/8",
 }
 
-var defaultAIDomains = []string{
-	// Anthropic
-	"claude.ai", "www.claude.ai", "claude.com", "www.claude.com", "code.claude.com",
-	"anthropic.com", "www.anthropic.com", "api.anthropic.com", "console.anthropic.com",
-	"statsig.anthropic.com", "platform.claude.com", "api.claude.ai", "a-api.anthropic.com",
-	"claudeusercontent.com", "www.claudeusercontent.com",
-	// OpenAI
-	"openai.com", "www.openai.com", "chat.openai.com", "api.openai.com", "auth.openai.com",
-	"platform.openai.com", "auth0.openai.com", "ios.chat.openai.com", "android.chat.openai.com",
-	"chatgpt.com", "www.chatgpt.com", "ab.chatgpt.com", "sora.chatgpt.com", "sora.com",
-	"cdn.oaistatic.com", "oaistatic.com", "oaiusercontent.com", "files.oaiusercontent.com",
-	// Google
-	"gemini.google.com", "bard.google.com", "aistudio.google.com", "notebooklm.google.com",
-	"generativelanguage.googleapis.com", "alkalimakersuite-pa.clients6.google.com",
-	"labs.google", "deepmind.google",
-	// xAI
-	"grok.com", "www.grok.com", "x.ai", "www.x.ai", "api.x.ai", "accounts.x.ai",
-	// 其他
-	"perplexity.ai", "www.perplexity.ai", "api.perplexity.ai",
-	"poe.com", "www.poe.com",
-	"api.githubcopilot.com", "copilot-proxy.githubusercontent.com",
-	"cursor.com", "www.cursor.com", "api2.cursor.sh", "cursor.sh",
-	"mistral.ai", "chat.mistral.ai", "api.mistral.ai",
-}
-
-// DefaultAIDomains 返回内置 AI 域名名单(副本)。
-func DefaultAIDomains() []string {
-	return append([]string(nil), defaultAIDomains...)
-}
+// fakeIPCIDR 是 Clash/OpenClash 的 fake-ip 段：发往这里的连接由网关代理，
+// 不是真实出境地址。国内模式不放行，否则在家仍可经代理出境。
+const fakeIPCIDR = "198.18.0.0/15"
 
 // RuleInput 是渲染 pf 规则的输入。
 type RuleInput struct {
-	Level      Level
-	Interfaces []string // 为空表示所有接口(强制模式)
-	Endpoints  []string // WG 服务器 IP，境外档放行
-	CNFile     string   // 国内 IP 段表文件(几千条，不适合内联)
+	Interfaces  []string // 为空表示所有接口(国内模式)
+	AllowFakeIP bool
+	Endpoints   []string // WG 服务器 IP
+	CNFile      string   // 国内 IP 段表文件(几千条，不适合内联)
 }
 
 // RenderPF 生成加载进 WgSense 锚点的完整规则文本。
@@ -77,21 +44,19 @@ func RenderPF(in RuleInput) string {
 		sort.Strings(ifaces)
 		on = " on { " + strings.Join(ifaces, " ") + " }"
 	}
+	allow := append([]string(nil), localCIDRs...)
+	if in.AllowFakeIP {
+		allow = append(allow, fakeIPCIDR)
+	}
+	allow = append(allow, endpointAddrs(in.Endpoints)...)
 	var b strings.Builder
 	b.WriteString("# WgSense 出站拦截，自动生成，请勿手改\n")
-	fmt.Fprintf(&b, "table <wgsense_ai> const { %s }\n", strings.Join(aiCIDRs, ", "))
-	fmt.Fprintf(&b, "block return out quick%s to <wgsense_ai>\n", on)
-	if in.Level != LevelForeign {
-		return b.String()
-	}
-	fmt.Fprintf(&b, "table <wgsense_local> const { %s }\n", strings.Join(localCIDRs, ", "))
+	fmt.Fprintf(&b, "table <wgsense_allow> const { %s }\n", strings.Join(allow, ", "))
 	fmt.Fprintf(&b, "table <wgsense_cn> const persist file %q\n", in.CNFile)
-	fmt.Fprintf(&b, "pass out quick%s to <wgsense_local> no state\n", on)
-	if eps := endpointAddrs(in.Endpoints); len(eps) > 0 {
-		fmt.Fprintf(&b, "table <wgsense_endpoint> const { %s }\n", strings.Join(eps, ", "))
-		fmt.Fprintf(&b, "pass out quick%s to <wgsense_endpoint> no state\n", on)
-	}
+	// no state：生效瞬间不打断已建立的国内长连接，也不占状态表。
+	fmt.Fprintf(&b, "pass out quick%s to <wgsense_allow> no state\n", on)
 	fmt.Fprintf(&b, "pass out quick%s to <wgsense_cn> no state\n", on)
+	// block return：立即拒绝，程序马上回退(比如 IPv6 退回 IPv4)，不会卡到超时。
 	fmt.Fprintf(&b, "block return out quick%s all\n", on)
 	return b.String()
 }
@@ -149,6 +114,25 @@ func physicalInterfaces() []string {
 		out = append(out, iface.Name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// activeInterfaces 是有非链路本地地址的物理网卡，只用于界面展示。
+func activeInterfaces() []string {
+	var out []string
+	for _, name := range physicalInterfaces() {
+		iface, err := net.InterfaceByName(name)
+		if err != nil {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLinkLocalUnicast() && !ipnet.IP.IsLoopback() {
+				out = append(out, name)
+				break
+			}
+		}
+	}
 	return out
 }
 

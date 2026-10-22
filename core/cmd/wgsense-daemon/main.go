@@ -180,8 +180,9 @@ func main() {
 	eng.SetConfigPath(configFile)
 	if !*passive && os.Geteuid() == 0 {
 		fw := firewall.New(filepath.Join(rtDir, "firewall.json"), firewall.System{}, eng.Logf)
-		fw.OtherVPNActive = tunnel.HasActiveSystemVPN
 		fw.TunnelEndpoints = endpointResolver(tun, "default")
+		// 先于隧道和其他服务装上规则：开机/重启后不留无拦截的空窗。
+		_ = fw.Sync()
 		eng.SetFirewall(fw)
 	}
 

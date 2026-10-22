@@ -14,7 +14,7 @@ const Anchor = "com.apple/wgsense"
 
 const (
 	hostsPath   = "/private/etc/hosts"
-	hostsBegin  = "# >>> WgSense 出站拦截（由 WgSense 管理，关闭拦截后自动移除）>>>"
+	hostsBegin  = "# >>> WgSense 出站拦截（由 WgSense 管理，关闭拦截后自动移除）>>>" // v1.0.4 遗留
 	hostsEnd    = "# <<< WgSense 出站拦截 <<<"
 	pfctl       = "/sbin/pfctl"
 	systemPFCfg = "/etc/pf.conf"
@@ -102,13 +102,13 @@ func (System) ClearPF() error {
 	return nil
 }
 
-// ApplyHosts 用标记段替换 /etc/hosts 里 WgSense 的部分；domains 为空则移除。
-func (System) ApplyHosts(domains []string) error {
+// RemoveLegacyHosts 移除 v1.0.4 在 /etc/hosts 写入的 WgSense 段(若有)。
+func (System) RemoveLegacyHosts() error {
 	data, err := os.ReadFile(hostsPath)
 	if err != nil {
 		return err
 	}
-	next := RenderHosts(string(data), domains)
+	next := stripLegacyHosts(string(data))
 	if next == string(data) {
 		return nil
 	}
@@ -121,8 +121,11 @@ func (System) ApplyHosts(domains []string) error {
 	return nil
 }
 
-// RenderHosts 返回替换 WgSense 段之后的 hosts 内容。
-func RenderHosts(current string, domains []string) string {
+// stripLegacyHosts 去掉 WgSense 标记段；没有标记段时原样返回。
+func stripLegacyHosts(current string) string {
+	if !strings.Contains(current, hostsBegin) {
+		return current
+	}
 	var kept []string
 	inside := false
 	for _, line := range strings.Split(current, "\n") {
@@ -135,16 +138,5 @@ func RenderHosts(current string, domains []string) string {
 			kept = append(kept, line)
 		}
 	}
-	base := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	if len(domains) == 0 {
-		return base
-	}
-	var b strings.Builder
-	b.WriteString(base)
-	b.WriteString(hostsBegin + "\n")
-	for _, d := range domains {
-		fmt.Fprintf(&b, "0.0.0.0 %s\n:: %s\n", d, d)
-	}
-	b.WriteString(hostsEnd + "\n")
-	return b.String()
+	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
 }
