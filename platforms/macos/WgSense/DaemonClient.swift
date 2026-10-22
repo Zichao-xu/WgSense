@@ -807,6 +807,8 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
 
     @Published var transferDevices: [TransferDevice] = []
     @Published var transferState: TransferReceiveState?
+    @Published var firewall: FirewallResponse?
+    @Published var firewallError: String?
 	@Published var transferSendTasks: TransferSendTasksState?
 	@Published var transferError: String?
 
@@ -869,6 +871,31 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
             if transferState != nil { transferState = nil }
             let message = daemonConnectionMessage(error)
             if transferError != message { transferError = message }
+        }
+    }
+
+    func fetchFirewall() async {
+        do {
+            let next = try await controlAPI.firewall()
+            if firewall != next { firewall = next }
+            if firewallError != nil { firewallError = nil }
+        } catch {
+            if firewall != nil { firewall = nil }
+            let message = daemonConnectionMessage(error)
+            if firewallError != message { firewallError = message }
+        }
+    }
+
+    /// 保存出站拦截设置，daemon 立即按当前网络重新落规则。
+    func updateFirewall(_ settings: FirewallSettings) async -> Bool {
+        do {
+            firewall = try await controlAPI.updateFirewall(settings)
+            firewallError = nil
+            await fetchStatus()
+            return true
+        } catch {
+            alertMsg = "保存出站拦截设置失败: \(error.localizedDescription)"
+            return false
         }
     }
 

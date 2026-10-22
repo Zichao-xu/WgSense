@@ -14,6 +14,7 @@ import (
 	"os"
 
 	"github.com/wgsense/core/internal/config"
+	"github.com/wgsense/core/internal/firewall"
 	"github.com/wgsense/core/internal/policy"
 	"github.com/wgsense/core/internal/proxy"
 	"github.com/wgsense/core/internal/transfer"
@@ -68,6 +69,7 @@ func (s *Server) Serve(listener net.Listener) error {
 	mux.HandleFunc("/api/profile/save", s.handleProfileSave)
 	mux.HandleFunc("/api/profile/delete", s.handleProfileDelete)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/firewall", s.handleFirewall)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/traffic", s.handleTraffic)
 	mux.HandleFunc("/api/shutdown", s.handleShutdown)
@@ -310,6 +312,38 @@ func (s *Server) handleProfileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+type firewallResponse struct {
+	Settings         firewall.Settings `json:"settings"`
+	Status           firewall.Status   `json:"status"`
+	DefaultAIDomains []string          `json:"default_ai_domains"`
+}
+
+// handleFirewall GET 返回出站拦截设置与状态，POST 更新设置并立即生效。
+func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request) {
+	fw := s.eng.Firewall()
+	if fw == nil {
+		http.Error(w, "出站拦截需要以 root 运行的正式网络服务", http.StatusConflict)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		var settings firewall.Settings
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&settings); err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := fw.Update(settings); err != nil {
+			writeError(w, err)
+			return
+		}
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, firewallResponse{Settings: fw.Settings(), Status: fw.Status(), DefaultAIDomains: firewall.DefaultAIDomains()})
 }
 
 // handleConfig GET 返回当前配置，POST 更新配置。

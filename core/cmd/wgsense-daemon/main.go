@@ -18,6 +18,7 @@ import (
 
 	"github.com/wgsense/core/api"
 	"github.com/wgsense/core/internal/config"
+	"github.com/wgsense/core/internal/firewall"
 	"github.com/wgsense/core/internal/healthcheck"
 	"github.com/wgsense/core/internal/location"
 	"github.com/wgsense/core/internal/pause"
@@ -46,11 +47,19 @@ func main() {
 	installService := flag.Bool("install-service", false, "提交独立系统安装事务")
 	uninstallService := flag.Bool("uninstall-service", false, "卸载持久系统服务并保留用户配置")
 	installTask := flag.String("run-install-task", "", "执行持久安装事务请求")
+	firewallClear := flag.Bool("firewall-clear", false, "应急：移除 WgSense 出站拦截(pf 锚点与 hosts 段)后退出")
 	buildInfo := flag.Bool("service-build-info", false, "仅输出 helper 构建身份，不启动服务")
 	sourceDaemon := flag.String("source-daemon", "", "待安装 daemon 路径")
 	sourceMover := flag.String("source-mover", "", "待安装 mover 路径")
 	targetUser := flag.String("target-user", "", "安装目标登录用户")
 	flag.Parse()
+	if *firewallClear {
+		if err := firewall.ClearAll(firewall.System{}); err != nil {
+			log.Fatal(err)
+		}
+		log.Println("已移除 WgSense 出站拦截；若 daemon 仍在运行且开关未关，下一轮巡检会重新生效")
+		return
+	}
 	if *buildInfo {
 		path, err := os.Executable()
 		if err != nil {
@@ -169,6 +178,12 @@ func main() {
 	eng.SetPassive(*passive)
 	eng.SetAppOwned(*appOwned)
 	eng.SetConfigPath(configFile)
+	if !*passive && os.Geteuid() == 0 {
+		fw := firewall.New(filepath.Join(rtDir, "firewall.json"), firewall.System{}, eng.Logf)
+		fw.OtherVPNActive = tunnel.HasActiveSystemVPN
+		fw.TunnelEndpoints = endpointResolver(tun, "default")
+		eng.SetFirewall(fw)
+	}
 
 	// 后台启动策略引擎守护循环
 	ctx, cancel := context.WithCancel(context.Background())
@@ -282,6 +297,47 @@ func main() {
 	if err := apiSrv.Serve(apiListener); err != nil {
 		log.Printf("API 已退出: %v", err)
 		stopDaemon(1)
+	}
+}
+
+// endpointResolver returns the WireGuard server IPs for the firewall allow
+// list, cached so policy ticks do not issue DNS lookups every few seconds.
+func endpointResolver(tun tunnel.Manager, profile string) func() []string {
+	var mu sync.Mutex
+	var cached []string
+	var at time.Time
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(at) < 5*time.Minute && cached != nil {
+			return cached
+		}
+		at = time.Now()
+		content, err := tun.LoadProfileContent(profile)
+		if err != nil {
+			return cached
+		}
+		parsed, err := config.Parse(strings.NewReader(content), profile)
+		if err != nil {
+			return cached
+		}
+		var ips []string
+		for _, peer := range parsed.Peers {
+			host, _, err := net.SplitHostPort(peer.Endpoint)
+			if err != nil {
+				continue
+			}
+			ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+			addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+			done()
+			if err == nil {
+				ips = append(ips, addrs...)
+			}
+		}
+		if len(ips) > 0 {
+			cached = ips
+		}
+		return cached
 	}
 }
 

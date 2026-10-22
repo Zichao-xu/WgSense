@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wgsense/core/internal/config"
+	"github.com/wgsense/core/internal/firewall"
 )
 
 const Protocol = 1
@@ -262,6 +264,10 @@ func (m *Manager) Uninstall(ctx context.Context, owner Account) error {
 		if err = m.waitEndpointFree(ctx); err != nil {
 			return err
 		}
+	}
+	// 卸载即解除出站拦截，否则 fail-closed 规则会在服务消失后一直挡着。
+	if err := firewall.ClearAll(firewall.System{}); err != nil {
+		log.Printf("移除出站拦截失败: %v", err)
 	}
 	gui := fmt.Sprintf("gui/%d", owner.UID)
 	for _, label := range []string{"com.wgsense.receive-mover", "com.wgsense.passive"} {

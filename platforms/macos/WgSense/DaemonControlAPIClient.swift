@@ -23,6 +23,21 @@ struct DaemonControlAPIClient {
         )
     }
 
+    func firewall() async throws -> FirewallResponse {
+        try await api.decode(FirewallResponse.self, path: "api/firewall")
+    }
+
+    func updateFirewall(_ settings: FirewallSettings) async throws -> FirewallResponse {
+        let body: [String: Any] = [
+            "auto_block": settings.auto_block,
+            "force_domestic": settings.force_domestic,
+            "level": settings.level,
+            "ai_domains": settings.ai_domains ?? []
+        ]
+        let data = try await api.request("api/firewall", method: "POST", body: body)
+        return try JSONDecoder().decode(FirewallResponse.self, from: data)
+    }
+
     func traffic() async throws -> TrafficStats {
         try await api.decode(TrafficStats.self, path: "api/traffic")
     }

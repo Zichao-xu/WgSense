@@ -56,6 +56,15 @@ func activeSystemVPNs(output string) []systemVPN {
 
 type systemVPNCommandRunner func(context.Context, string, ...string) ([]byte, error)
 
+// HasActiveSystemVPN reports whether another SystemConfiguration VPN is
+// connected or connecting. Errors count as none so callers stay best-effort.
+func HasActiveSystemVPN() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "/usr/sbin/scutil", "--nc", "list").CombinedOutput()
+	return err == nil && len(activeSystemVPNs(string(out))) > 0
+}
+
 func ensureNoActiveSystemVPN() error {
 	return checkSystemVPNs(func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, name, args...).CombinedOutput()

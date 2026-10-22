@@ -25,12 +25,39 @@ struct DaemonStatus: Codable, Equatable {
     /// 发包地址失效后自愈重绑（BindUpdate）的累计次数。
     var bind_rebinds: Int?
     var network_interfaces: [NetworkInterface]?
+    var firewall: FirewallStatus?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }
 
     var primaryIPv4: String? {
         network_interfaces?.lazy.compactMap { $0.ipv4s.first }.first
     }
+}
+
+/// 出站拦截当前实际生效情况（daemon 侧 pf + hosts）。
+struct FirewallStatus: Codable, Equatable {
+    var active: Bool
+    var forced: Bool
+    var level: String
+    var reason: String
+    var interfaces: [String]?
+    var hosts_block: Bool
+    var error: String?
+    var updated_at: String?
+}
+
+/// 出站拦截设置，单独存于 daemon 的 firewall.json，不随 /api/config 同步。
+struct FirewallSettings: Codable, Equatable {
+    var auto_block: Bool
+    var force_domestic: Bool
+    var level: String
+    var ai_domains: [String]?
+}
+
+struct FirewallResponse: Codable, Equatable {
+    var settings: FirewallSettings
+    var status: FirewallStatus
+    var default_ai_domains: [String]
 }
 
 struct NetworkInterface: Codable, Equatable {

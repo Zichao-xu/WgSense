@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wgsense/core/internal/config"
+	"github.com/wgsense/core/internal/firewall"
 	"github.com/wgsense/core/internal/healthcheck"
 	"github.com/wgsense/core/internal/location"
 	"github.com/wgsense/core/internal/logbuf"
@@ -53,6 +54,7 @@ type Engine struct {
 	configPath      string
 	networkSnapshot func() string
 	lastNetwork     string
+	fw              *firewall.Controller
 
 	// 巡检日志去重：状态不变时只按心跳间隔记一行，防止日志无限膨胀。
 	lastTickKey string
@@ -92,6 +94,33 @@ func (e *Engine) SetPassive(passive bool) { e.passive = passive }
 
 // SetAppOwned marks a daemon that was started for the current GUI app session.
 func (e *Engine) SetAppOwned(appOwned bool) { e.appOwned = appOwned }
+
+// SetFirewall attaches the machine-wide outbound blocker. It follows every
+// policy tick independently of guard/pause, because it exists for the moments
+// when WireGuard is not protecting traffic.
+func (e *Engine) SetFirewall(fw *firewall.Controller) { e.fw = fw }
+
+// Firewall returns the attached blocker, or nil.
+func (e *Engine) Firewall() *firewall.Controller { return e.fw }
+
+// syncFirewall must run with opMu held so it sees a consistent tunnel state.
+func (e *Engine) syncFirewall(trusted bool, state tunnel.State) {
+	if e.fw == nil {
+		return
+	}
+	_ = e.fw.Sync(firewall.Observation{
+		Trusted:  trusted,
+		TunnelUp: state == tunnel.StateConnected && e.healthFailures == 0,
+	})
+}
+
+func (e *Engine) syncFirewallNow() {
+	if e.fw == nil {
+		return
+	}
+	state, _ := e.tun.Status(e.service)
+	e.syncFirewall(e.loc.IsHome(e.cfg.TrustedNetworkPrefixes), state)
+}
 
 // SetConfigPath enables persistence for runtime configuration changes.
 func (e *Engine) SetConfigPath(path string) { e.configPath = path }
@@ -190,6 +219,12 @@ func (e *Engine) currentNetworkSnapshot() string {
 }
 
 func (e *Engine) runOnceLocked() error {
+	err := e.applyPolicyLocked()
+	e.syncFirewallNow()
+	return err
+}
+
+func (e *Engine) applyPolicyLocked() error {
 	// 没有任何保持连接的用户意图，或显式暂停时，跳过自动管理。VPN/守护意图仍
 	// 保留，失败只进入等待/重试，不把开关意图改回关闭。
 	if (!e.cfg.DesiredGuardEnabled && !e.cfg.DesiredVPNEnabled && !e.cfg.AutoConnectUntrusted) || e.pause.IsPaused() {
@@ -406,6 +441,7 @@ type StatusSnapshot struct {
 	PeerRxBytes          uint64               `json:"peer_rx_bytes,omitempty"`
 	BindRebinds          int                  `json:"bind_rebinds,omitempty"`
 	NetworkInterfaces    []location.Interface `json:"network_interfaces,omitempty"`
+	Firewall             *firewall.Status     `json:"firewall,omitempty"`
 }
 
 // Status 返回当前状态快照。
@@ -427,6 +463,10 @@ func (e *Engine) Status() StatusSnapshot {
 		HealthFailures:       e.healthFailures,
 		AutoFailures:         e.autoFailures,
 		NetworkInterfaces:    e.loc.ActiveInterfaces(),
+	}
+	if e.fw != nil {
+		status := e.fw.Status()
+		snapshot.Firewall = &status
 	}
 	if !e.nextAutoAttempt.IsZero() {
 		snapshot.NextAutoAttempt = e.nextAutoAttempt.Format(time.RFC3339)
@@ -492,6 +532,7 @@ func (e *Engine) Connect() error {
 	e.healthFailures = 0
 	e.autoFailures = 0
 	e.nextAutoAttempt = time.Time{}
+	e.syncFirewallNow()
 	return nil
 }
 
@@ -504,7 +545,9 @@ func (e *Engine) Disconnect() error {
 		return err
 	}
 	e.healthFailures = 0
-	return e.tun.Disconnect(e.service)
+	err := e.tun.Disconnect(e.service)
+	e.syncFirewallNow()
+	return err
 }
 
 // BeginServiceMaintenance reserves a disconnected engine for an installer.
@@ -551,6 +594,8 @@ func (e *Engine) ShutdownCleanup() error {
 	e.shuttingDown = true
 	e.healthFailures = 0
 	e.shutdownErr = e.tun.Disconnect(e.service)
+	// 规则保持 fail-closed：隧道没了，按"未连通"重新落一次，而不是清掉。
+	e.syncFirewallNow()
 	return e.shutdownErr
 }
 

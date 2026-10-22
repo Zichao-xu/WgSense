@@ -149,6 +149,9 @@ struct SettingsView: View {
     @AppStorage("glassTintStrength") private var glassTintStrength = 0.55
     @State private var applyingConfig = false
     @State private var transferToggling = false
+    @State private var firewallSaving = false
+    @State private var editingAIDomains = false
+    @State private var aiDomainsDraft = ""
     @State private var settingsMessage: String?
     @State private var shuttingDownDaemon = false
     @State private var diagnostics = DaemonDiagnostics()
@@ -164,6 +167,7 @@ struct SettingsView: View {
                 generalSection
                 appearanceSection
                 policySection
+                firewallSection
                 transferSettingsSection
                 serviceSection
                 pathsSection
@@ -174,6 +178,7 @@ struct SettingsView: View {
             DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
             Task {
                 await client.fetchTransferState()
+                await client.fetchFirewall()
                 await refreshDiagnostics()
             }
         }
@@ -315,6 +320,132 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 4)
         }
+    }
+
+    // MARK: 出站拦截
+
+    private func firewallBinding<Value>(_ keyPath: WritableKeyPath<FirewallSettings, Value>) -> Binding<Value>? {
+        guard let settings = client.firewall?.settings else { return nil }
+        return Binding(
+            get: { (client.firewall?.settings ?? settings)[keyPath: keyPath] },
+            set: { newValue in
+                var next = client.firewall?.settings ?? settings
+                next[keyPath: keyPath] = newValue
+                saveFirewall(next)
+            }
+        )
+    }
+
+    private func saveFirewall(_ settings: FirewallSettings) {
+        Task {
+            firewallSaving = true
+            if !(await client.updateFirewall(settings)) { await client.fetchFirewall() }
+            firewallSaving = false
+        }
+    }
+
+    @ViewBuilder
+    private var firewallSection: some View {
+        WgSection(title: "出站拦截",
+                  footer: "作用于整台电脑，与 WG 链路无关。自动拦截只挡从物理网卡直连出去的流量，走 WG 隧道不受影响；国内模式连隧道也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
+            if let response = client.firewall,
+               let autoBlock = firewallBinding(\.auto_block),
+               let forceDomestic = firewallBinding(\.force_domestic),
+               let level = firewallBinding(\.level) {
+                let status = response.status
+                WgRow(symbol: status.active ? "hand.raised.fill" : "hand.raised",
+                      tint: status.active ? .red : .gray,
+                      title: status.active ? "拦截中" : "未拦截",
+                      subtitle: Text(status.error.map { "应用失败：\($0)" } ?? status.reason)) {
+                    HStack(spacing: 8) {
+                        if firewallSaving { ProgressView().controlSize(.small) }
+                        if status.active, let interfaces = status.interfaces, !interfaces.isEmpty {
+                            WgValue(interfaces.joined(separator: " "), monospaced: true)
+                        }
+                    }
+                }
+                WgRowDivider()
+                WgRow(symbol: "shield.lefthalf.filled", tint: .orange, title: "离开受信任网络自动拦截",
+                      subtitle: Text("WG 断开、重连空窗或假连接时，直连流量一律挡住")) {
+                    Toggle("", isOn: autoBlock)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                WgRowDivider()
+                WgRow(symbol: "lock.fill", tint: .red, title: "国内模式",
+                      subtitle: Text("强制拦截：任何网络、包括走 WG 隧道的流量")) {
+                    Toggle("", isOn: forceDomestic)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                WgRowDivider()
+                WgRow(symbol: "scope", tint: .purple, title: "拦截范围",
+                      subtitle: Text(response.settings.level == "foreign"
+                                     ? "只放行国内 IP、局域网和 WG 服务器"
+                                     : "Claude、ChatGPT、Gemini 等 AI 服务")) {
+                    Picker("拦截范围", selection: level) {
+                        Text("仅 AI").tag("ai")
+                        Text("全部境外").tag("foreign")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                WgRowDivider()
+                let custom = response.settings.ai_domains ?? []
+                WgRow(symbol: "list.bullet", tint: .indigo, title: "AI 域名名单",
+                      subtitle: Text(custom.isEmpty
+                                     ? "使用内置名单（\(response.default_ai_domains.count) 个）"
+                                     : "自定义名单（\(custom.count) 个）")) {
+                    Button("编辑…") {
+                        aiDomainsDraft = (custom.isEmpty ? response.default_ai_domains : custom).joined(separator: "\n")
+                        editingAIDomains = true
+                    }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
+                }
+            } else {
+                WgRow(symbol: "hand.raised", tint: .gray, title: "出站拦截不可用",
+                      subtitle: Text(client.firewallError ?? "需要以 root 运行的正式网络服务"))
+            }
+        }
+        .sheet(isPresented: $editingAIDomains) { aiDomainsSheet }
+    }
+
+    private var aiDomainsSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AI 域名名单").font(.system(size: 15, weight: .semibold))
+            Text("一行一个。WG 未连通或国内模式下这些域名解析到 0.0.0.0；不支持通配符，子域名需单独列出。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            TextEditor(text: $aiDomainsDraft)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minWidth: 420, minHeight: 320)
+                .wgInteractiveSurface(cornerRadius: 3)
+            HStack {
+                Button("恢复内置名单") {
+                    aiDomainsDraft = (client.firewall?.default_ai_domains ?? []).joined(separator: "\n")
+                }
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
+                Spacer()
+                Button("取消") { editingAIDomains = false }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal, prominent: false))
+                Button("保存") {
+                    guard var next = client.firewall?.settings else { return }
+                    let domains = aiDomainsDraft
+                        .split(whereSeparator: \.isNewline)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    // 与内置名单完全一致时存空，内置名单升级后自动跟随。
+                    next.ai_domains = domains == client.firewall?.default_ai_domains ? [] : domains
+                    saveFirewall(next)
+                    editingAIDomains = false
+                }
+                .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
+            }
+        }
+        .padding(20)
     }
 
     @ViewBuilder
