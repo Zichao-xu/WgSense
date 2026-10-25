@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -84,10 +86,41 @@ func NetworkFingerprint() string {
 }
 
 func currentActiveInterfaces() []Interface {
-	base := collectIPv4s()
-	meta := collectInterfaceMetadata()
-	hardwarePorts := hardwarePortMap()
+	base, key := collectIPv4s()
+	meta, hardwarePorts := cachedMetadata(key)
 	return selectActiveInterfaces(base, meta, hardwarePorts)
+}
+
+// 网卡元数据（ifconfig 的 status/media、networksetup 的硬件端口名）要 fork 外部命令，
+// 而巡检、网络变化检测、每次 /api/status 都会查一遍。网卡地址与启停标志不变时复用上次结果，
+// metaMaxAge 兜底刷新链路速率这类不改变地址的字段。
+const metaMaxAge = time.Minute
+
+var metaCache struct {
+	sync.Mutex
+	key   string
+	at    time.Time
+	meta  map[string]interfaceMeta
+	ports map[string]string
+}
+
+func cachedMetadata(key string) (map[string]interfaceMeta, map[string]string) {
+	metaCache.Lock()
+	defer metaCache.Unlock()
+	if metaCache.at.IsZero() || metaCache.key != key || time.Since(metaCache.at) >= metaMaxAge {
+		metaCache.meta = collectInterfaceMetadata()
+		metaCache.ports = hardwarePortMap()
+		metaCache.key = key
+		metaCache.at = time.Now()
+	}
+	return metaCache.meta, metaCache.ports
+}
+
+// Invalidate 丢弃缓存的网卡元数据，下次查询重新读取。收到系统网卡/地址变化通知时调用。
+func Invalidate() {
+	metaCache.Lock()
+	metaCache.at = time.Time{}
+	metaCache.Unlock()
 }
 
 func selectActiveInterfaces(base map[string][]string, meta map[string]interfaceMeta, hardwarePorts map[string]string) []Interface {
@@ -134,13 +167,19 @@ func selectActiveInterfaces(base map[string][]string, meta map[string]interfaceM
 	return result
 }
 
-func collectIPv4s() map[string][]string {
+// collectIPv4s 只走系统调用，不 fork。第二个返回值概括物理网卡的地址与启停标志，
+// 用作元数据缓存的键：键不变说明网卡状态没变。
+func collectIPv4s() (map[string][]string, string) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	ips := map[string][]string{}
+	var key strings.Builder
 	for _, iface := range ifaces {
+		if !isIgnoredInterface(iface.Name) {
+			key.WriteString(iface.Name + ":" + strconv.FormatUint(uint64(iface.Flags&(net.FlagUp|net.FlagRunning)), 10) + ";")
+		}
 		if iface.Flags&net.FlagUp == 0 {
 			continue
 		}
@@ -152,11 +191,14 @@ func collectIPv4s() map[string][]string {
 			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 				if ip4 := ipnet.IP.To4(); ip4 != nil {
 					ips[iface.Name] = append(ips[iface.Name], ip4.String())
+					if !isIgnoredInterface(iface.Name) {
+						key.WriteString(iface.Name + "=" + ip4.String() + ";")
+					}
 				}
 			}
 		}
 	}
-	return ips
+	return ips, key.String()
 }
 
 func matchesPrefix(ip string, prefixes []string) bool {

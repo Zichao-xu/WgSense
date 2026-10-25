@@ -281,8 +281,8 @@ struct MainView: View {
             }
             .wgPageSurface()
         }
-        // 图表缓存：启动即开始后台采样速度/内存，首次打开代理概览时曲线已有历史。
-        .task { PPOverviewStore.shared.startSampling() }
+        // 图表缓存：主窗口可见期间采样速度/内存，打开代理概览时曲线已有历史；窗口收起即停。
+        .task { PPOverviewStore.shared.startSamplingWhileVisible() }
         // 调试用：`--args -WgSenseSwitchTab proxy:40` 启动 40 秒后切到指定页面（验证后台缓存，仅命令行参数域）。
         .task {
             let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)

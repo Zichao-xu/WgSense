@@ -16,12 +16,20 @@ import (
 	"github.com/wgsense/core/internal/location"
 	"github.com/wgsense/core/internal/logbuf"
 	"github.com/wgsense/core/internal/netstate"
+	"github.com/wgsense/core/internal/netwatch"
 	"github.com/wgsense/core/internal/pause"
 	"github.com/wgsense/core/internal/tunnel"
 )
 
 const maxHealthFailures = 5
-const networkPollInterval = 3 * time.Second
+
+// 网络变化靠系统路由套接字通知驱动；定时检查只做兜底（通知丢失、变化时恰好有连接操作占锁）。
+// 订阅失败时退回原来的高频轮询。
+const (
+	networkFallbackInterval = 15 * time.Second
+	networkPollInterval     = 3 * time.Second
+	networkSettleDelay      = time.Second
+)
 
 // ErrShuttingDown rejects new user operations after shutdown has begun.
 var ErrShuttingDown = errors.New("daemon 正在退出，无法启动网络操作")
@@ -370,8 +378,15 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 	ticker := time.NewTicker(time.Duration(e.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
-	networkTicker := time.NewTicker(networkPollInterval)
+	networkTicker := time.NewTicker(networkFallbackInterval)
 	defer networkTicker.Stop()
+	changes, err := netwatch.Watch(ctx)
+	if err != nil {
+		e.Logf("订阅系统网络变化失败，退回 %s 轮询: %v", networkPollInterval, err)
+		networkTicker.Reset(networkPollInterval)
+	}
+	// 一次切网会连发多条通知（地址删、加、路由改），等稳定后只检查一次。
+	var settle <-chan time.Time
 
 	// 立即执行一次
 	if err := ctx.Err(); err != nil {
@@ -379,6 +394,16 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 	if err := e.RunOnce(); err != nil {
 		e.Logf("巡检错误: %v", err)
+	}
+
+	checkNetwork := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := e.RunOnNetworkChange(); err != nil {
+			e.Logf("网络变化处理错误: %v", err)
+		}
+		return nil
 	}
 
 	for {
@@ -390,12 +415,27 @@ func (e *Engine) Start(ctx context.Context) error {
 			if err := e.RunOnce(); err != nil {
 				e.Logf("巡检错误: %v", err)
 			}
-		case <-networkTicker.C:
-			if err := ctx.Err(); err != nil {
+		case _, ok := <-changes:
+			if !ok {
+				changes = nil
+				if ctx.Err() == nil {
+					e.Logf("系统网络变化订阅中断，退回 %s 轮询", networkPollInterval)
+					networkTicker.Reset(networkPollInterval)
+				}
+				continue
+			}
+			location.Invalidate()
+			if settle == nil {
+				settle = time.After(networkSettleDelay)
+			}
+		case <-settle:
+			settle = nil
+			if err := checkNetwork(); err != nil {
 				return err
 			}
-			if err := e.RunOnNetworkChange(); err != nil {
-				e.Logf("网络变化处理错误: %v", err)
+		case <-networkTicker.C:
+			if err := checkNetwork(); err != nil {
+				return err
 			}
 		case <-ctx.Done():
 			return ctx.Err()

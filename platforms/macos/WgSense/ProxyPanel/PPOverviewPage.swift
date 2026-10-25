@@ -16,7 +16,10 @@ struct PPOverviewPage: View {
             panel.activate()
             PPOverviewStore.shared.activate()
         }
-        .onDisappear { PPOverviewStore.shared.deactivate() }
+        .onDisappear {
+            panel.deactivate()
+            PPOverviewStore.shared.deactivate()
+        }
     }
 }
 

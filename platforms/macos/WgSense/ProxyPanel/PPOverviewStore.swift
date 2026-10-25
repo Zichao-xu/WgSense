@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 
 // 概览页数据层（O-*）。高频数据的设计原则：
@@ -236,10 +237,23 @@ final class PPOverviewStore: ObservableObject {
 
     // MARK: 生命周期
 
+    /// 概览页是否在显示（主窗口可能仍被收起）。
+    private var pageActive = false
+    private var visibilityObserver: AnyCancellable?
+
     /// 概览可见时启动流量/内存推送与规则轮询。
     func activate() {
+        pageActive = true
         loadHistoryIfNeeded()
+        observeWindowVisibility()
+        guard WgWindowVisibility.shared.isMainWindowVisible else { return }
         startSampling()
+        startRulesPolling()
+        if autoIPCheck && chinaIP == nil { Task { await checkIP() } }
+        if autoConnectionCheck && latencies.isEmpty { Task { await checkLatency() } }
+    }
+
+    private func startRulesPolling() {
         guard rulesTask == nil, let api else { return }
         rulesTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -247,12 +261,41 @@ final class PPOverviewStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
             }
         }
-        if autoIPCheck && chinaIP == nil { Task { await checkIP() } }
-        if autoConnectionCheck && latencies.isEmpty { Task { await checkLatency() } }
     }
 
-    /// 速度/内存采样（图表缓存）：App 启动后即开始，常驻后台，不随页面启停。
-    func startSampling() {
+    /// 图表采样只在主窗口可见时运行（App 启动后第一次出现主窗口即开始，收起后停止）：
+    /// 曲线是视觉内容，菜单栏常驻时不在后台每秒解码 mihomo 推送。
+    private func observeWindowVisibility() {
+        guard visibilityObserver == nil else { return }
+        visibilityObserver = WgWindowVisibility.shared.$isMainWindowVisible
+            .removeDuplicates()
+            .sink { [weak self] visible in
+                guard let self else { return }
+                if visible {
+                    self.startSampling()
+                    if self.pageActive { self.startRulesPolling() }
+                } else {
+                    self.stopSampling()
+                    self.rulesTask?.cancel()
+                    self.rulesTask = nil
+                    self.flushHistory()
+                }
+            }
+    }
+
+    /// 主窗口出现时开始图表采样，并订阅之后的收起/再现。
+    func startSamplingWhileVisible() {
+        observeWindowVisibility()
+    }
+
+    private func stopSampling() {
+        streamTasks.forEach { $0.cancel() }
+        streamTasks.removeAll()
+    }
+
+    /// 速度/内存采样（图表缓存）：主窗口可见期间常开，不随概览页启停，切回概览时曲线直接接上。
+    private func startSampling() {
+        guard WgWindowVisibility.shared.isMainWindowVisible else { return }
         guard streamTasks.isEmpty, let api else { return }
         streamTasks.append(Task { [weak self] in
             for await traffic in api.trafficStream() {
@@ -288,9 +331,10 @@ final class PPOverviewStore: ObservableObject {
     }
 
     func backendChanged() {
-        deactivate()
-        streamTasks.forEach { $0.cancel() }
-        streamTasks.removeAll()
+        rulesTask?.cancel()
+        rulesTask = nil
+        flushHistory()
+        stopSampling()
         downSpeed.reset(); upSpeed.reset(); memory.reset(); connectionCount.reset()
         stats = Stats()
         topologyConnections = []
@@ -298,6 +342,11 @@ final class PPOverviewStore: ObservableObject {
         historyLoadedFor = nil
         history = [:]
         rules = []
+        startSampling()
+        if pageActive && WgWindowVisibility.shared.isMainWindowVisible {
+            loadHistoryIfNeeded()
+            startRulesPolling()
+        }
     }
 
     private func applyRules(_ new: [MihomoRule]) {

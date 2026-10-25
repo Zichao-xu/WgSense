@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 
 // 代理面板的数据与逻辑层。一比一对应 AnGe-ClashBoard：
@@ -182,19 +183,46 @@ final class ProxyPanelStore: ObservableObject {
         return MihomoAPI(backend: backend, secret: store.secret(for: backend))
     }
 
-    /// 代理页出现时调用：拉数据 + 开连接推送。
+    /// 正在显示、需要实时数据的页面数（概览、代理两页都用连接推送，切页时出现/消失回调的先后不定）。
+    private var liveUsers = 0
+    private var visibilityObserver: AnyCancellable?
+
+    /// 代理页出现时调用：拉数据 + 开连接推送。与 deactivate 成对调用。
     func activate() {
+        liveUsers += 1
         Task { await fetchAll() }
-        startConnectionStream()
-        PPOverviewStore.shared.startSampling()
+        observeWindowVisibility()
+        if WgWindowVisibility.shared.isMainWindowVisible { startConnectionStream() }
     }
 
-    /// 代理页离开时调用：停掉推送与自动刷新，不在后台消耗。
+    /// 代理页离开时调用：最后一个页面离开才停掉推送与自动刷新，不在后台消耗。
     func deactivate() {
+        liveUsers = max(0, liveUsers - 1)
+        if liveUsers == 0 { stopLive() }
+    }
+
+    private func stopLive() {
         connectionTask?.cancel()
         connectionTask = nil
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+    }
+
+    /// 页面仍在但主窗口被遮挡/最小化/关闭时同样停流，回到前台再接上。
+    private func observeWindowVisibility() {
+        guard visibilityObserver == nil else { return }
+        visibilityObserver = WgWindowVisibility.shared.$isMainWindowVisible
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] visible in
+                guard let self, self.liveUsers > 0 else { return }
+                if visible {
+                    self.startConnectionStream()
+                    Task { await self.fetchProxies() }
+                } else {
+                    self.stopLive()
+                }
+            }
     }
 
     func backendChanged() {
@@ -205,8 +233,9 @@ final class ProxyPanelStore: ObservableObject {
         config = nil
         smartWeights = [:]
         smartOrder = [:]
-        connectionTask?.cancel()
-        activate()
+        stopLive()
+        Task { await fetchAll() }
+        if liveUsers > 0 && WgWindowVisibility.shared.isMainWindowVisible { startConnectionStream() }
     }
 
     func fetchAll() async {
