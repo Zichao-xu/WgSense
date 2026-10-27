@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "updated": "2026-10-27",
+  "note": "WgSense 测速台的公网测速源。放到 secret gist，把 raw 地址填进「测速源 → 源列表」。节点失效时直接改这个文件；App 启动时自动拉取，并按实测健康分自动跳过坏源。",
+  "download": [
+    { "url": "https://issuepcdn.baidupcs.com/issue/netdisk/yunguanjia/BaiduNetdisk_7.60.5.102.exe", "note": "百度网盘安装包 CDN" },
+    { "url": "https://dldir1.qq.com/weixin/Windows/WeChatSetup.exe", "note": "微信安装包 CDN" }
+  ],
+  "upload": [
+    { "url": "http://speedtest1.online.sh.cn:8080/upload", "note": "上海电信 Ookla 节点" },
+    { "url": "http://5gnanjing.speedtest.jsinfo.net:8080/upload", "note": "南京电信 Ookla 节点" },
+    { "url": "https://test.ustc.edu.cn/backend/empty.php", "note": "中科大 LibreSpeed" }
+  ]
+}

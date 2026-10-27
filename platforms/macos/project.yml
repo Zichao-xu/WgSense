@@ -20,6 +20,9 @@ targets:
       - path: WgSense
         excludes:
           - SystemVPNManager.swift
+          - SpeedLab/speedlab.sh
+      - path: WgSense/SpeedLab/speedlab.sh
+        buildPhase: resources
     preBuildScripts:
       - name: Build Bundled Daemon
         basedOnDependencyAnalysis: false
@@ -38,14 +41,16 @@ targets:
           install -m 0755 "$packaging_dir/wgsense-receive-mover.sh" "$packaging_out/wgsense-receive-mover.sh"
           install -m 0644 "$packaging_dir/com.wgsense.daemon.plist.template" "$packaging_out/com.wgsense.daemon.plist.template"
           install -m 0644 "$packaging_dir/com.wgsense.receive-mover.plist.template" "$packaging_out/com.wgsense.receive-mover.plist.template"
+          # 测速台：给缺 iperf3 的对端临时部署用的静态 iperf3（拉不到不影响构建）
+          "$SRCROOT/vendor/fetch-iperf3.sh" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/iperf3"
     dependencies:
       - target: WgSenseWidget
         embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos
-        MARKETING_VERSION: "1.0.7"
-        CURRENT_PROJECT_VERSION: "28"
+        MARKETING_VERSION: "1.0.8"
+        CURRENT_PROJECT_VERSION: "29"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         INFOPLIST_KEY_CFBundleDisplayName: WgSense
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -68,8 +73,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wgsense.macos.widget
         PRODUCT_NAME: WgSenseWidget
-        MARKETING_VERSION: "1.0.7"
-        CURRENT_PROJECT_VERSION: "28"
+        MARKETING_VERSION: "1.0.8"
+        CURRENT_PROJECT_VERSION: "29"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         INFOPLIST_FILE: WgSenseWidget/Info.plist
         GENERATE_INFOPLIST_FILE: NO

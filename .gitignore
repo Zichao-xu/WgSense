@@ -36,3 +36,6 @@ SHA256SUMS.txt
 
 # 内部归档（不公开）
 .archive-*
+
+# 测速台自带的 iperf3（构建时拉取，见 platforms/macos/vendor/fetch-iperf3.sh）
+/platforms/macos/vendor/iperf3/

@@ -268,6 +268,7 @@ struct MainView: View {
                         case .transferSend: TransferSendView()
                         case .settings: SettingsView()
                         case .about: AboutView()
+                        case .speedtest: SpeedLabView()
                         case .proxy, .logs: EmptyView()
                         }
                     }
@@ -404,7 +405,7 @@ private final class SidebarResizeHandleView: NSView {
 // MARK: - Tab 枚举
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about
+    case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about, speedtest
     var id: String { rawValue }
 
     var label: LocalizedStringKey {
@@ -418,6 +419,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
         case .settings: return "设置"
         case .logs: return "日志"
         case .about: return "关于"
+        case .speedtest: return "测速"
         }
     }
 }
@@ -425,7 +427,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
 // MARK: - 磁贴数据模型
 
 enum TileKind: String, CaseIterable, Identifiable, Codable {
-    case vpn, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection
+    case vpn, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection, speedtest
     var id: String { rawValue }
 
     var isAddable: Bool {
@@ -444,6 +446,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .logs: return "日志"
         case .about: return "关于"
         case .connection: return "流量"
+        case .speedtest: return "测速"
         }
     }
 
@@ -459,6 +462,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .logs: return "text.alignleft"
         case .about: return "info"
         case .connection: return "arrow.up.arrow.down"
+        case .speedtest: return "gauge.with.dots.needle.67percent"
         }
     }
 
@@ -475,6 +479,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .logs: return "LG"
         case .about: return "AB"
         case .connection: return "NET"
+        case .speedtest: return "SPD"
         }
     }
 
@@ -484,14 +489,14 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .pause: return .orange
         case .stop: return .red
         case .logs, .about: return .gray
-        case .vpn, .transferReceive, .transferSend, .proxy, .profile, .connection: return WgInk.signal
+        case .vpn, .transferReceive, .transferSend, .proxy, .profile, .connection, .speedtest: return WgInk.signal
         }
     }
 
     /// 默认尺寸（首次添加时使用，之后可切换）
     var defaultSize: TileSize {
         switch self {
-        case .connection: return .medium
+        case .connection, .speedtest: return .medium
         default: return .small
         }
     }
@@ -594,6 +599,7 @@ struct SidebarView: View {
             TileData(kind: .logs),
             TileData(kind: .about),
             TileData(kind: .connection),
+            TileData(kind: .speedtest),
         ]
     }
 
@@ -684,6 +690,10 @@ struct SidebarView: View {
                 vpnModule(tile)
             case .connection:
                 trafficModule(tile)
+            case .speedtest:
+                SLSpeedTile(size: tile.size, isSelected: isSelected(tile.kind), isEditMode: isEditMode) {
+                    handleSmallTileTap(tile)
+                }
             case .logs where tile.size != .small:
                 logContentTile(tile)
             case .pause where tile.size != .small:
@@ -709,6 +719,7 @@ struct SidebarView: View {
         case .profile: return .profile
         case .logs: return .logs
         case .about: return .about
+        case .speedtest: return .speedtest
         case .pause, .stop: return nil
         }
     }
@@ -766,7 +777,7 @@ struct SidebarView: View {
                               status: client.isPauseOn ? Text("已暂停") : Text("\(client.pauseMinutes) 分钟"))
         case .stop:
             return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text("全部停止"))
-        case .vpn, .connection:
+        case .vpn, .connection, .speedtest:
             return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text(""))
         }
     }
@@ -1078,6 +1089,7 @@ struct SidebarView: View {
             case .transferSend: selection = .transferSend
             case .logs: selection = .logs
             case .about: selection = .about
+            case .speedtest: selection = .speedtest
             case .stop: stopAllServices()
             case .pause: break
             }
