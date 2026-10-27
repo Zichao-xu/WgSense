@@ -4,17 +4,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeBackend struct {
 	pf          string
 	pfCalls     int
 	hostsClears int
+	blocked     uint64
+	counts      int
 }
 
 func (f *fakeBackend) ApplyPF(rules string) error { f.pf = rules; f.pfCalls++; return nil }
 func (f *fakeBackend) ClearPF() error             { f.pf = ""; f.pfCalls++; return nil }
 func (f *fakeBackend) RemoveLegacyHosts() error   { f.hostsClears++; return nil }
+func (f *fakeBackend) BlockedPackets() (uint64, error) {
+	f.counts++
+	return f.blocked, nil
+}
 
 func newTest(t *testing.T, s Settings) (*Controller, *fakeBackend) {
 	t.Helper()
@@ -120,5 +127,77 @@ func TestCNTableParses(t *testing.T) {
 	}
 	if n := len(cnCIDRs()); n < 5000 || v6 < 1000 {
 		t.Fatalf("CN table looks truncated: total=%d v6=%d", n, v6)
+	}
+}
+
+func TestTunnelLockOnlyWhileTunnelUp(t *testing.T) {
+	up := false
+	c, b := newTest(t, Settings{Block: true})
+	c.TunnelLocked = func() bool { return up }
+
+	up = true
+	if err := c.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	st := c.Status()
+	if !st.Locked || !st.Active {
+		t.Fatalf("tunnel up should lock: %+v", st)
+	}
+	if strings.Contains(b.pf, "wgsense_cn") {
+		t.Fatalf("locked rules must not pass domestic ranges:\n%s", b.pf)
+	}
+	for _, want := range []string{"1.2.3.4", "192.168.0.0/16", "fe80::/10", `label "wgsense-block"`} {
+		if !strings.Contains(b.pf, want) {
+			t.Fatalf("missing %q in:\n%s", want, b.pf)
+		}
+	}
+
+	up = false // 隧道拆除：立即回到普通规则
+	if err := c.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if st := c.Status(); st.Locked || !strings.Contains(b.pf, "wgsense_cn") {
+		t.Fatalf("tunnel down must unlock: %+v\n%s", st, b.pf)
+	}
+}
+
+func TestTunnelLockIndependentOfBlockSwitch(t *testing.T) {
+	c, b := newTest(t, Settings{})
+	c.TunnelLocked = func() bool { return true }
+	_ = c.Sync()
+	if !c.Status().Locked || b.pf == "" {
+		t.Fatal("lock must apply even when overseas blocking is off")
+	}
+	if err := c.Update(Settings{AllowBypass: true}); err != nil {
+		t.Fatal(err)
+	}
+	if c.Status().Locked || b.pf != "" {
+		t.Fatalf("allow_bypass should turn the lock off: %q", b.pf)
+	}
+}
+
+func TestBlockedPacketsCountedWithoutReloadingRules(t *testing.T) {
+	c, b := newTest(t, Settings{Block: true})
+	b.blocked = 7
+	calls := b.pfCalls
+	c.countedAt = time.Time{} // 模拟已过 30 秒
+	_ = c.Sync()
+	if got := c.Status().BlockedPackets; got != 7 {
+		t.Fatalf("blocked = %d", got)
+	}
+	if b.pfCalls != calls {
+		t.Fatal("reading counters must not reload rules")
+	}
+	b.blocked = 9
+	_ = c.Sync() // 30 秒内不重复启动 pfctl
+	if got := c.Status().BlockedPackets; got != 7 || b.counts != 1 {
+		t.Fatalf("counter should be throttled: blocked=%d counts=%d", got, b.counts)
+	}
+}
+
+func TestParseLabelPackets(t *testing.T) {
+	out := "wgsense-block 120 5 300 0 0 0 0\nother 1 9 9\nwgsense-block 10 2 100 0 0 0 0\n"
+	if got := parseLabelPackets(out, blockLabel); got != 7 {
+		t.Fatalf("got %d", got)
 	}
 }

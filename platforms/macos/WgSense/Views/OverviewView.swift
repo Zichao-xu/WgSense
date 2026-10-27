@@ -26,6 +26,8 @@ struct OverviewView: View {
                 tunnelCard
             }
 
+            coverage
+
             modules
 
             Spacer(minLength: 0)
@@ -194,6 +196,108 @@ struct OverviewView: View {
         )
     }
 
+    // MARK: - 隧道覆盖
+
+    /// 隧道接管了什么、哪些不走隧道以及原因 —— 后台做的事都要在这里看得见。
+    private var coverage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("隧道覆盖")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+
+            VStack(spacing: 0) {
+                let rows = coverageRows
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                    if index > 0 { RowDivider() }
+                    CoverageRow(row: row)
+                }
+            }
+            .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
+        }
+    }
+
+    private var coverageRows: [CoverageRowModel] {
+        guard client.isTunnelUp, let s = client.status, let c = s.coverage else {
+            return [CoverageRowModel(symbol: "point.3.connected.trianglepath.dotted", tint: .gray,
+                                     name: "隧道未建立", value: Text(verbatim: "—"),
+                                     detail: Text("流量按出站拦截规则直连；连上全局隧道后在这里列出接管情况"))]
+        }
+        guard c.full_tunnel else {
+            return [CoverageRowModel(symbol: "arrow.triangle.branch", tint: .blue,
+                                     name: "分流配置", value: Text("部分走隧道"),
+                                     detail: Text("只有配置里列出的网段走隧道，其余（含 IPv6）照常直连"))]
+        }
+        var rows = [ipv6Row(c.ipv6), lockRow(s.firewall), dnsRow(c)]
+        for path in c.bypass ?? [] {
+            rows.append(CoverageRowModel(symbol: "arrow.uturn.right", tint: .gray, name: "不走隧道",
+                                         value: Text(verbatim: path.destination),
+                                         detail: Text(verbatim: path.via.isEmpty ? path.reason : "\(path.reason) · 经 \(path.via)")))
+        }
+        return rows
+    }
+
+    private func ipv6Row(_ v6: TunnelIPv6Status) -> CoverageRowModel {
+        var parts: [String] = []
+        if let address = v6.address {
+            parts.append(v6.derived == true ? "隧道地址 \(address)（按约定推出）" : "隧道地址 \(address)")
+        }
+        if let last = WgCoverageFormat.clock(v6.last_probe) {
+            parts.append("\(last) 探测\(v6.last_probe_ok == true ? "可出网" : "不通")")
+        }
+        if let next = WgCoverageFormat.clock(v6.next_probe), v6.state != "tunnel" || v6.last_probe != nil {
+            parts.append("下次 \(next)")
+        }
+        if let error = v6.error { parts.append("路由切换失败：\(error)") }
+        let value: Text, tint: Color, symbol: String
+        switch v6.state {
+        case "tunnel":
+            value = Text("走隧道"); tint = .green; symbol = "checkmark.shield.fill"
+        case "probing":
+            value = Text("已拦截 · 探测中"); tint = .orange; symbol = "hourglass"
+        case "blocked" where v6.mode == "block":
+            value = Text("始终拦截"); tint = .blue; symbol = "nosign"
+            parts.insert("设置为始终拦截，程序全部改用 IPv4 走隧道", at: 0)
+        case "blocked":
+            value = Text("已拦截 · 改用 IPv4"); tint = .blue; symbol = "nosign"
+            parts.insert("隧道暂无 IPv6 出口，程序立即改用 IPv4 走隧道", at: 0)
+        default:
+            value = Text("未接管"); tint = .gray; symbol = "questionmark.circle"
+        }
+        return CoverageRowModel(symbol: symbol, tint: tint, name: "IPv6", value: value,
+                                detail: Text(verbatim: parts.joined(separator: " · ")))
+    }
+
+    private func lockRow(_ fw: FirewallStatus?) -> CoverageRowModel {
+        guard let fw else {
+            return CoverageRowModel(symbol: "lock.open", tint: .gray, name: "隧道锁定", value: Text("不可用"),
+                                    detail: Text("需要以 root 运行的正式网络服务"))
+        }
+        if fw.locked == true {
+            let blocked = fw.blocked_packets ?? 0
+            let detail = blocked == 0
+                ? "物理网卡只放行局域网与 WG 服务器 · 没有程序试图绕开"
+                : "物理网卡只放行局域网与 WG 服务器 · 已拦下 \(blocked) 个绕开隧道的包"
+            return CoverageRowModel(symbol: "lock.fill", tint: blocked == 0 ? .green : .orange,
+                                    name: "隧道锁定", value: Text("已锁定"), detail: Text(verbatim: detail))
+        }
+        let detail = fw.error.map { "应用失败：\($0)" } ?? "设置里已关闭：绑定物理网卡的程序可绕开隧道直连"
+        return CoverageRowModel(symbol: "lock.open", tint: .orange, name: "隧道锁定", value: Text("未锁定"),
+                                detail: Text(verbatim: detail))
+    }
+
+    private func dnsRow(_ c: TunnelCoverage) -> CoverageRowModel {
+        if let dns = c.dns, !dns.isEmpty {
+            let service = c.dns_service.map { "接管「\($0)」的 DNS，断开时恢复" } ?? "断开时恢复"
+            return CoverageRowModel(symbol: "text.magnifyingglass", tint: .green, name: "DNS",
+                                    value: Text(verbatim: dns.joined(separator: ", ")),
+                                    detail: Text(verbatim: "查询经隧道 · \(service)"))
+        }
+        return CoverageRowModel(symbol: "text.magnifyingglass", tint: .orange, name: "DNS",
+                                value: Text("未接管"),
+                                detail: Text("配置未指定 DNS，查询仍发往当前网络的 DNS 服务器"))
+    }
+
     // MARK: - 模块
 
     private var modules: some View {
@@ -335,6 +439,59 @@ private struct ModuleRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+}
+
+private struct CoverageRowModel {
+    var symbol: String
+    var tint: Color
+    var name: LocalizedStringKey
+    var value: Text
+    var detail: Text
+}
+
+private struct CoverageRow: View {
+    var row: CoverageRowModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            WgSquareBadge(symbol: row.symbol, tint: row.tint, size: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text(row.name)
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 8)
+                    row.value
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.primary.opacity(0.8))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                row.detail
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+    }
+}
+
+/// 覆盖面板里的时间：只显示时:分。
+enum WgCoverageFormat {
+    private static let parser = ISO8601DateFormatter()
+    private static let clockFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    static func clock(_ rfc3339: String?) -> String? {
+        guard let rfc3339, let date = parser.date(from: rfc3339) else { return nil }
+        return clockFormatter.string(from: date)
     }
 }
 

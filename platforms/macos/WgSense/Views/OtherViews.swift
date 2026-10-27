@@ -150,6 +150,9 @@ struct SettingsView: View {
     @State private var applyingConfig = false
     @State private var transferToggling = false
     @State private var firewallSaving = false
+    @State private var ipv6Saving = false
+    @State private var ipv6Prefix = ""
+    @State private var ipv6Targets = ""
     @State private var settingsMessage: String?
     @State private var shuttingDownDaemon = false
     @State private var diagnostics = DaemonDiagnostics()
@@ -166,6 +169,7 @@ struct SettingsView: View {
                 appearanceSection
                 policySection
                 firewallSection
+                tunnelIPv6Section
                 transferSettingsSection
                 serviceSection
                 pathsSection
@@ -177,6 +181,7 @@ struct SettingsView: View {
             Task {
                 await client.fetchTransferState()
                 await client.fetchFirewall()
+                await client.fetchTunnelIPv6()
                 await refreshDiagnostics()
             }
         }
@@ -345,10 +350,11 @@ struct SettingsView: View {
     @ViewBuilder
     private var firewallSection: some View {
         WgSection(title: "出站拦截",
-                  footer: "作用于整台电脑，任何网络都生效。物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器：WG 连着时流量走隧道不受影响；WG 断开时境外直连一律拒绝；在家时境外流量经网关代理照常。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
+                  footer: "作用于整台电脑。拦截境外直连：物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器，WG 断开时境外直连一律拒绝，在家时境外流量经网关代理照常。隧道锁定：全局隧道连着时物理网卡只放行局域网和 WG 服务器，绑定物理网卡的程序也绕不开隧道；隧道一断开立即恢复上面的规则。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
             if let response = client.firewall,
                let block = firewallBinding(\.auto_block),
-               let forceDomestic = firewallBinding(\.force_domestic) {
+               let forceDomestic = firewallBinding(\.force_domestic),
+               let allowBypass = firewallBinding(\.allow_bypass) {
                 let status = response.status
                 WgRow(symbol: status.active ? "hand.raised.fill" : "hand.raised",
                       tint: status.active ? .red : .gray,
@@ -370,6 +376,17 @@ struct SettingsView: View {
                         .controlSize(.small)
                 }
                 WgRowDivider()
+                WgRow(symbol: "lock.shield", tint: .green, title: "隧道锁定",
+                      subtitle: Text(lockSubtitle(response.status))) {
+                    Toggle("", isOn: Binding(
+                        get: { allowBypass.wrappedValue != true },
+                        set: { allowBypass.wrappedValue = !$0 }
+                    ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                WgRowDivider()
                 WgRow(symbol: "lock.fill", tint: .red, title: "国内模式",
                       subtitle: Text("只上国内：WG 隧道和网关代理的境外流量也挡")) {
                     Toggle("", isOn: forceDomestic)
@@ -381,6 +398,113 @@ struct SettingsView: View {
                 WgRow(symbol: "hand.raised", tint: .gray, title: "出站拦截不可用",
                       subtitle: Text(client.firewallError ?? "需要以 root 运行的正式网络服务"))
             }
+        }
+    }
+
+    private func lockSubtitle(_ status: FirewallStatus) -> String {
+        if status.locked == true {
+            let blocked = status.blocked_packets ?? 0
+            return blocked == 0 ? "生效中：没有程序试图绕开隧道" : "生效中：已拦下 \(blocked) 个绕开隧道的包"
+        }
+        return "全局隧道连着时，物理网卡只放行局域网和 WG 服务器"
+    }
+
+    // MARK: 隧道 IPv6
+
+    @ViewBuilder
+    private var tunnelIPv6Section: some View {
+        WgSection(title: "隧道 IPv6",
+                  footer: "只对全局隧道生效，有就用、没有就不用，IPv6 永远不绕开隧道。自动：连上后先拦截公网 IPv6（程序立即改用 IPv4 走隧道），同时经隧道探测；服务器有 IPv6 出口就切进隧道，之后每 5 分钟复查。WireGuard 不下发地址，隧道 IPv6 按「前缀 + 隧道 IPv4」推出（如 fd77:6773:: + 10.66.66.3）；服务器要开 IPv6 时，在 WG 接口配同一约定的地址、放行各 peer 的 /128 并做 IPv6 出口转发即可，本机无需改配置。模式与探测地址立即生效，前缀下次连接生效。") {
+            if let settings = client.tunnelIPv6 {
+                WgRow(symbol: "6.circle", tint: .blue, title: "模式",
+                      subtitle: Text(settings.mode == "block" ? "始终拦截公网 IPv6，程序全部改用 IPv4 走隧道" : "隧道有 IPv6 出口就走隧道，没有就拦截")) {
+                    HStack(spacing: 8) {
+                        if ipv6Saving { ProgressView().controlSize(.small) }
+                        Picker("", selection: Binding(
+                            get: { settings.mode },
+                            set: { mode in
+                                var next = settings
+                                next.mode = mode
+                                saveTunnelIPv6(next)
+                            }
+                        )) {
+                            Text("自动").tag("auto")
+                            Text("始终拦截").tag("block")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: 160)
+                    }
+                }
+                WgRowDivider()
+                WgRow(symbol: "number", tint: .teal, title: "地址前缀",
+                      subtitle: Text("需以 :: 结尾、在私有段 fc00::/7 内")) {
+                    TextField("fd77:6773::", text: $ipv6Prefix)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(width: 200)
+                        .onSubmit { saveIPv6Fields(settings) }
+                }
+                WgRowDivider()
+                WgRow(symbol: "dot.radiowaves.left.and.right", tint: .orange, title: "探测地址",
+                      subtitle: Text("[IPv6]:端口，逗号分隔，任一连通即算有 IPv6")) {
+                    TextField("[2400:3200::1]:53", text: $ipv6Targets)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(width: 260)
+                        .onSubmit { saveIPv6Fields(settings) }
+                }
+                if ipv6FieldsChanged(settings) {
+                    WgRowDivider()
+                    HStack {
+                        Spacer()
+                        Button("还原") { loadIPv6Fields(settings) }
+                            .buttonStyle(WgPillButtonStyle())
+                        Button("保存") { saveIPv6Fields(settings) }
+                            .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
+                            .disabled(ipv6Saving)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+            } else {
+                WgRow(symbol: "6.circle", tint: .gray, title: "隧道 IPv6 设置不可用",
+                      subtitle: Text(client.tunnelIPv6Error ?? "等待后台服务"))
+            }
+        }
+        .onChange(of: client.tunnelIPv6) { _, settings in
+            if let settings { loadIPv6Fields(settings) }
+        }
+        .onAppear {
+            if let settings = client.tunnelIPv6 { loadIPv6Fields(settings) }
+        }
+    }
+
+    private func loadIPv6Fields(_ settings: TunnelIPv6Settings) {
+        ipv6Prefix = settings.prefix
+        ipv6Targets = settings.probe_targets.joined(separator: ", ")
+    }
+
+    private func parsedTargets() -> [String] {
+        ipv6Targets.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private func ipv6FieldsChanged(_ settings: TunnelIPv6Settings) -> Bool {
+        ipv6Prefix.trimmingCharacters(in: .whitespaces) != settings.prefix || parsedTargets() != settings.probe_targets
+    }
+
+    private func saveIPv6Fields(_ settings: TunnelIPv6Settings) {
+        var next = settings
+        next.prefix = ipv6Prefix.trimmingCharacters(in: .whitespaces)
+        next.probe_targets = parsedTargets()
+        saveTunnelIPv6(next)
+    }
+
+    private func saveTunnelIPv6(_ settings: TunnelIPv6Settings) {
+        Task {
+            ipv6Saving = true
+            if !(await client.updateTunnelIPv6(settings)) { await client.fetchTunnelIPv6() }
+            ipv6Saving = false
         }
     }
 

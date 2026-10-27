@@ -32,6 +32,7 @@ const fakeIPCIDR = "198.18.0.0/15"
 type RuleInput struct {
 	Interfaces  []string // 为空表示所有接口(国内模式)
 	AllowFakeIP bool
+	LockTunnel  bool     // 隧道锁定：不放行国内段，只放行局域网与 WG 服务器
 	Endpoints   []string // WG 服务器 IP
 	CNFile      string   // 国内 IP 段表文件(几千条，不适合内联)
 }
@@ -52,14 +53,20 @@ func RenderPF(in RuleInput) string {
 	var b strings.Builder
 	b.WriteString("# WgSense 出站拦截，自动生成，请勿手改\n")
 	fmt.Fprintf(&b, "table <wgsense_allow> const { %s }\n", strings.Join(allow, ", "))
-	fmt.Fprintf(&b, "table <wgsense_cn> const persist file %q\n", in.CNFile)
 	// no state：生效瞬间不打断已建立的国内长连接，也不占状态表。
 	fmt.Fprintf(&b, "pass out quick%s to <wgsense_allow> no state\n", on)
-	fmt.Fprintf(&b, "pass out quick%s to <wgsense_cn> no state\n", on)
+	if !in.LockTunnel {
+		fmt.Fprintf(&b, "table <wgsense_cn> const persist file %q\n", in.CNFile)
+		fmt.Fprintf(&b, "pass out quick%s to <wgsense_cn> no state\n", on)
+	}
 	// block return：立即拒绝，程序马上回退(比如 IPv6 退回 IPv4)，不会卡到超时。
-	fmt.Fprintf(&b, "block return out quick%s all\n", on)
+	// label 用于读取被拒绝的包数，展示给用户。
+	fmt.Fprintf(&b, "block return out quick%s all label %q\n", on, blockLabel)
 	return b.String()
 }
+
+// blockLabel 标记拒绝规则，BlockedPackets 据此统计。
+const blockLabel = "wgsense-block"
 
 // CNTable 返回国内 IP 段表文件内容，一行一段。
 func CNTable() string {

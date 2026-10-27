@@ -1,11 +1,14 @@
 // Package firewall 是整台电脑的出站拦截(pf)，与 WireGuard 链路和所在网络无关。
 //
-// 只有一条规则：物理网卡上只放行国内 IP、局域网、网关 fake-ip 段和 WG 服务器，
+// 拦截境外直连：物理网卡上只放行国内 IP、局域网、网关 fake-ip 段和 WG 服务器，
 // 其余一律拒绝。于是：
-//   - WG 连着：流量走隧道，不经物理网卡，不受影响；
 //   - WG 断开/重连空窗：直连境外(含 AI 服务)全被挡；
 //   - 在家：境外流量解析成 fake-ip 交给网关代理，放行；拿真实境外 IP 直连的被挡；
 //   - IPv6 同理，只放行国内段。
+//
+// 隧道锁定（默认开，与上面的开关独立）：WG 全局隧道连着时，物理网卡只放行
+// 局域网和 WG 服务器。程序绑定物理网卡直连、或走路由表没覆盖到的路径，
+// 都不能绕开隧道。隧道一拆除立即恢复，「有就用，没有就不用」。
 //
 // 国内模式把同一规则作用到所有接口(含隧道)，并且不放行 fake-ip。
 //
@@ -35,6 +38,9 @@ type Settings struct {
 	Block bool `json:"auto_block"`
 	// ForceDomestic 国内模式：所有接口(含隧道)都只放行国内。
 	ForceDomestic bool `json:"force_domestic"`
+	// AllowBypass 关闭隧道锁定：隧道连着时仍按上面的规则放行物理网卡直连。
+	// 默认 false（锁定），旧版设置文件没有这个字段，升级后即锁定。
+	AllowBypass bool `json:"allow_bypass"`
 }
 
 // Status 是当前实际生效情况，供 UI 展示。
@@ -43,8 +49,12 @@ type Status struct {
 	Forced     bool     `json:"forced"`
 	Reason     string   `json:"reason"`
 	Interfaces []string `json:"interfaces,omitempty"` // 正在使用的网卡，仅供展示
-	Error      string   `json:"error,omitempty"`
-	UpdatedAt  string   `json:"updated_at,omitempty"`
+	// Locked 隧道锁定正在生效（全局隧道连着，物理网卡只放行局域网与 WG 服务器）。
+	Locked bool `json:"locked"`
+	// BlockedPackets 自本套规则生效以来被拒绝的出站包数，非零说明有程序试图绕开。
+	BlockedPackets uint64 `json:"blocked_packets"`
+	Error          string `json:"error,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
 // Backend 执行真正的系统修改；测试里替换为假实现。
@@ -53,6 +63,8 @@ type Backend interface {
 	ClearPF() error
 	// RemoveLegacyHosts 清理 v1.0.4 写入 /etc/hosts 的域名拦截段。
 	RemoveLegacyHosts() error
+	// BlockedPackets 读取拒绝规则的累计命中包数。
+	BlockedPackets() (uint64, error)
 }
 
 // Controller 根据设置维护 pf 锚点。
@@ -67,11 +79,18 @@ type Controller struct {
 	PhysicalInterfaces func() []string // 规则覆盖的全部物理网卡
 	ActiveInterfaces   func() []string // 有地址、正在使用的网卡
 	TunnelEndpoints    func() []string
+	// TunnelLocked 报告全局隧道是否连着；为 true 且未关闭锁定时启用隧道锁定。
+	TunnelLocked func() bool
 
-	appliedPF string
-	synced    bool
-	status    Status
+	appliedPF   string
+	synced      bool
+	status      Status
+	countedAt   time.Time
+	blockedSeen uint64
 }
+
+// counterInterval 限制读取拦截计数的频率（每次要启动 pfctl）。
+const counterInterval = 30 * time.Second
 
 // New 读取 path 的设置并创建控制器。logf 可为 nil。
 func New(path string, backend Backend, logf func(string, ...interface{})) *Controller {
@@ -85,6 +104,7 @@ func New(path string, backend Backend, logf func(string, ...interface{})) *Contr
 		PhysicalInterfaces: physicalInterfaces,
 		ActiveInterfaces:   activeInterfaces,
 		TunnelEndpoints:    func() []string { return nil },
+		TunnelLocked:       func() bool { return false },
 	}
 	if path != "" {
 		if data, err := os.ReadFile(path); err == nil {
@@ -118,7 +138,7 @@ func (c *Controller) Update(s Settings) error {
 		return err
 	}
 	c.settings = s
-	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t", s.Block, s.ForceDomestic)
+	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t 隧道锁定=%t", s.Block, s.ForceDomestic, !s.AllowBypass)
 	return c.syncLocked()
 }
 
@@ -156,6 +176,15 @@ func (c *Controller) syncLocked() error {
 	case s.ForceDomestic:
 		status.Active, status.Reason = true, "国内模式：所有出口只放行国内"
 		rules = RenderPF(RuleInput{Endpoints: c.TunnelEndpoints(), CNFile: CNTablePath()})
+	case !s.AllowBypass && c.TunnelLocked():
+		ifaces := c.PhysicalInterfaces()
+		status.Active, status.Locked = true, true
+		status.Reason = "隧道锁定：物理网卡只放行局域网与 WG 服务器，其余必须走隧道"
+		if len(ifaces) == 0 {
+			status.Reason += "（当前无物理网卡）"
+		} else {
+			rules = RenderPF(RuleInput{Interfaces: ifaces, LockTunnel: true, Endpoints: c.TunnelEndpoints(), CNFile: CNTablePath()})
+		}
 	case s.Block:
 		ifaces := c.PhysicalInterfaces()
 		status.Active, status.Reason = true, "物理网卡只放行国内、局域网与 WG 服务器"
@@ -171,6 +200,7 @@ func (c *Controller) syncLocked() error {
 		status.Interfaces = c.ActiveInterfaces()
 	}
 
+	reload := !c.synced || rules != c.appliedPF
 	var errs []error
 	if !c.synced {
 		if err := c.backend.RemoveLegacyHosts(); err != nil {
@@ -190,6 +220,16 @@ func (c *Controller) syncLocked() error {
 			c.appliedPF = rules
 		}
 	}
+	switch {
+	case reload || rules == "":
+		// 新加载的规则计数从零开始
+		c.countedAt, c.blockedSeen = time.Now(), 0
+	case time.Since(c.countedAt) >= counterInterval:
+		if n, err := c.backend.BlockedPackets(); err == nil {
+			c.countedAt, c.blockedSeen = time.Now(), n
+		}
+	}
+	status.BlockedPackets = c.blockedSeen
 	changed := !c.synced || c.status.Active != status.Active || c.status.Reason != status.Reason
 	err := errors.Join(errs...)
 	if err == nil {

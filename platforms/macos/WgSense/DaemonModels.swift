@@ -26,6 +26,8 @@ struct DaemonStatus: Codable, Equatable {
     var bind_rebinds: Int?
     var network_interfaces: [NetworkInterface]?
     var firewall: FirewallStatus?
+    /// 隧道接管了什么、哪些不走隧道以及原因。
+    var coverage: TunnelCoverage?
 
     var isTrustedNetwork: Bool { trusted_network ?? at_home }
 
@@ -40,6 +42,10 @@ struct FirewallStatus: Codable, Equatable {
     var forced: Bool
     var reason: String
     var interfaces: [String]?
+    /// 隧道锁定生效中：全局隧道连着，物理网卡只放行局域网与 WG 服务器。
+    var locked: Bool?
+    /// 本套规则生效以来被拒绝的出站包数。
+    var blocked_packets: UInt64?
     var error: String?
     var updated_at: String?
 }
@@ -49,6 +55,42 @@ struct FirewallSettings: Codable, Equatable {
     /// 拦截物理网卡上的境外直连（字段名沿用 v1.0.4）。
     var auto_block: Bool
     var force_domestic: Bool
+    /// 关闭隧道锁定（默认 nil/false = 锁定）。
+    var allow_bypass: Bool?
+}
+
+/// 隧道覆盖范围（daemon /api/status 的 coverage）。
+struct TunnelCoverage: Codable, Equatable {
+    var full_tunnel: Bool
+    var ipv6: TunnelIPv6Status
+    var bypass: [TunnelBypassPath]?
+    var dns: [String]?
+    var dns_service: String?
+}
+
+struct TunnelIPv6Status: Codable, Equatable {
+    var mode: String
+    var state: String
+    var address: String?
+    var derived: Bool?
+    var last_probe: String?
+    var last_probe_ok: Bool?
+    var next_probe: String?
+    var targets: [String]?
+    var error: String?
+}
+
+struct TunnelBypassPath: Codable, Equatable, Hashable {
+    var destination: String
+    var via: String
+    var reason: String
+}
+
+/// 全局隧道的公网 IPv6 设置（daemon /api/tunnel/ipv6）。
+struct TunnelIPv6Settings: Codable, Equatable {
+    var mode: String
+    var prefix: String
+    var probe_targets: [String]
 }
 
 struct FirewallResponse: Codable, Equatable {

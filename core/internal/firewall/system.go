@@ -102,6 +102,29 @@ func (System) ClearPF() error {
 	return nil
 }
 
+// BlockedPackets 汇总锚点内拒绝规则的命中包数（pfctl -sl：标签 评估数 包数 字节数 …）。
+func (System) BlockedPackets() (uint64, error) {
+	out, err := run(pfctl, "-a", Anchor, "-sl")
+	if err != nil {
+		return 0, err
+	}
+	return parseLabelPackets(out, blockLabel), nil
+}
+
+func parseLabelPackets(out, label string) uint64 {
+	var total uint64
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == label {
+			var n uint64
+			if _, err := fmt.Sscan(f[2], &n); err == nil {
+				total += n
+			}
+		}
+	}
+	return total
+}
+
 // RemoveLegacyHosts 移除 v1.0.4 在 /etc/hosts 写入的 WgSense 段(若有)。
 func (System) RemoveLegacyHosts() error {
 	data, err := os.ReadFile(hostsPath)

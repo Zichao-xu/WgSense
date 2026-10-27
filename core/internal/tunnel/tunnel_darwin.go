@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -41,6 +43,18 @@ type darwinManager struct {
 	hasIPv6     bool          // TUN 是否配置了 IPv6 地址
 	bindWatch   *bindWatchdog // 发包地址失效时重建 UDP bind，见 rebind_darwin.go
 	ipv6        *ipv6Switch   // 全局隧道的公网 IPv6，见 ipv6_darwin.go
+	stateHook   func()        // 隧道建立/拆除后回调（出站拦截跟随隧道状态）
+
+	// 以下供 Coverage 展示，状态接口会并发读取。
+	infoMu       sync.Mutex
+	ipv6Settings IPv6Settings
+	fullTunnel   bool
+	ipv6Addr     string // 隧道 IPv6 地址
+	ipv6Derived  bool   // 按约定推出（不是配置里写的）
+	endpointIP   string
+	localNet     string
+	dnsServers   []string
+	dnsService   string
 }
 
 type routeEntry struct {
@@ -56,8 +70,9 @@ type dnsSnapshot struct {
 
 func newPlatformManager(configDir string) Manager {
 	// 上次 daemon 被强杀会残留 IPv6 拒绝路由，不清掉则不连隧道时 IPv6 也不通。
-	clearStaleIPv6Routes()
-	return &darwinManager{configDir: configDir, bindWatch: newBindWatchdog()}
+	settings := DefaultIPv6Settings()
+	clearStaleIPv6Routes(settings.ProbeTargets)
+	return &darwinManager{configDir: configDir, bindWatch: newBindWatchdog(), ipv6Settings: settings}
 }
 
 // ConnectWithProfile 用配置 profile 启动 WG 隧道(wireguard-go + utun)。
@@ -102,6 +117,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 				return fmt.Errorf("解析 endpoint %s: %w", peer.Endpoint, err)
 			}
 			endpointIP = ip
+			m.setInfo(func() { m.endpointIP = ip })
 			log.Printf("[tunnel] endpoint %s → %s", peer.Endpoint, ip)
 
 			// 把 endpoint 从 host:port 替换为 ip:port，避免 wireguard-go 内部再解析域名
@@ -124,6 +140,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 		if err := m.addExclusionRoute(localNet, ""); err != nil {
 			log.Printf("[tunnel] 本地网段排除失败（非致命）: %v", err)
 		} else {
+			m.setInfo(func() { m.localNet = localNet })
 			log.Printf("[tunnel] 本地网段排除: %s → %s", localNet, m.physIface)
 		}
 	}
@@ -169,15 +186,20 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 		m.hasIPv6 = hasIPv6
 		log.Printf("[tunnel] TUN IP: %s", profile.Interface.Address)
 	}
-	if fullTunnel && !m.hasIPv6 {
-		if auto := autoIPv6Address(profile.Interface.Address); auto != "" {
+	ipv6 := m.IPv6Settings()
+	ipv6Addr, derived := configuredIPv6(profile.Interface.Address), false
+	if fullTunnel && ipv6Addr == "" {
+		if auto := autoIPv6Address(ipv6.Prefix, profile.Interface.Address); auto != "" {
 			if err := configureInterface(m.tunName, auto); err != nil {
 				m.cleanup()
 				return fmt.Errorf("配置隧道 IPv6 %s: %w", auto, err)
 			}
+			ipv6Addr, derived = auto, true
+			m.hasIPv6 = true
 			log.Printf("[tunnel] 隧道 IPv6（按约定推出）: %s", auto)
 		}
 	}
+	m.setInfo(func() { m.fullTunnel, m.ipv6Addr, m.ipv6Derived = fullTunnel, ipv6Addr, derived })
 
 	// 8. 等待握手（IpcSet 已自动发起握手，不需要外部流量触发）
 	//    不加任何路由 → 握手失败时不影响网络
@@ -202,15 +224,16 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 
 	// 10. 全局隧道的公网 IPv6：先拒绝，探测隧道能出网再切进隧道。
 	if fullTunnel {
-		sw, err := startIPv6Switch(m.tunName)
-		if err != nil {
+		sw := newIPv6Switch(m.tunName, func() []string { return m.IPv6Settings().ProbeTargets })
+		if err := sw.start(ipv6.Mode == IPv6ModeBlock); err != nil {
 			m.cleanup()
 			return fmt.Errorf("公网 IPv6 路由: %w", err)
 		}
-		m.ipv6 = sw
+		m.setInfo(func() { m.ipv6 = sw })
 	}
 
 	m.applyProfileDNS(profile.Interface.DNS)
+	m.notifyState()
 	return nil
 }
 
@@ -405,9 +428,9 @@ func (m *darwinManager) cleanup() {
 		m.dnsSnapshot = nil
 	}
 
-	if m.ipv6 != nil {
-		m.ipv6.close()
-		m.ipv6 = nil
+	if sw := m.ipv6; sw != nil {
+		m.setInfo(func() { m.ipv6 = nil })
+		sw.close()
 	}
 
 	// 删除所有已添加的路由（逆序）
@@ -423,6 +446,11 @@ func (m *darwinManager) cleanup() {
 		m.dev.Close()
 		m.dev = nil
 	}
+	m.setInfo(func() {
+		m.fullTunnel, m.ipv6Addr, m.ipv6Derived = false, "", false
+		m.endpointIP, m.localNet, m.dnsServers, m.dnsService = "", "", nil, ""
+	})
+	m.notifyState()
 }
 
 func (m *darwinManager) applyProfileDNS(rawDNS string) {
@@ -458,6 +486,7 @@ func (m *darwinManager) applyProfileDNS(rawDNS string) {
 		return
 	}
 	m.dnsSnapshot = &snapshot
+	m.setInfo(func() { m.dnsServers, m.dnsService = servers, service })
 	log.Printf("[tunnel] DNS 已切换到 profile DNS: service=%s servers=%s", service, strings.Join(servers, ", "))
 }
 
@@ -919,4 +948,109 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// --- 覆盖范围与设置（供界面展示与修改） ---
+
+func (m *darwinManager) setInfo(fn func()) {
+	m.infoMu.Lock()
+	defer m.infoMu.Unlock()
+	fn()
+}
+
+// SetStateHook 设置隧道建立/拆除后的回调。
+func (m *darwinManager) SetStateHook(fn func()) { m.stateHook = fn }
+
+func (m *darwinManager) notifyState() {
+	if m.stateHook != nil {
+		m.stateHook()
+	}
+}
+
+// IPv6Settings 返回当前公网 IPv6 设置。
+func (m *darwinManager) IPv6Settings() IPv6Settings {
+	m.infoMu.Lock()
+	defer m.infoMu.Unlock()
+	s := m.ipv6Settings
+	s.ProbeTargets = append([]string(nil), s.ProbeTargets...)
+	return s
+}
+
+// SetIPv6Settings 更新设置：模式与探测地址立即生效，地址前缀下次连接生效。
+func (m *darwinManager) SetIPv6Settings(s IPv6Settings) error {
+	s = s.Normalized()
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	m.infoMu.Lock()
+	old := m.ipv6Settings
+	m.ipv6Settings = s
+	sw := m.ipv6
+	m.infoMu.Unlock()
+	if sw == nil {
+		return nil
+	}
+	if old.Mode != s.Mode {
+		sw.setBlock(s.Mode == IPv6ModeBlock)
+	} else if !stringSlicesEqual(old.ProbeTargets, s.ProbeTargets) {
+		sw.recheck()
+	}
+	return nil
+}
+
+// Endpoints 返回当前隧道实际使用的 WG 服务器地址。
+func (m *darwinManager) Endpoints() []string {
+	m.infoMu.Lock()
+	defer m.infoMu.Unlock()
+	if m.endpointIP == "" {
+		return nil
+	}
+	return []string{m.endpointIP}
+}
+
+// Coverage 报告隧道接管了什么、哪些不走隧道以及原因。
+func (m *darwinManager) Coverage(service string) Coverage {
+	m.infoMu.Lock()
+	c := Coverage{FullTunnel: m.fullTunnel, DNS: append([]string(nil), m.dnsServers...), DNSService: m.dnsService}
+	connected := m.endpointIP != ""
+	if m.endpointIP != "" {
+		c.Bypass = append(c.Bypass, BypassPath{Destination: m.endpointIP, Via: m.physIface,
+			Reason: "WG 服务器本身，隧道的外层连接必须直连"})
+	}
+	if m.localNet != "" {
+		c.Bypass = append(c.Bypass, BypassPath{Destination: networkOf(m.localNet), Via: m.physIface,
+			Reason: "当前局域网（打印机、投屏、网关等），不出外网"})
+	}
+	addr, derived, sw := m.ipv6Addr, m.ipv6Derived, m.ipv6
+	m.infoMu.Unlock()
+
+	if sw != nil {
+		c.IPv6 = sw.status()
+	} else {
+		c.IPv6 = IPv6Status{Mode: m.IPv6Settings().Mode, State: IPv6StateUntouched}
+	}
+	c.IPv6.Address, c.IPv6.Derived = addr, derived
+	if connected && len(c.DNS) == 0 {
+		c.Bypass = append(c.Bypass, BypassPath{Destination: "DNS", Via: "系统当前 DNS",
+			Reason: "配置未指定 DNS，查询仍发往当前网络的 DNS 服务器"})
+	}
+	return c
+}
+
+// configuredIPv6 返回配置 Address 里的第一个 IPv6 地址。
+func configuredIPv6(addresses string) string {
+	for _, address := range strings.Split(addresses, ",") {
+		if address = strings.TrimSpace(address); strings.Contains(address, ":") {
+			return address
+		}
+	}
+	return ""
+}
+
+// networkOf 把 192.168.2.23/24 显示成网段 192.168.2.0/24。
+func networkOf(cidr string) string {
+	if p, err := netip.ParsePrefix(cidr); err == nil {
+		return p.Masked().String()
+	}
+	return cidr
 }

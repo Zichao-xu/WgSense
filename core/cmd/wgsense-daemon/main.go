@@ -162,6 +162,12 @@ func main() {
 
 	loc := location.New()
 	tun := tunnel.New(cDir)
+	ipv6Path := filepath.Join(rtDir, "tunnel-ipv6.json")
+	if configurable, ok := tun.(tunnel.IPv6Configurable); ok {
+		if err := configurable.SetIPv6Settings(tunnel.LoadIPv6Settings(ipv6Path)); err != nil {
+			log.Printf("加载隧道 IPv6 设置失败，使用默认值: %v", err)
+		}
+	}
 	hc := healthcheck.New(cfg.HealthCheckTarget)
 	p := pause.New(pauseFile)
 	if explicitFlags["start-paused"] {
@@ -178,9 +184,17 @@ func main() {
 	eng.SetPassive(*passive)
 	eng.SetAppOwned(*appOwned)
 	eng.SetConfigPath(configFile)
+	eng.SetIPv6SettingsPath(ipv6Path)
 	if !*passive && os.Geteuid() == 0 {
 		fw := firewall.New(filepath.Join(rtDir, "firewall.json"), firewall.System{}, eng.Logf)
-		fw.TunnelEndpoints = endpointResolver(tun, "default")
+		fw.TunnelEndpoints = liveEndpoints(tun, endpointResolver(tun, "default"))
+		if provider, ok := tun.(tunnel.CoverageProvider); ok {
+			fw.TunnelLocked = func() bool { return provider.Coverage("").FullTunnel }
+		}
+		// 隧道建立/拆除后立即同步：锁定只在隧道连着时生效，拆除后马上放开。
+		if notifier, ok := tun.(tunnel.StateNotifier); ok {
+			notifier.SetStateHook(func() { _ = fw.Sync() })
+		}
 		// 先于隧道和其他服务装上规则：开机/重启后不留无拦截的空窗。
 		_ = fw.Sync()
 		eng.SetFirewall(fw)
@@ -303,6 +317,18 @@ func main() {
 
 // endpointResolver returns the WireGuard server IPs for the firewall allow
 // list, cached so policy ticks do not issue DNS lookups every few seconds.
+// liveEndpoints 合并隧道实际在用的服务器地址与按配置解析出的地址：DDNS 变化后
+// 解析缓存可能过期，实际在用的地址必须放行，否则锁定会挡住隧道自己。
+func liveEndpoints(tun tunnel.Manager, resolved func() []string) func() []string {
+	return func() []string {
+		ips := resolved()
+		if provider, ok := tun.(tunnel.CoverageProvider); ok {
+			ips = append(append([]string(nil), ips...), provider.Endpoints()...)
+		}
+		return ips
+	}
+}
+
 func endpointResolver(tun tunnel.Manager, profile string) func() []string {
 	var mu sync.Mutex
 	var cached []string

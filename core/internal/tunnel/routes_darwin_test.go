@@ -83,3 +83,12 @@ func TestParseCurrentDNSServers(t *testing.T) {
 		t.Fatalf("empty dns = %#v, want nil", got)
 	}
 }
+
+func TestNetworkOf(t *testing.T) {
+	if got := networkOf("192.168.2.23/24"); got != "192.168.2.0/24" {
+		t.Fatalf("got %q", got)
+	}
+	if got := networkOf("not-a-cidr"); got != "not-a-cidr" {
+		t.Fatalf("got %q", got)
+	}
+}

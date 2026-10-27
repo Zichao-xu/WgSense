@@ -809,6 +809,8 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     @Published var transferState: TransferReceiveState?
     @Published var firewall: FirewallResponse?
     @Published var firewallError: String?
+    @Published var tunnelIPv6: TunnelIPv6Settings?
+    @Published var tunnelIPv6Error: String?
 	@Published var transferSendTasks: TransferSendTasksState?
 	@Published var transferError: String?
 
@@ -883,6 +885,31 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
             if firewall != nil { firewall = nil }
             let message = daemonConnectionMessage(error)
             if firewallError != message { firewallError = message }
+        }
+    }
+
+    func fetchTunnelIPv6() async {
+        do {
+            let next = try await controlAPI.tunnelIPv6()
+            if tunnelIPv6 != next { tunnelIPv6 = next }
+            if tunnelIPv6Error != nil { tunnelIPv6Error = nil }
+        } catch {
+            if tunnelIPv6 != nil { tunnelIPv6 = nil }
+            let message = daemonConnectionMessage(error)
+            if tunnelIPv6Error != message { tunnelIPv6Error = message }
+        }
+    }
+
+    /// 保存隧道 IPv6 设置：模式与探测地址立即生效，地址前缀下次连接生效。
+    func updateTunnelIPv6(_ settings: TunnelIPv6Settings) async -> Bool {
+        do {
+            tunnelIPv6 = try await controlAPI.updateTunnelIPv6(settings)
+            tunnelIPv6Error = nil
+            await fetchStatus()
+            return true
+        } catch {
+            alertMsg = "保存隧道 IPv6 设置失败: \(error.localizedDescription)"
+            return false
         }
     }
 

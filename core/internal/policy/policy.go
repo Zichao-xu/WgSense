@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,6 +61,7 @@ type Engine struct {
 	autoFailures    int
 	nextAutoAttempt time.Time
 	configPath      string
+	ipv6Path        string
 	networkSnapshot func() string
 	lastNetwork     string
 	fw              *firewall.Controller
@@ -119,6 +121,44 @@ func (e *Engine) syncFirewallNow() {
 
 // SetConfigPath enables persistence for runtime configuration changes.
 func (e *Engine) SetConfigPath(path string) { e.configPath = path }
+
+// SetIPv6SettingsPath sets where tunnel IPv6 settings are persisted.
+func (e *Engine) SetIPv6SettingsPath(path string) { e.ipv6Path = path }
+
+// ErrIPv6Unsupported is returned when the tunnel platform has no IPv6 settings.
+var ErrIPv6Unsupported = errors.New("当前平台不支持隧道 IPv6 设置")
+
+// IPv6Settings returns the tunnel's public IPv6 settings.
+func (e *Engine) IPv6Settings() (tunnel.IPv6Settings, error) {
+	configurable, ok := e.tun.(tunnel.IPv6Configurable)
+	if !ok {
+		return tunnel.IPv6Settings{}, ErrIPv6Unsupported
+	}
+	return configurable.IPv6Settings(), nil
+}
+
+// UpdateIPv6Settings validates, persists and applies new IPv6 settings. Mode
+// and probe targets apply to the live tunnel; the prefix applies on reconnect.
+func (e *Engine) UpdateIPv6Settings(s tunnel.IPv6Settings) error {
+	configurable, ok := e.tun.(tunnel.IPv6Configurable)
+	if !ok {
+		return ErrIPv6Unsupported
+	}
+	s = s.Normalized()
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if e.ipv6Path != "" {
+		if err := tunnel.SaveIPv6Settings(e.ipv6Path, s); err != nil {
+			return err
+		}
+	}
+	if err := configurable.SetIPv6Settings(s); err != nil {
+		return err
+	}
+	e.Logf("隧道 IPv6 设置已更新: 模式=%s 前缀=%s 探测=%s", s.Mode, s.Prefix, strings.Join(s.ProbeTargets, ","))
+	return nil
+}
 
 // SetNetworkSnapshotFunc overrides network fingerprinting for tests.
 func (e *Engine) SetNetworkSnapshotFunc(fn func() string) {
@@ -445,30 +485,32 @@ func (e *Engine) Start(ctx context.Context) error {
 
 // StatusSnapshot 是当前状态快照，供 UI 查询。
 type StatusSnapshot struct {
-	TrustedNetwork       bool                 `json:"trusted_network"`
-	AtHome               bool                 `json:"at_home"`
-	State                string               `json:"state"`
-	Paused               bool                 `json:"paused"`
-	DesiredVPNEnabled    bool                 `json:"desired_vpn_enabled"`
-	DesiredGuardEnabled  bool                 `json:"desired_guard_enabled"`
-	Service              string               `json:"service"`
-	Passive              bool                 `json:"passive"`
-	AutoConnectUntrusted bool                 `json:"auto_connect_untrusted"`
-	Auto                 bool                 `json:"auto_connect_away"`
-	AppOwned             bool                 `json:"app_owned"`
-	HealthFailures       int                  `json:"health_failures"`
-	AutoFailures         int                  `json:"auto_failures"`
-	NextAutoAttempt      string               `json:"next_auto_attempt,omitempty"`
-	LastHealthCheck      string               `json:"last_health_check,omitempty"`
-	LastAutoUp           string               `json:"last_auto_up,omitempty"`
-	TunnelInterface      string               `json:"tunnel_interface,omitempty"`
-	LastHandshake        string               `json:"last_handshake,omitempty"`
-	LastHandshakeAge     int64                `json:"last_handshake_age_seconds,omitempty"`
-	PeerTxBytes          uint64               `json:"peer_tx_bytes,omitempty"`
-	PeerRxBytes          uint64               `json:"peer_rx_bytes,omitempty"`
-	BindRebinds          int                  `json:"bind_rebinds,omitempty"`
-	NetworkInterfaces    []location.Interface `json:"network_interfaces,omitempty"`
-	Firewall             *firewall.Status     `json:"firewall,omitempty"`
+	TrustedNetwork       bool   `json:"trusted_network"`
+	AtHome               bool   `json:"at_home"`
+	State                string `json:"state"`
+	Paused               bool   `json:"paused"`
+	DesiredVPNEnabled    bool   `json:"desired_vpn_enabled"`
+	DesiredGuardEnabled  bool   `json:"desired_guard_enabled"`
+	Service              string `json:"service"`
+	Passive              bool   `json:"passive"`
+	AutoConnectUntrusted bool   `json:"auto_connect_untrusted"`
+	Auto                 bool   `json:"auto_connect_away"`
+	AppOwned             bool   `json:"app_owned"`
+	HealthFailures       int    `json:"health_failures"`
+	AutoFailures         int    `json:"auto_failures"`
+	NextAutoAttempt      string `json:"next_auto_attempt,omitempty"`
+	LastHealthCheck      string `json:"last_health_check,omitempty"`
+	LastAutoUp           string `json:"last_auto_up,omitempty"`
+	TunnelInterface      string `json:"tunnel_interface,omitempty"`
+	LastHandshake        string `json:"last_handshake,omitempty"`
+	LastHandshakeAge     int64  `json:"last_handshake_age_seconds,omitempty"`
+	PeerTxBytes          uint64 `json:"peer_tx_bytes,omitempty"`
+	PeerRxBytes          uint64 `json:"peer_rx_bytes,omitempty"`
+	BindRebinds          int    `json:"bind_rebinds,omitempty"`
+	// Coverage 说明隧道接管了什么、哪些不走隧道以及原因。
+	Coverage          *tunnel.Coverage     `json:"coverage,omitempty"`
+	NetworkInterfaces []location.Interface `json:"network_interfaces,omitempty"`
+	Firewall          *firewall.Status     `json:"firewall,omitempty"`
 }
 
 // Status 返回当前状态快照。
@@ -503,6 +545,10 @@ func (e *Engine) Status() StatusSnapshot {
 	}
 	if !e.lastAutoUp.IsZero() {
 		snapshot.LastAutoUp = e.lastAutoUp.Format(time.RFC3339)
+	}
+	if provider, ok := e.tun.(tunnel.CoverageProvider); ok {
+		coverage := provider.Coverage(e.service)
+		snapshot.Coverage = &coverage
 	}
 	if provider, ok := e.tun.(tunnel.RuntimeStatsProvider); ok {
 		if stats, err := provider.RuntimeStats(e.service); err == nil {

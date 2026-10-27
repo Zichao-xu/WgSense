@@ -38,12 +38,12 @@ func TestIPv6SwitchRealRoutes(t *testing.T) {
 	if err := configureInterface(name, "10.250.0.2/24"); err != nil {
 		t.Fatal(err)
 	}
-	if err := configureInterface(name, autoIPv6Address("10.250.0.2/24")); err != nil {
+	if err := configureInterface(name, autoIPv6Address(DefaultIPv6Settings().Prefix, "10.250.0.2/24")); err != nil {
 		t.Fatal(err)
 	}
 
 	start := time.Now()
-	if probeIPv6Via(name) {
+	if probeIPv6Via(name, DefaultIPv6Settings().ProbeTargets) {
 		t.Fatal("peerless tunnel must not pass the IPv6 probe")
 	}
 	if d := time.Since(start); d > ipv6ProbeTimeout+time.Second {
@@ -54,15 +54,12 @@ func TestIPv6SwitchRealRoutes(t *testing.T) {
 	}
 
 	up := false
-	s, err := startIPv6Switch(name)
-	if err != nil {
+	s := newIPv6Switch(name, func() []string { return nil })
+	s.probe = func([]string) bool { return up }
+	if err := s.install(false); err != nil {
 		t.Fatal(err)
 	}
-	close(s.stop) // 停掉真实探测，改为手动驱动
-	<-s.done
-	s.stop, s.done = make(chan struct{}), make(chan struct{})
-	close(s.done)
-	s.probe = func() bool { return up }
+	stop := make(chan struct{})
 
 	for _, dst := range []string{"2400:3200::1", "2a00:1450::1"} {
 		if got := routeIface(t, dst); got != "REJECT" {
@@ -70,14 +67,14 @@ func TestIPv6SwitchRealRoutes(t *testing.T) {
 		}
 	}
 	up = true
-	s.check()
+	s.check(stop)
 	for _, dst := range []string{"2400:3200::1", "2a00:1450::1"} {
 		if got := routeIface(t, dst); got != name {
 			t.Fatalf("%s via tunnel = %s, want %s", dst, got, name)
 		}
 	}
 	up = false
-	s.check()
+	s.check(stop)
 	if got := routeIface(t, "2400:3200::1"); got != "REJECT" {
 		t.Fatalf("fallback = %s, want REJECT", got)
 	}

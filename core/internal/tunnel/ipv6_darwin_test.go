@@ -4,6 +4,7 @@ package tunnel
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -22,14 +23,18 @@ func TestIsFullTunnel(t *testing.T) {
 }
 
 func TestAutoIPv6Address(t *testing.T) {
-	if got := autoIPv6Address("10.66.66.3/24"); got != "fd77:6773::10.66.66.3/96" {
+	const prefix = "fd77:6773::"
+	if got := autoIPv6Address(prefix, "10.66.66.3/24"); got != "fd77:6773::a42:4203/96" {
 		t.Fatalf("auto = %q", got)
 	}
-	if got := autoIPv6Address("fd00::3/64, 10.66.66.11/32"); got != "fd77:6773::10.66.66.11/96" {
+	if got := autoIPv6Address(prefix, "fd00::3/64, 10.66.66.11/32"); got != "fd77:6773::a42:420b/96" {
 		t.Fatalf("auto from mixed = %q", got)
 	}
-	if got := autoIPv6Address("fd00::3/64"); got != "" {
+	if got := autoIPv6Address(prefix, "fd00::3/64"); got != "" {
 		t.Fatalf("no IPv4 should give no auto address, got %q", got)
+	}
+	if got := autoIPv6Address("2001:db8::", "10.66.66.3/24"); got != "" {
+		t.Fatalf("public prefix must be refused, got %q", got)
 	}
 }
 
@@ -42,11 +47,44 @@ func TestEnsureAllowedIPv6(t *testing.T) {
 	}
 }
 
+func TestIPv6SettingsValidate(t *testing.T) {
+	if err := DefaultIPv6Settings().Validate(); err != nil {
+		t.Fatalf("defaults invalid: %v", err)
+	}
+	bad := []IPv6Settings{
+		{Mode: "sometimes", Prefix: "fd77:6773::"},
+		{Mode: IPv6ModeAuto, Prefix: "fd77:6773"},
+		{Mode: IPv6ModeAuto, Prefix: "2001:db8::"},
+		{Mode: IPv6ModeAuto, Prefix: "fd77::", ProbeTargets: []string{"1.1.1.1:53"}},
+		{Mode: IPv6ModeAuto, Prefix: "fd77::", ProbeTargets: []string{"[2400:3200::1]"}},
+	}
+	for _, s := range bad {
+		if s.Validate() == nil {
+			t.Fatalf("%+v should be rejected", s)
+		}
+	}
+}
+
+func TestIPv6SettingsPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tunnel-ipv6.json")
+	if got := LoadIPv6Settings(path); !reflect.DeepEqual(got, DefaultIPv6Settings()) {
+		t.Fatalf("missing file should load defaults: %+v", got)
+	}
+	want := IPv6Settings{Mode: IPv6ModeBlock, Prefix: "fd00:1::", ProbeTargets: []string{"[2400:3200::1]:443"}}
+	if err := SaveIPv6Settings(path, want); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadIPv6Settings(path); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 // fakeSwitch 不碰系统路由，记录每次安装的方向。
 func fakeSwitch(probe func() bool) (*ipv6Switch, *[]bool, *sync.Mutex) {
 	var mu sync.Mutex
 	var installs []bool
-	s := &ipv6Switch{tun: "utun99", probe: probe, stop: make(chan struct{}), done: make(chan struct{})}
+	s := newIPv6Switch("utun99", func() []string { return []string{"[2400:3200::1]:53"} })
+	s.probe = func([]string) bool { return probe() }
 	s.install = func(via bool) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -59,20 +97,24 @@ func fakeSwitch(probe func() bool) (*ipv6Switch, *[]bool, *sync.Mutex) {
 func TestIPv6SwitchFollowsProbe(t *testing.T) {
 	up := false
 	s, installs, mu := fakeSwitch(func() bool { return up })
+	stop := make(chan struct{})
 
-	s.check() // 隧道没有 IPv6：保持拒绝，不重复安装
-	if s.viaTunnel() || len(*installs) != 0 {
-		t.Fatalf("unreachable IPv6 must stay rejected, installs=%v", *installs)
+	if st := s.status(); st.State != IPv6StateProbing {
+		t.Fatalf("before first probe = %s", st.State)
+	}
+	s.check(stop) // 隧道没有 IPv6：保持拒绝，不重复安装
+	if st := s.status(); st.State != IPv6StateBlocked || st.LastProbe == "" || st.LastProbeOK {
+		t.Fatalf("unreachable IPv6 status = %+v", st)
 	}
 	up = true
-	s.check() // 服务器开了 IPv6：切进隧道
-	if !s.viaTunnel() {
-		t.Fatal("reachable IPv6 should switch into the tunnel")
+	s.check(stop) // 服务器开了 IPv6：切进隧道
+	if st := s.status(); st.State != IPv6StateTunnel || !st.LastProbeOK {
+		t.Fatalf("reachable IPv6 status = %+v", st)
 	}
-	s.check() // 状态不变不重装
+	s.check(stop) // 状态不变不重装
 	up = false
-	s.check() // 又不通了：退回拒绝
-	if s.viaTunnel() {
+	s.check(stop) // 又不通了：退回拒绝
+	if s.status().State != IPv6StateBlocked {
 		t.Fatal("lost IPv6 should fall back to reject")
 	}
 	mu.Lock()
@@ -85,25 +127,62 @@ func TestIPv6SwitchFollowsProbe(t *testing.T) {
 func TestIPv6SwitchKeepsStateWhenInstallFails(t *testing.T) {
 	s, _, _ := fakeSwitch(func() bool { return true })
 	s.install = func(bool) error { return errors.New("route failed") }
-	s.check()
-	if s.viaTunnel() {
-		t.Fatal("state must not flip when routes failed to install")
+	s.check(make(chan struct{}))
+	if st := s.status(); st.State == IPv6StateTunnel || st.Error == "" {
+		t.Fatalf("failed install must keep reject and report error: %+v", st)
 	}
 }
 
-func TestIPv6SwitchLoopStopsPromptly(t *testing.T) {
-	probes := make(chan struct{}, 4)
-	s, _, _ := fakeSwitch(func() bool { probes <- struct{}{}; return false })
-	go s.loop()
+func TestIPv6SwitchBlockModeSkipsProbe(t *testing.T) {
+	probed := false
+	s, installs, mu := fakeSwitch(func() bool { probed = true; return true })
+	if err := s.start(true); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if probed {
+		t.Fatal("block mode must not probe")
+	}
+	if st := s.status(); st.Mode != IPv6ModeBlock || st.State != IPv6StateBlocked {
+		t.Fatalf("status = %+v", st)
+	}
+	mu.Lock()
+	if !reflect.DeepEqual(*installs, []bool{false}) {
+		t.Fatalf("installs = %v", *installs)
+	}
+	mu.Unlock()
+	s.close()
+}
+
+func TestIPv6SwitchLiveModeChange(t *testing.T) {
+	probes := make(chan struct{}, 8)
+	s, installs, mu := fakeSwitch(func() bool { probes <- struct{}{}; return true })
+	if err := s.start(false); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-probes:
 	case <-time.After(time.Second):
-		t.Fatal("first probe should run immediately")
+		t.Fatal("auto mode should probe immediately")
 	}
-	close(s.stop)
+	deadline := time.Now().Add(time.Second)
+	for s.status().State != IPv6StateTunnel && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.setBlock(true) // 用户改成始终拒绝：立即退回拒绝
+	if st := s.status(); st.State != IPv6StateBlocked || st.Mode != IPv6ModeBlock {
+		t.Fatalf("after block = %+v", st)
+	}
+	s.setBlock(false) // 改回自动：重新探测
 	select {
-	case <-s.done:
+	case <-probes:
 	case <-time.After(time.Second):
-		t.Fatal("loop did not stop")
+		t.Fatal("auto mode should probe again")
+	}
+	s.close()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*installs) < 3 || (*installs)[0] != false || (*installs)[1] != true || (*installs)[2] != false {
+		t.Fatalf("installs = %v", *installs)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/wgsense/core/internal/policy"
 	"github.com/wgsense/core/internal/proxy"
 	"github.com/wgsense/core/internal/transfer"
+	"github.com/wgsense/core/internal/tunnel"
 )
 
 // Server 是本地 HTTP API 服务。
@@ -70,6 +71,7 @@ func (s *Server) Serve(listener net.Listener) error {
 	mux.HandleFunc("/api/profile/delete", s.handleProfileDelete)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/firewall", s.handleFirewall)
+	mux.HandleFunc("/api/tunnel/ipv6", s.handleTunnelIPv6)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/traffic", s.handleTraffic)
 	mux.HandleFunc("/api/shutdown", s.handleShutdown)
@@ -343,6 +345,33 @@ func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, firewallResponse{Settings: fw.Settings(), Status: fw.Status()})
+}
+
+// handleTunnelIPv6 GET 返回全局隧道的公网 IPv6 设置，POST 更新并立即生效
+// （地址前缀下次连接生效）。当前状态见 /api/status 的 coverage.ipv6。
+func (s *Server) handleTunnelIPv6(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		var settings tunnel.IPv6Settings
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&settings); err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := s.eng.UpdateIPv6Settings(settings); err != nil {
+			writeError(w, err)
+			return
+		}
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	settings, err := s.eng.IPv6Settings()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, settings)
 }
 
 // handleConfig GET 返回当前配置，POST 更新配置。

@@ -30,10 +30,25 @@ struct DaemonControlAPIClient {
     func updateFirewall(_ settings: FirewallSettings) async throws -> FirewallResponse {
         let body: [String: Any] = [
             "auto_block": settings.auto_block,
-            "force_domestic": settings.force_domestic
+            "force_domestic": settings.force_domestic,
+            "allow_bypass": settings.allow_bypass ?? false
         ]
         let data = try await api.request("api/firewall", method: "POST", body: body)
         return try JSONDecoder().decode(FirewallResponse.self, from: data)
+    }
+
+    func tunnelIPv6() async throws -> TunnelIPv6Settings {
+        try await api.decode(TunnelIPv6Settings.self, path: "api/tunnel/ipv6")
+    }
+
+    func updateTunnelIPv6(_ settings: TunnelIPv6Settings) async throws -> TunnelIPv6Settings {
+        let body: [String: Any] = [
+            "mode": settings.mode,
+            "prefix": settings.prefix,
+            "probe_targets": settings.probe_targets
+        ]
+        let data = try await api.request("api/tunnel/ipv6", method: "POST", body: body)
+        return try JSONDecoder().decode(TunnelIPv6Settings.self, from: data)
     }
 
     func traffic() async throws -> TrafficStats {
