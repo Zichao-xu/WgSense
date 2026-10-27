@@ -40,13 +40,13 @@ type darwinManager struct {
 	cleaned     bool          // 防止重复 cleanup
 	hasIPv6     bool          // TUN 是否配置了 IPv6 地址
 	bindWatch   *bindWatchdog // 发包地址失效时重建 UDP bind，见 rebind_darwin.go
+	ipv6        *ipv6Switch   // 全局隧道的公网 IPv6，见 ipv6_darwin.go
 }
 
 type routeEntry struct {
-	cidr   string
-	gw     string // 网关 IP（空=interface 路由）
-	dev    string // 接口名
-	reject bool   // IPv6 拒绝路由（指向 ::1，连接立即失败）
+	cidr string
+	gw   string // 网关 IP（空=interface 路由）
+	dev  string // 接口名
 }
 
 type dnsSnapshot struct {
@@ -56,9 +56,7 @@ type dnsSnapshot struct {
 
 func newPlatformManager(configDir string) Manager {
 	// 上次 daemon 被强杀会残留 IPv6 拒绝路由，不清掉则不连隧道时 IPv6 也不通。
-	for _, cidr := range []string{"::/1", "8000::/1"} {
-		deleteRoute(routeEntry{cidr: cidr, reject: true})
-	}
+	clearStaleIPv6Routes()
 	return &darwinManager{configDir: configDir, bindWatch: newBindWatchdog()}
 }
 
@@ -70,7 +68,7 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	if err := ensureNoActiveSystemVPN(); err != nil {
 		return err
 	}
-	if m.dev != nil || len(m.addedRoutes) > 0 || m.dnsSnapshot != nil {
+	if m.dev != nil || len(m.addedRoutes) > 0 || m.dnsSnapshot != nil || m.ipv6 != nil {
 		log.Printf("[tunnel] 连接前发现残留隧道状态，先清理旧 TUN")
 		m.cleanup()
 	}
@@ -143,6 +141,15 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	m.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), newDeviceLogger(m.bindWatch))
 	m.bindWatch.attach(m.dev)
 
+	// 全局隧道：IPv6 也交给隧道，能不能出网由 ipv6Switch 探测决定。
+	fullTunnel := false
+	for i, peer := range profile.Peers {
+		if isFullTunnel(peer.AllowedIPs) {
+			fullTunnel = true
+			profile.Peers[i].AllowedIPs = ensureAllowedIPv6(peer.AllowedIPs)
+		}
+	}
+
 	// 5. IPC 配置（IpcSet 内部会触发 BindUpdate + 握手发起，不需要再显式调用 BindUpdate）
 	uapi := buildUAPI(profile)
 	log.Printf("[tunnel] 应用 WireGuard 配置：%d 个 peer", len(profile.Peers))
@@ -161,6 +168,15 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 		}
 		m.hasIPv6 = hasIPv6
 		log.Printf("[tunnel] TUN IP: %s", profile.Interface.Address)
+	}
+	if fullTunnel && !m.hasIPv6 {
+		if auto := autoIPv6Address(profile.Interface.Address); auto != "" {
+			if err := configureInterface(m.tunName, auto); err != nil {
+				m.cleanup()
+				return fmt.Errorf("配置隧道 IPv6 %s: %w", auto, err)
+			}
+			log.Printf("[tunnel] 隧道 IPv6（按约定推出）: %s", auto)
+		}
 	}
 
 	// 8. 等待握手（IpcSet 已自动发起握手，不需要外部流量触发）
@@ -184,15 +200,14 @@ func (m *darwinManager) ConnectWithProfile(profile *config.Profile) error {
 	}
 	log.Printf("[tunnel] 全量隧道路由已添加 (0/1 + 128.0/1 → %s)", m.tunName)
 
-	// 10. 全局隧道但 TUN 没有 IPv6：公网 IPv6 原本会从物理网卡直出、绕开隧道。
-	//     加拒绝路由让 IPv6 连接立即失败，程序马上退回 IPv4 进隧道。
-	for _, peer := range profile.Peers {
-		for _, cidr := range rejectedIPv6Routes(peer.AllowedIPs, m.hasIPv6) {
-			if err := m.addRejectRoute(cidr); err != nil {
-				m.cleanup()
-				return fmt.Errorf("添加 IPv6 拒绝路由 %s: %w", cidr, err)
-			}
+	// 10. 全局隧道的公网 IPv6：先拒绝，探测隧道能出网再切进隧道。
+	if fullTunnel {
+		sw, err := startIPv6Switch(m.tunName)
+		if err != nil {
+			m.cleanup()
+			return fmt.Errorf("公网 IPv6 路由: %w", err)
 		}
+		m.ipv6 = sw
 	}
 
 	m.applyProfileDNS(profile.Interface.DNS)
@@ -390,6 +405,11 @@ func (m *darwinManager) cleanup() {
 		m.dnsSnapshot = nil
 	}
 
+	if m.ipv6 != nil {
+		m.ipv6.close()
+		m.ipv6 = nil
+	}
+
 	// 删除所有已添加的路由（逆序）
 	for i := len(m.addedRoutes) - 1; i >= 0; i-- {
 		r := m.addedRoutes[i]
@@ -486,23 +506,6 @@ func (m *darwinManager) addTunnelRoute(cidr string) error {
 	return nil
 }
 
-// addRejectRoute 添加 IPv6 拒绝路由。比物理网卡的 ::/0 默认路由更具体，
-// 链路本地/局域网前缀路由更具体所以不受影响。
-func (m *darwinManager) addRejectRoute(cidr string) error {
-	out, err := exec.Command("route", "-n", "add", "-inet6", cidr, "::1", "-reject").CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(out), "File exists") {
-			// 可能是上次残留，接管它，断开时一起删
-			log.Printf("[tunnel] IPv6 拒绝路由已存在（接管）: %s", cidr)
-		} else {
-			return fmt.Errorf("%s: %s", strings.TrimSpace(string(out)), err)
-		}
-	}
-	m.addedRoutes = append(m.addedRoutes, routeEntry{cidr: cidr, reject: true})
-	log.Printf("[tunnel] IPv6 拒绝路由: %s", cidr)
-	return nil
-}
-
 // plannedTunnelRoutes expands default routes and drops an address family that
 // is not configured on the tunnel. Fake-IP ranges are deliberately untouched:
 // a local proxy owns those routes and sending them to a physical NIC breaks DNS.
@@ -515,8 +518,9 @@ func plannedTunnelRoutes(allowedIPs []string, hasIPv6 bool) []string {
 			continue
 		case cidr == "0.0.0.0/0":
 			routes = append(routes, "0/1", "128.0/1")
-		case cidr == "::/0" && hasIPv6:
-			routes = append(routes, "::/1", "8000::/1")
+		case cidr == "::/0":
+			// 公网 IPv6 由 ipv6Switch 按探测结果接管
+			continue
 		case strings.Contains(cidr, ":") && !hasIPv6:
 			continue
 		default:
@@ -526,25 +530,10 @@ func plannedTunnelRoutes(allowedIPs []string, hasIPv6 bool) []string {
 	return routes
 }
 
-// rejectedIPv6Routes 返回 IPv6 全局但隧道没有 IPv6 地址时要拒绝的路由。
-func rejectedIPv6Routes(allowedIPs []string, hasIPv6 bool) []string {
-	if hasIPv6 {
-		return nil
-	}
-	for _, cidr := range allowedIPs {
-		if strings.TrimSpace(cidr) == "::/0" {
-			return []string{"::/1", "8000::/1"}
-		}
-	}
-	return nil
-}
-
 // removeRoute 删除单条路由（不经过 addedRoutes 列表）。
 func (m *darwinManager) removeRoute(r routeEntry) {
 	var cmd *exec.Cmd
-	if r.reject {
-		cmd = exec.Command("route", "-n", "delete", "-inet6", r.cidr, "::1")
-	} else if r.gw != "" {
+	if r.gw != "" {
 		cmd = exec.Command("route", "-n", "delete", "-host", r.cidr, r.gw)
 	} else if r.dev != "" {
 		if strings.Contains(r.cidr, ":") {
@@ -741,9 +730,7 @@ func isFakeIP(ip net.IP) bool {
 // deleteRoute 删除一条路由。
 func deleteRoute(r routeEntry) {
 	var cmd *exec.Cmd
-	if r.reject {
-		cmd = exec.Command("route", "-n", "delete", "-inet6", r.cidr, "::1")
-	} else if r.gw != "" {
+	if r.gw != "" {
 		// 排除路由（via 网关）
 		cmd = exec.Command("route", "-n", "delete", "-host", r.cidr, r.gw)
 	} else if r.dev != "" {

@@ -16,24 +16,11 @@ func TestPlannedTunnelRoutesIPv4Only(t *testing.T) {
 	}
 }
 
-func TestPlannedTunnelRoutesDualStack(t *testing.T) {
-	got := plannedTunnelRoutes([]string{"0.0.0.0/0", "::/0"}, true)
-	want := []string{"0/1", "128.0/1", "::/1", "8000::/1"}
+func TestPlannedTunnelRoutesLeavesPublicIPv6ToSwitch(t *testing.T) {
+	got := plannedTunnelRoutes([]string{"0.0.0.0/0", "::/0", "fd00:1::/64"}, true)
+	want := []string{"0/1", "128.0/1", "fd00:1::/64"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("routes = %#v, want %#v", got, want)
-	}
-}
-
-func TestRejectedIPv6Routes(t *testing.T) {
-	want := []string{"::/1", "8000::/1"}
-	if got := rejectedIPv6Routes([]string{"0.0.0.0/0", " ::/0"}, false); !reflect.DeepEqual(got, want) {
-		t.Fatalf("v4-only tunnel with ::/0 = %#v, want %#v", got, want)
-	}
-	if got := rejectedIPv6Routes([]string{"0.0.0.0/0", "::/0"}, true); got != nil {
-		t.Fatalf("dual-stack tunnel should route IPv6 instead of rejecting: %#v", got)
-	}
-	if got := rejectedIPv6Routes([]string{"10.10.1.0/24"}, false); got != nil {
-		t.Fatalf("split tunnel must not touch IPv6: %#v", got)
 	}
 }
 
