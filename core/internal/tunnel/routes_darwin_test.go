@@ -24,6 +24,19 @@ func TestPlannedTunnelRoutesDualStack(t *testing.T) {
 	}
 }
 
+func TestRejectedIPv6Routes(t *testing.T) {
+	want := []string{"::/1", "8000::/1"}
+	if got := rejectedIPv6Routes([]string{"0.0.0.0/0", " ::/0"}, false); !reflect.DeepEqual(got, want) {
+		t.Fatalf("v4-only tunnel with ::/0 = %#v, want %#v", got, want)
+	}
+	if got := rejectedIPv6Routes([]string{"0.0.0.0/0", "::/0"}, true); got != nil {
+		t.Fatalf("dual-stack tunnel should route IPv6 instead of rejecting: %#v", got)
+	}
+	if got := rejectedIPv6Routes([]string{"10.10.1.0/24"}, false); got != nil {
+		t.Fatalf("split tunnel must not touch IPv6: %#v", got)
+	}
+}
+
 func TestPlannedTunnelRoutesDoesNotInventFakeIPExclusion(t *testing.T) {
 	got := plannedTunnelRoutes([]string{"0.0.0.0/0"}, false)
 	for _, route := range got {
