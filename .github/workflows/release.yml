@@ -14,7 +14,26 @@ permissions:
   contents: write
 
 jobs:
+  # 本地已构建并发布（Release 里已有 DMG）时跳过云端构建，避免覆盖本地上传的安装包。
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.check.outputs.published }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | grep -qx 'WgSense-macOS.dmg'; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-macos:
+    needs: precheck
+    if: needs.precheck.outputs.published != 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
