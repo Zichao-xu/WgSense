@@ -337,7 +337,7 @@ struct WgPage<Accessory: View, Content: View>: View {
     var title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
     var word: String? = nil
-    var maxWidth: CGFloat = 820
+    var maxWidth: CGFloat = WgLayout.pageMaxWidth
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
 
@@ -352,7 +352,7 @@ struct WgPage<Accessory: View, Content: View>: View {
 }
 
 extension WgPage where Accessory == EmptyView {
-    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, word: String? = nil, maxWidth: CGFloat = 820,
+    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, word: String? = nil, maxWidth: CGFloat = WgLayout.pageMaxWidth,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, word: word, maxWidth: maxWidth, accessory: { EmptyView() }, content: content)
     }

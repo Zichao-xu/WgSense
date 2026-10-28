@@ -34,7 +34,7 @@ struct ProxyView: View {
             await refresh(section)
         }
         // 内容宽度与其他页面一致（WgPage 的 820 + 两侧内边距），切页时标题不跳位。
-        .frame(maxWidth: 820 + WgTheme.pagePadding * 2, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: WgLayout.pageMaxWidth + WgTheme.pagePadding * 2, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .top)
     }
 

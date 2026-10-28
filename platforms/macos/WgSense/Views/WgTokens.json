@@ -1,5 +1,6 @@
 {
-  "layout.sidebarTop" : 40,
+  "layout.pageMaxWidth" : 820,
+  "layout.sidebarTop" : 10,
   "radius.m" : 5,
   "radius.s" : 7,
   "space.hair" : 0,

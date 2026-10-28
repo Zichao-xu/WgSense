@@ -64,6 +64,7 @@ enum WgTokenGroup: String, CaseIterable, Identifiable {
             // 不归档的具体版面尺寸，每个滑块只管一处。
             return [
                 .init(key: "layout.sidebarTop", label: "侧栏顶部留白（让红绿灯）", fallback: 40, range: 0...80),
+                .init(key: "layout.pageMaxWidth", label: "页面最大宽度（拉满=贴边）", fallback: 820, range: 600...2400),
             ]
         }
     }
@@ -177,6 +178,11 @@ enum WgType {
 
 enum WgLayout {
     static var sidebarTop: CGFloat { WgTokens.shared["layout.sidebarTop"] }
+    /// 内容页最大宽度，超出部分居中留白；拉到上限即铺满窗口。
+    static var pageMaxWidth: CGFloat {
+        let v = WgTokens.shared["layout.pageMaxWidth"]
+        return v >= 2400 ? .infinity : v
+    }
 }
 
 enum WgRadius {
