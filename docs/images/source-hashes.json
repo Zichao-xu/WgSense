@@ -5,11 +5,11 @@
   "platforms/macos/WgSense/Assets.xcassets/BrandIcon.imageset/brand-dark.png": "16c65e6ef1b008e34413470f83b6bd16cd708beaa64206a3c9fd02d7363d437a",
   "platforms/macos/WgSense/Assets.xcassets/BrandIcon.imageset/brand-light.png": "b7aafd9cb5f98b3c09bea0a209ef96ec8e86c05dc64b8393c5a329936cb4ffaf",
   "platforms/macos/WgSense/Views/WgBrandIcon.swift": "eff84d5907ba34775e1de4eb93ed4b7cc0969e7a88d7e40ce1effe4d4f5753df",
-  "platforms/macos/WgSense/Views/WgDesign.swift": "c706d27b44cf9b9accdcb54d71034629d1799312a39d4a8df51a0baf49f8b5d8",
+  "platforms/macos/WgSense/Views/WgDesign.swift": "cafde9b29941c98a73b8ad02f91fc885952ca2eb35f7875e4eeeebbb4b657664",
   "platforms/macos/WgSense/Views/WgHUDDisplayClock.swift": "516d1e0d47e0980246aae106db0d2e92fb8ddb1b3df3f5cfbcfa4513f41378a6",
   "platforms/macos/WgSense/Views/WgHUDMotion.swift": "d3dd8f7305317ce7552a1c51db199fa873beb635b85541331892d30c413efb4a",
   "platforms/macos/WgSense/Views/WgLinkMonitor.swift": "ad8cf658f2b356746263e884949c8001945f032ff9ec178a1e0ad1e9237bae5f",
-  "platforms/macos/WgSense/Views/WgLinkStage.swift": "78cc3feb510373bea77f28c74d9621db51e43d964a89b2986018ed9fb227ebf5",
-  "tests/hud/render.sh": "9b1ea7fbde63b1c301d73f7fc8cda52a0b9413f12bc46d76d2ed52f2f1f3d96e",
+  "platforms/macos/WgSense/Views/WgLinkStage.swift": "68ba16a60c126a5a19fef64c15ad269fba32350e5835485426f8c85f20ffb4c7",
+  "tests/hud/render.sh": "4fdd1d3021e5d90e802f73ef76ebef17ef5770b2361d0675bb294b7cd3f19d10",
   "tests/hud/render.swift": "6cf3e913aaa9049a9c8181470cf9bfd08b0d58f3b3fca34094e82851ba8c6f60"
 }

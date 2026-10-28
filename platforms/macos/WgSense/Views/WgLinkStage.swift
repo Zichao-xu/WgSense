@@ -18,6 +18,7 @@ struct WgLinkStage: View {
     var onFrame: ((Date, Double) -> Void)?
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.wgRegionColor) private var region
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     private var reduceMotion: Bool { frozenReduceMotion ?? systemReduceMotion }
     @StateObject private var displayClock = WgHUDDisplayClock()
@@ -177,7 +178,8 @@ struct WgLinkStage: View {
             ZStack {
                 // Equatable boundary retains text, grid and historical data across animation ticks.
                 WgHUDStaticLayer(phase: phase, snapshot: monitor.snapshot, dark: scheme == .dark,
-                                 inspection: inspection, pinned: pinnedSample != nil).equatable()
+                                 inspection: inspection, pinned: pinnedSample != nil,
+                                 ground: region.fill(default: WgInk.panelFill(scheme))).equatable()
                 Canvas { context, canvasSize in
                     let start = CACurrentMediaTime()
                     WgLinkComposition(size: canvasSize, phase: phase, now: now, s: monitor.snapshot,
@@ -213,12 +215,14 @@ private struct WgHUDStaticLayer: View, Equatable {
     var inspection: WgLinkSample?
     var pinned: Bool
     var labelsOnly = false
+    /// 舞台底色：与其他面板同一套半透明底，区域底色生效时跟随；nil = 不透明原色（离线渲染用）。
+    var ground: Color? = nil
 
     var body: some View {
         Canvas { context, size in
             let composition = WgLinkComposition(size: size, phase: phase, now: snapshot.lastDataAt ?? .distantPast,
                               s: snapshot, dark: dark, reduceMotion: true, entrance: nil,
-                              inspection: inspection, pinned: pinned)
+                              inspection: inspection, pinned: pinned, groundFill: ground)
             if labelsOnly { composition.fixedAnnotations(&context) }
             else { composition.drawStatic(in: &context) }
         }.allowsHitTesting(false)
@@ -241,9 +245,11 @@ private struct WgLinkComposition {
     var previousLevels: CGPoint?
     var inspection: WgLinkSample?
     var pinned = false
+    var groundFill: Color? = nil
 
     private var ink: Color { dark ? Color(white: 0.91) : Color(white: 0.12) }
-    private var ground: Color { dark ? Color(red: 0.055, green: 0.061, blue: 0.07) : Color(red: 0.95, green: 0.955, blue: 0.96) }
+    private var ground: Color { groundFill ?? opaqueGround }
+    private var opaqueGround: Color { dark ? Color(red: 0.055, green: 0.061, blue: 0.07) : Color(red: 0.95, green: 0.955, blue: 0.96) }
     private var red: Color { dark ? Color(red: 1, green: 0.25, blue: 0.22) : Color(red: 0.77, green: 0.12, blue: 0.10) }
     private var amber: Color { dark ? Color(red: 0.95, green: 0.67, blue: 0.26) : Color(red: 0.56, green: 0.34, blue: 0.07) }
     private var linked: Bool { phase == .linked }
