@@ -763,7 +763,7 @@ struct WgRegionColorRow: View {
                 ColorPicker(region.title, selection: Binding(
                     get: { WgRegionColor(raw).color ?? WgInk.panelFill(scheme) },
                     set: { raw = WgRegionColor.encode($0) }
-                ), supportsOpacity: false)
+                ), supportsOpacity: true)
                 .labelsHidden()
                 .accessibilityLabel(region.title)
                 Button("恢复默认") { raw = "" }

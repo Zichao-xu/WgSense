@@ -14,13 +14,17 @@ struct RegionColorRegression {
             check(WgRegionColor(invalid).color == nil, "Invalid preference must preserve default: \(invalid)")
         }
         check(Set(WgSurfaceRegion.allCases.map(\.key)).count == 3, "Region preference keys must be independent")
-        for raw in ["000000", "FFFFFF", "17354D", "DED5BA", "28C840", "ABCDEF"] {
+        for raw in ["000000FF", "FFFFFFB8", "17354D80", "DED5BAFF", "28C84040", "ABCDEFB8"] {
             let config = WgRegionColor(raw)
             check(config.color != nil, "Valid color missing")
-            check(WgRegionColor.encode(config.color!) == raw, "Color must round trip")
+            check(WgRegionColor.encode(config.color!) == raw, "Color and opacity must round trip")
             let raised = WgRegionColor.encode(config.fill(default: .clear, raised: true))
             check(raised != raw, "Hover/selection must remain distinct")
         }
+        // 旧版存的 RRGGBB（不透明）按默认面板透明度读回，不能再把玻璃盖成纯色。
+        check(WgRegionColor("171717").opacity == WgRegionColor.legacyOpacity, "Legacy RRGGBB must read as translucent")
+        check(WgRegionColor.encode(WgRegionColor("171717").color!) == "171717B8", "Legacy value re-encodes with opacity")
+        check(WgRegionColor("17171780").opacity < 0.51, "Explicit opacity must be kept")
         check(WgRegionColor("000000").scheme == .dark, "Dark background requires light text")
         check(WgRegionColor("FFFFFF").scheme == .light, "Light background requires dark text")
         check(WgRegionColor("28C840").scheme == .light, "Green background requires dark text")

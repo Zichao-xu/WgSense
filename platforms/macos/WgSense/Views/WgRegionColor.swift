@@ -18,13 +18,23 @@ struct WgRegionColor: Equatable {
     let raw: String
     init(_ raw: String = "") { self.raw = raw }
 
+    /// 旧版只存 RRGGBB、丢了透明度，存下的全是不透明色，把玻璃整块盖成纯色。
+    /// 旧值按默认面板的透明度读，保持「透明带颜色」。
+    static let legacyOpacity = 0.72
+
     var rgb: (Double, Double, Double)? {
-        guard raw.count == 6, raw.allSatisfy({ $0.isHexDigit }), let value = UInt32(raw, radix: 16) else { return nil }
+        guard raw.count == 6 || raw.count == 8, raw.allSatisfy({ $0.isASCII && $0.isHexDigit }),
+              let value = UInt32(raw.prefix(6), radix: 16) else { return nil }
         return (Double((value >> 16) & 255) / 255, Double((value >> 8) & 255) / 255, Double(value & 255) / 255)
+    }
+    var opacity: Double {
+        guard rgb != nil else { return 1 }
+        guard raw.count == 8, let a = UInt32(raw.suffix(2), radix: 16) else { return Self.legacyOpacity }
+        return Double(a) / 255
     }
     var color: Color? {
         guard let (r, g, b) = rgb else { return nil }
-        return Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: opacity)
     }
     var scheme: ColorScheme? {
         guard let (r, g, b) = rgb else { return nil }
@@ -39,12 +49,13 @@ struct WgRegionColor: Equatable {
         let target: Double = scheme == .dark ? 1 : 0
         return Color(.sRGB, red: r * (1 - amount) + target * amount,
                      green: g * (1 - amount) + target * amount,
-                     blue: b * (1 - amount) + target * amount, opacity: 1)
+                     blue: b * (1 - amount) + target * amount, opacity: opacity)
     }
+    /// 存为 RRGGBBAA，保留透明度。
     static func encode(_ color: Color) -> String {
         guard let c = NSColor(color).usingColorSpace(.sRGB) else { return "" }
         func byte(_ v: CGFloat) -> Int { Int((max(0, min(v, 1)) * 255).rounded()) }
-        return String(format: "%02X%02X%02X", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent))
+        return String(format: "%02X%02X%02X%02X", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent), byte(c.alphaComponent))
     }
 }
 
