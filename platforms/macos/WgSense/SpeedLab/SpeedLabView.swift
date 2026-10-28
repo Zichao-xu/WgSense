@@ -47,16 +47,9 @@ struct SpeedLabView: View {
     /// 测速中按屏幕刷新率（垂直同步）推进画面时钟；空闲时暂停，零开销。
     private var hud: some View {
         SLHUDLayout {
-            // HUD 固定按设计尺寸画，再整体缩放到实际宽度：拖侧栏改宽度时只变缩放（GPU 变换），不重画
-            // 用 overlay 承载固定尺寸的 HUD：overlay 不参与尺寸计算，不会把页面理想宽度撑到 1280
-            Color.clear.overlay(alignment: .topLeading) {
-                TimelineView(.animation(paused: !(lab.running || tail))) { timeline in
-                    SLHUD(data: SLHUDData(lab), now: timeline.date)
-                }
-                .frame(width: SLHUD.size.width, height: SLHUD.size.height)
-            }
-            .visualEffect { content, proxy in
-                content.scaleEffect(proxy.size.width / SLHUD.size.width, anchor: .topLeading)
+            // HUD 按实际宽度画：缩放到上限后高度不变、横向展开（见 SLHUD.scale）
+            TimelineView(.animation(paused: !(lab.running || tail))) { timeline in
+                SLHUD(data: SLHUDData(lab), now: timeline.date)
             }
             startButton
         }
@@ -695,14 +688,15 @@ struct SLStepValue: View {
 struct SLHUDLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let w = proposal.width ?? SLHUD.size.width
-        return CGSize(width: w, height: w * SLHUD.size.height / SLHUD.size.width)
+        return CGSize(width: w, height: SLHUD.size.height * SLHUD.scale(forWidth: w))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let s = bounds.width / SLHUD.size.width
+        let s = SLHUD.scale(forWidth: bounds.width)
         subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
         guard subviews.count > 1 else { return }
-        subviews[1].place(at: CGPoint(x: bounds.minX + 490 * s, y: bounds.minY + 396 * s),
+        // START 宽 300（设计坐标），中线对齐
+        subviews[1].place(at: CGPoint(x: bounds.midX - 150 * s, y: bounds.minY + 396 * s),
                           proposal: ProposedViewSize(width: 300 * s, height: 52 * s))
     }
 }

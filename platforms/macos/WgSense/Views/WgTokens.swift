@@ -65,6 +65,7 @@ enum WgTokenGroup: String, CaseIterable, Identifiable {
             return [
                 .init(key: "layout.sidebarTop", label: "侧栏顶部留白（让红绿灯）", fallback: 40, range: 0...80),
                 .init(key: "layout.pageMaxWidth", label: "页面最大宽度（拉满=贴边）", fallback: 820, range: 600...2400),
+                .init(key: "layout.speedHudScale", label: "测速仪表缩放上限（%）", fallback: 70, range: 40...120),
             ]
         }
     }
@@ -178,6 +179,8 @@ enum WgType {
 
 enum WgLayout {
     static var sidebarTop: CGFloat { WgTokens.shared["layout.sidebarTop"] }
+    /// 测速仪表最多放大到设计尺寸的多少倍；再宽就横向展开，不再变大。
+    static var speedHudScale: CGFloat { WgTokens.shared["layout.speedHudScale"] / 100 }
     /// 内容页最大宽度，超出部分居中留白；拉到上限即铺满窗口。
     static var pageMaxWidth: CGFloat {
         let v = WgTokens.shared["layout.pageMaxWidth"]

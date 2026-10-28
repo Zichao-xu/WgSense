@@ -73,7 +73,7 @@ struct SpeedLabRender {
             let now = at(Double(f) / 24 + 1e-4)
             let width = CGFloat(Double(ProcessInfo.processInfo.environment["WIDTH"] ?? "") ?? 1280)
             let view = SLHUD(data: data(now: now), now: now)
-                .frame(width: width, height: width * 720 / 1280)
+                .frame(width: width, height: 720 * SLHUD.scale(forWidth: width))
                 .environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view)
             renderer.scale = CGFloat(Double(ProcessInfo.processInfo.environment["SCALE"] ?? "") ?? 1)

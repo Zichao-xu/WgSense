@@ -10,7 +10,8 @@ import SwiftUI
 //   PIPELINE RUNNER → NIC → STREAMS ×n → EXIT → SRC，重连只在对应那一根上轻标
 //   VERDICT  每个方向的瓶颈（LINK / UPSTREAM）与余量
 //
-// 设计坐标 1280×720，整体按宽度缩放。动作以 SLMotion 帧为单位、三次缓出，按屏幕刷新率（垂直同步）逐帧连续绘制。
+// 设计坐标 1280×720。缩放有上限（WgLayout.speedHudScale）：窄时整体等比缩小，宽到上限后高度与字号不再变，
+// 多出的宽度横向展开（两翼外伸、右侧面板贴右、管线拉长）。动作以 SLMotion 帧为单位、三次缓出，按屏幕刷新率（垂直同步）逐帧连续绘制。
 
 // MARK: - 数据快照
 
@@ -99,13 +100,15 @@ struct SLHUD: View {
 
     static let size = CGSize(width: 1280, height: 720)
 
+    /// 给定页面宽度时的缩放：不超过上限。
+    static func scale(forWidth width: CGFloat) -> CGFloat { min(WgLayout.speedHudScale, width / size.width) }
+
     var body: some View {
         Canvas { ctx, size in
-            let s = size.width / Self.size.width
+            let s = Self.scale(forWidth: size.width)
             ctx.scaleBy(x: s, y: s)
-            SLHUDPainter(ctx: ctx, d: data, now: now, region: region).paint()
+            SLHUDPainter(ctx: ctx, d: data, now: now, region: region, W: max(Self.size.width, size.width / s)).paint()
         }
-        .aspectRatio(Self.size.width / Self.size.height, contentMode: .fit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibility)
     }
@@ -124,6 +127,11 @@ private struct SLHUDPainter {
     let d: SLHUDData
     let now: Date
     var region = WgRegionColor()
+    /// 设计坐标下的实际宽度（≥1280）。左侧元素按左边定位，右侧元素按右边定位，居中元素按 cx。
+    var W: CGFloat = 1280
+    var cx: CGFloat { W / 2 }
+    /// 比设计宽度多出来的宽度：右侧元素整体右移这么多。
+    var dx: CGFloat { W - 1280 }
 
     // 灰阶色板（深色主场；颜色只给异常）。
     // 白色（ink）只给高光：START、正在跑的读数与表盘亮部。其余信息一律灰阶，层级靠灰阶之间的距离拉开：
@@ -144,7 +152,7 @@ private struct SLHUDPainter {
     func paint() {
         var c = ctx
         // 外框斜切直接画在 Canvas 里：页面上对非矩形做 clipShape，窗口每帧都要把它栅格化，滚动掉帧
-        let w = SLHUD.size.width, h = SLHUD.size.height, cut: CGFloat = 28
+        let w = W, h = SLHUD.size.height, cut: CGFloat = 28
         c.fill(poly([CGPoint(x: 0, y: 0), CGPoint(x: w - cut, y: 0), CGPoint(x: w, y: cut),
                      CGPoint(x: w, y: h), CGPoint(x: cut, y: h), CGPoint(x: 0, y: h - cut)], close: true), with: .color(bg))
         wings()
@@ -241,8 +249,9 @@ private struct SLHUDPainter {
 
     /// 一条通道。几何：外角（源一侧）→ 折点 → 内端（执行端一侧）。
     func wing(left: Bool, samples: [SLTimedSample], enter: Date?, label: String) {
-        let sx: CGFloat = left ? -1 : 1, cx: CGFloat = 640
-        let corner = CGPoint(x: cx + sx * 600, y: 66), fold = CGPoint(x: cx + sx * 410, y: 114), tip = CGPoint(x: cx + sx * 168, y: 172)
+        let sx: CGFloat = left ? -1 : 1
+        let outer = cx - 40, foldAt = 168 + (outer - 168) * (410 - 168) / (600 - 168)
+        let corner = CGPoint(x: cx + sx * outer, y: 66), fold = CGPoint(x: cx + sx * foldAt, y: 114), tip = CGPoint(x: cx + sx * 168, y: 172)
         let blade = [corner, fold, tip, CGPoint(x: tip.x - sx * 34, y: tip.y + 12), CGPoint(x: fold.x - sx * 6, y: fold.y + 44),
                      CGPoint(x: corner.x + sx * 22, y: corner.y + 16)]
         let f = k(enter)
@@ -348,12 +357,12 @@ private struct SLHUDPainter {
     func readouts() {
         readout(left: true, samples: d.down, enter: d.phaseDates[.dl], label: "↓ DL")
         readout(left: false, samples: d.up, enter: d.phaseDates[.ul], label: "↑ UL")
-        stroke([CGPoint(x: 640, y: 214), CGPoint(x: 640, y: 330)], g3, 1)
-        node(CGPoint(x: 640, y: 272), 3, g2)
+        stroke([CGPoint(x: cx, y: 214), CGPoint(x: cx, y: 330)], g3, 1)
+        node(CGPoint(x: cx, y: 272), 3, g2)
     }
 
     func readout(left: Bool, samples: [SLTimedSample], enter: Date?, label: String) {
-        let x: CGFloat = left ? 506 : 774, y: CGFloat = 300
+        let x: CGFloat = left ? cx - 134 : cx + 134, y: CGFloat = 300
         var v: Double?
         if !samples.isEmpty { v = displayValue(samples, left: left) }
         digits(v.map { d.unit.value($0) }, x, y, 100)
@@ -405,7 +414,7 @@ private struct SLHUDPainter {
         //   顶栏 17–55   DL CHANNEL ……【模式条】…… UL CHANNEL，三者同一行
         //   两翼 66–206  | 上排 200–496：RTT ｜ 读数 220–378 · START 396–448 · [runner] 474 ｜ SOURCE
         //   下排 516–692：INTERFACE ｜ PIPELINE 516–624 · 进度 644–680 ｜ VERDICT
-        let f = k(cur.2), y: CGFloat = 17, h: CGFloat = 38, cx: CGFloat = 640
+        let f = k(cur.2), y: CGFloat = 17, h: CGFloat = 38
         let state = d.error != nil ? "FAIL" : (d.running ? "RUN" : (d.done ? "DONE" : "IDLE"))
         // 待机：模式条退成最淡的空框，把主次让给 START
         if cur.1 == "STANDBY" && d.error == nil {
@@ -482,7 +491,7 @@ private struct SLHUDPainter {
     // MARK: 右上：选源
 
     func sourcePanel() {
-        let r = CGRect(x: 962, y: 200, width: 290, height: 296)
+        let r = CGRect(x: 962 + dx, y: 200, width: 290, height: 296)
         let a = panel(r, "SOURCE", enter: d.isPublic ? d.phaseDates[.pick] : d.phaseDates[.idle])
         guard a > 0 else { return }
         if !d.isPublic {
@@ -544,7 +553,7 @@ private struct SLHUDPainter {
     // MARK: 中下：测量链路
 
     func pipeline() {
-        let r = CGRect(x: 300, y: 516, width: 680, height: 108)
+        let r = CGRect(x: 300, y: 516, width: 680 + dx, height: 108)
         let a = panel(r, "PIPELINE", enter: d.startedAt)
         guard a > 0 else { return }
         let y = r.minY + 78
@@ -557,7 +566,8 @@ private struct SLHUDPainter {
             (d.isPublic ? "EXIT" : "PATH", d.isPublic ? (exitIP ?? "—") : (d.info["iface"] ?? "—"), d.infoDates["exit"] ?? d.infoDates["iface"]),
             (d.isPublic ? "SRC" : "TARGET", srcName, d.sources.first?.at ?? d.phaseDates[.dl]),
         ]
-        let xs: [CGFloat] = [r.minX + 64, r.minX + 186, r.minX + 340, r.minX + 494, r.minX + 616]
+        // 节点按设计宽度 680 的相对位置随管线拉长
+        let xs: [CGFloat] = [64, 186, 340, 494, 616].map { r.minX + $0 * r.width / 680 }
         for (i, (title, sub, t)) in nodes.enumerated() {
             let f = k(t), x = xs[i]
             if i > 0 {
@@ -609,7 +619,7 @@ private struct SLHUDPainter {
     // MARK: 右下：判断
 
     func verdictPanel() {
-        let r = CGRect(x: 1000, y: 516, width: 252, height: 176)
+        let r = CGRect(x: 1000 + dx, y: 516, width: 252, height: 176)
         let a = panel(r, "VERDICT", enter: d.phaseDates[.dl] ?? d.phaseDates[.ul])
         guard a > 0 else { return }
         func judge(_ st: SLStat?, _ trail: SLTrail) -> (String, String, Bool) {
@@ -633,7 +643,7 @@ private struct SLHUDPainter {
         let cells: [(String, SLPhase, SLPhase)] = [("RTT", .idle, .pick), ("SRC", .pick, .dl), ("DL", .dl, .ul), ("UL", .ul, .done)]
         let y: CGFloat = 644, w: CGFloat = 118
         for (i, (lab, a0, a1)) in cells.enumerated() {
-            let x0: CGFloat = 640 - 2 * (w + 8) + CGFloat(i) * (w + 8)
+            let x0: CGFloat = cx - 2 * (w + 8) + CGFloat(i) * (w + 8)
             let box = [CGPoint(x: x0 + 8, y: y), CGPoint(x: x0 + w, y: y), CGPoint(x: x0 + w - 8, y: y + 22), CGPoint(x: x0, y: y + 22)]
             // 整轮已结束时，开始过的阶段都算完成（收尾事件可能先于 done 阶段到达）
             let started = d.phaseDates[a0], ended = d.phaseDates[a1] ?? (d.done && started != nil ? d.finishedAt : nil)
