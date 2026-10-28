@@ -32,7 +32,7 @@ struct OverviewView: View {
 
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: 820, alignment: .topLeading)
+        .frame(maxWidth: WgLayout.pageMaxWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .top)
         .animation(WgDesign.spring, value: client.vpnPresentation.phase)
         .task {
