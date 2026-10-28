@@ -33,7 +33,12 @@ struct WgNativeScrollView: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.controller.rootView = AnyView(content.environment(\.wgRegionColor, region).fixedSize(horizontal: false, vertical: true).modifier(WgScrollHitGate()))
+        let coordinator = context.coordinator
+        context.coordinator.controller.rootView = AnyView(content.environment(\.wgRegionColor, region).fixedSize(horizontal: false, vertical: true)
+            // 内容自身高度变化（异步数据到达、展开收起）时 preferredContentSize 的 KVO 并不可靠——
+            // 实测概览页数据到达后内容 1091→1307 而通知从未触发，文档停在旧高度，顶部被居中裁掉。
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _ in coordinator.contentHeightChanged() }
+            .modifier(WgScrollHitGate()))
         context.coordinator.invalidate()
     }
 
@@ -73,6 +78,15 @@ struct WgNativeScrollView: NSViewRepresentable {
             railLink = MainActor.assumeIsolated { rail.link(scroll) }
         }
         func invalidate() { dirty = true; relayout() }
+        func contentHeightChanged() {
+            dirty = true
+            guard !pending else { return }
+            pending = true
+            DispatchQueue.main.async { [weak self] in
+                self?.pending = false
+                self?.relayout()
+            }
+        }
         func relayout() {
             guard !layingOut, let scroll, let document else { return }
             let width = scroll.contentView.bounds.width
