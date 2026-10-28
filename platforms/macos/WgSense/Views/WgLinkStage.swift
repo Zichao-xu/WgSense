@@ -18,7 +18,6 @@ struct WgLinkStage: View {
     var onFrame: ((Date, Double) -> Void)?
 
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.wgRegionColor) private var region
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     private var reduceMotion: Bool { frozenReduceMotion ?? systemReduceMotion }
     @StateObject private var displayClock = WgHUDDisplayClock()
@@ -179,7 +178,7 @@ struct WgLinkStage: View {
                 // Equatable boundary retains text, grid and historical data across animation ticks.
                 WgHUDStaticLayer(phase: phase, snapshot: monitor.snapshot, dark: scheme == .dark,
                                  inspection: inspection, pinned: pinnedSample != nil,
-                                 ground: region.fill(default: WgInk.panelFill(scheme))).equatable()
+                                 ground: .clear).equatable()
                 Canvas { context, canvasSize in
                     let start = CACurrentMediaTime()
                     WgLinkComposition(size: canvasSize, phase: phase, now: now, s: monitor.snapshot,
@@ -215,7 +214,8 @@ private struct WgHUDStaticLayer: View, Equatable {
     var inspection: WgLinkSample?
     var pinned: Bool
     var labelsOnly = false
-    /// 舞台底色：与其他面板同一套半透明底，区域底色生效时跟随；nil = 不透明原色（离线渲染用）。
+    /// 舞台底色。App 内传 .clear：外层已是与其他卡片相同的面板（wgInteractiveSurface），
+    /// 画布再铺一层会叠成双倍不透明度。nil = 不透明原色（离线渲染用）。
     var ground: Color? = nil
 
     var body: some View {

@@ -9,7 +9,7 @@
   "platforms/macos/WgSense/Views/WgHUDDisplayClock.swift": "516d1e0d47e0980246aae106db0d2e92fb8ddb1b3df3f5cfbcfa4513f41378a6",
   "platforms/macos/WgSense/Views/WgHUDMotion.swift": "d3dd8f7305317ce7552a1c51db199fa873beb635b85541331892d30c413efb4a",
   "platforms/macos/WgSense/Views/WgLinkMonitor.swift": "ad8cf658f2b356746263e884949c8001945f032ff9ec178a1e0ad1e9237bae5f",
-  "platforms/macos/WgSense/Views/WgLinkStage.swift": "68ba16a60c126a5a19fef64c15ad269fba32350e5835485426f8c85f20ffb4c7",
+  "platforms/macos/WgSense/Views/WgLinkStage.swift": "2b78caff8958f99a3036d07553c3f0ce350505709ab7e46a304e7cbc9f047c27",
   "tests/hud/render.sh": "4fdd1d3021e5d90e802f73ef76ebef17ef5770b2361d0675bb294b7cd3f19d10",
   "tests/hud/render.swift": "6cf3e913aaa9049a9c8181470cf9bfd08b0d58f3b3fca34094e82851ba8c6f60"
 }
