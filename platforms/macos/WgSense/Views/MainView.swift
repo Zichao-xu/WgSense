@@ -236,7 +236,8 @@ struct MainView: View {
     var body: some View {
         HStack(spacing: 0) {
             SidebarView(selection: $selection)
-                .frame(width: sidebarWidth)
+                .frame(width: sidebarWidth, alignment: .leading)
+                .clipped()
                 .wgSidebarSurface()
 
             SidebarResizeHandle(
@@ -246,40 +247,9 @@ struct MainView: View {
             )
             .frame(width: 7)
 
-            // 代理页自己管理滚动（内部是懒加载列表）；套在外层 ScrollView 里会让懒加载失效、
-            // 屏幕外的卡片和图表也每次重绘。
-            Group {
-            if selection == .proxy {
-                ProxyView()
-                    .padding(.vertical, 28)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            } else if selection == .logs {
-                // 日志页内部自带滚动区（跟随最新一行），保留 SwiftUI 容器。
-                ScrollView { LogsView().padding(28) }
-            } else {
-                // 普通页面统一用原生滚动容器（见 WgScrollView）：滚动时 SwiftUI 不再逐帧布局。
-                // 内容是独立宿主根，环境需显式注入。
-                WgScrollView(content: AnyView(
-                    Group {
-                        switch selection {
-                        case .dashboard, .wireguard: OverviewView()
-                        case .profile: ProfileManagerView()
-                        case .transferReceive: TransferReceiveView()
-                        case .transferSend: TransferSendView()
-                        case .settings: SettingsView()
-                        case .about: AboutView()
-                        case .speedtest: SpeedLabView()
-                        case .proxy, .logs: EmptyView()
-                        }
-                    }
-                    .padding(28)
-                    .environmentObject(client)
-                    .modifier(WgLocaleOverride(language: selectedLanguage))
-                    .tint(WgInk.control)
-                ))
-                .id(selection)
-            }
-            }
+            // 页面区单独成一个子视图，输入只有当前页与语言：拖侧栏时 MainView 每帧重算（sidebarWidth 在变），
+            // 子视图输入不变就整体跳过，不再每帧把整页内容重新塞进原生滚动容器（测速页曾因此拖动掉帧 70%+）。
+            MainPageArea(selection: selection, language: selectedLanguage, client: client)
             .wgPageSurface()
         }
         // 图表缓存：主窗口可见期间采样速度/内存，打开代理概览时曲线已有历史；窗口收起即停。
@@ -368,20 +338,75 @@ struct MainView: View {
     }
 }
 
+/// 主窗口右侧的页面区（见 MainView 里的说明）。
+private struct MainPageArea: View {
+    let selection: SidebarTab
+    let language: WgAppLanguage
+    let client: DaemonClient
+
+    var body: some View {
+        // 代理页自己管理滚动（内部是懒加载列表）；套在外层 ScrollView 里会让懒加载失效、
+        // 屏幕外的卡片和图表也每次重绘。
+        Group {
+        if selection == .proxy {
+            ProxyView()
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if selection == .speedtest {
+            // Own the viewport: lazy drawers/sections stay lazy, including during live resize.
+            ScrollView { SpeedLabView().padding(28) }
+                .environmentObject(client)
+                .modifier(WgLocaleOverride(language: language))
+                .tint(WgInk.control)
+        } else if selection == .logs {
+            // 日志页内部自带滚动区（跟随最新一行），保留 SwiftUI 容器。
+            ScrollView { LogsView().padding(28) }
+        } else {
+            // 普通页面统一用原生滚动容器（见 WgScrollView）：滚动时 SwiftUI 不再逐帧布局。
+            // 内容是独立宿主根，环境需显式注入。
+            WgScrollView(content: AnyView(
+                Group {
+                    switch selection {
+                    case .dashboard, .wireguard: OverviewView()
+                    case .profile: ProfileManagerView()
+                    case .transferReceive: TransferReceiveView()
+                    case .transferSend: TransferSendView()
+                    case .settings: SettingsView()
+                    case .about: AboutView()
+                    case .speedtest: SpeedLabView()
+                    case .proxy, .logs: EmptyView()
+                    }
+                }
+                .padding(28)
+                .environmentObject(client)
+                .modifier(WgLocaleOverride(language: language))
+                .tint(WgInk.control)
+            ))
+            .id(selection)
+        }
+        }
+    }
+}
+
 #if canImport(AppKit)
 private struct SidebarResizeHandle: NSViewRepresentable {
     @Binding var width: CGFloat
     let minimumWidth: CGFloat
     let maximumWidth: CGFloat
+    var onBegin: () -> Void = {}
+    var onEnd: () -> Void = {}
 
     func makeNSView(context: Context) -> SidebarResizeHandleView {
         let view = SidebarResizeHandleView()
-        view.onDrag = resize(by:)
+        updateNSView(view, context: context)
         return view
     }
 
     func updateNSView(_ nsView: SidebarResizeHandleView, context: Context) {
         nsView.onDrag = resize(by:)
+        nsView.onBegin = onBegin
+        nsView.onEnd = onEnd
+        nsView.currentWidth = { width }
     }
 
     private func resize(by delta: CGFloat) {
@@ -391,13 +416,23 @@ private struct SidebarResizeHandle: NSViewRepresentable {
 
 private final class SidebarResizeHandleView: NSView {
     var onDrag: ((CGFloat) -> Void)?
+    var onBegin: (() -> Void)?
+    var onEnd: (() -> Void)?
+    var currentWidth: (() -> CGFloat)?
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .resizeLeftRight)
-    }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
 
-    override func mouseDragged(with event: NSEvent) {
-        onDrag?(event.deltaX)
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        onBegin?()
+        defer { onEnd?() }
+        var last = event.locationInWindow.x
+        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: NSEvent.foreverDuration, mode: .eventTracking) { e, stop in
+            guard let e, e.type != .leftMouseUp else { stop.pointee = true; return }
+            let x = e.locationInWindow.x
+            onDrag?(x - last)
+            last = x
+        }
     }
 }
 #endif
@@ -543,7 +578,6 @@ struct SidebarView: View {
     @State private var contextMenuTile: TileData? = nil  // 长按/右键磁贴时弹菜单
     @State private var contextMenuAnchor: CGPoint = .zero
     @State private var vpnPauseTask: Task<Void, Never>?
-    @Namespace private var tileLayoutNamespace
 
     // VPN 状态快捷访问
     private var isConnected: Bool { client.isVPNOn }
@@ -1471,37 +1505,20 @@ struct SidebarView: View {
         .padding(6)
     }
 
-    // MARK: - 磁贴网格（手动行打包 + VStack/HStack，medium/large 独占一行）
+    // MARK: - 磁贴网格（稳定身份、按实际宽度实时排版）
 
     private func tileGridContent(availableWidth: CGFloat) -> some View {
         let outerPadding: CGFloat = 12
         let usableWidth = max(1, availableWidth - outerPadding * 2)
-        let minimumCellWidth: CGFloat = 112
-        let columnCount = max(1, Int((usableWidth + WgTheme.tileGap) / (minimumCellWidth + WgTheme.tileGap)))
-        let cellWidth = max(1, (usableWidth - CGFloat(columnCount - 1) * WgTheme.tileGap) / CGFloat(columnCount))
-        let rows = buildTileRows(columnCount: columnCount)
+        let columnCount = GridGeometry.columns(usableWidth)
+        let specs = tiles.map {
+            GridItemSpec(span: $0.size == .small ? 1 : 2,
+                         height: $0.size == .large ? WgTheme.tileY * 2 + WgTheme.tileGap : WgTheme.tileY)
+        }
         return VStack(spacing: 0) {
-            VStack(spacing: WgTheme.tileGap) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    if !row.isEmpty {
-                        let usedColumns = row.reduce(0) { $0 + tileSpan($1, columnCount: columnCount) }
-
-                        HStack(spacing: WgTheme.tileGap) {
-                            ForEach(row) { tile in
-                                let span = tileSpan(tile, columnCount: columnCount)
-                                tileCell(
-                                    tile,
-                                    width: cellWidth * CGFloat(span) + WgTheme.tileGap * CGFloat(span - 1)
-                                )
-                            }
-                            if usedColumns < columnCount {
-                                let remaining = columnCount - usedColumns
-                                Color.clear
-                                    .frame(width: cellWidth * CGFloat(remaining) + WgTheme.tileGap * CGFloat(max(remaining - 1, 0)))
-                            }
-                        }
-                    }
-                }
+            RetainedGrid(specs: specs) {
+                // One stable parent: moving to a different row preserves controls and tasks.
+                ForEach(tiles) { tile in tileCell(tile) }
             }
             editFooter
                 .padding(.top, WgTheme.tileGap)
@@ -1546,22 +1563,21 @@ struct SidebarView: View {
 
     /// 单个磁贴单元格（三种尺寸模式各自固定物理尺寸）
     @ViewBuilder
-    private func tileCell(_ tile: TileData, width: CGFloat) -> some View {
+    private func tileCell(_ tile: TileData) -> some View {
         Group {
             if tile.size == .small {
                 cellBody(tile)
-                    .frame(width: width, height: WgTheme.tileY)
+                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY)
             } else if tile.size == .medium {
                 cellBody(tile)
-                    .frame(width: width, height: WgTheme.tileY)
+                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY)
             } else {
                 cellBody(tile)
-                    .frame(width: width, height: WgTheme.tileY * 2 + WgTheme.tileGap)
+                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY * 2 + WgTheme.tileGap)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
-        .matchedGeometryEffect(id: tile.id, in: tileLayoutNamespace)
         .contextMenu { tileContextMenu(tile) }
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 1.5).onEnded { _ in
@@ -1694,37 +1710,7 @@ struct SidebarView: View {
         tiles.firstIndex(where: { $0.id == t.id }) ?? 0
     }
 
-    /// 网格布局引擎：2列网格，支持 small(1格)/medium(2格全宽)/large(4格=2行)
-    /// 手动行打包：small 两个并排，medium/large 独占一行（只占 1 列宽）
-    private func tileSpan(_ tile: TileData, columnCount: Int) -> Int {
-        tile.size == .small ? 1 : min(2, columnCount)
-    }
 
-    func buildTileRows(columnCount: Int) -> [[TileData]] {
-        var result: [[TileData]] = []
-        var row: [TileData] = []
-        var usedColumns = 0
-
-        for tile in tiles {
-            let span = tileSpan(tile, columnCount: columnCount)
-            if !row.isEmpty && usedColumns + span > columnCount {
-                result.append(row)
-                row = []
-                usedColumns = 0
-            }
-            row.append(tile)
-            usedColumns += span
-            if usedColumns == columnCount {
-                result.append(row)
-                row = []
-                usedColumns = 0
-            }
-        }
-
-        if !row.isEmpty { result.append(row) }
-
-        return result.isEmpty ? [[]] : result
-    }
 }
 
 // MARK: - 原生风格 Toggle 开关

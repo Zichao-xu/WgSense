@@ -2,7 +2,7 @@ import AppKit
 import CoreWLAN
 import Foundation
 
-// 测速台的引擎与状态：端点名册、场景、一次测量的编排、历史。
+// 测速台的引擎与状态：端点名册、各执行端的网卡、一次测量的编排、历史。
 //
 // 磁贴和页面共用这一个实例：从哪里开测都是同一次测量，切页不中断。
 // 空闲时零开销——没有轮询、没有常驻连接；事件解析在后台线程，主线程每秒只收一次读数。
@@ -13,12 +13,19 @@ final class SpeedLabStore: ObservableObject {
 
     // MARK: 名册与选择
 
-    @Published private(set) var peers: [SLEndpoint] = []
-    @Published var manual: [SLEndpoint] = [] { didSet { save(manual, Keys.manual) } }
-    @Published var savedScenes: [SLScene] = [] { didSet { save(savedScenes, Keys.scenes) } }
-    @Published var runnerID: String = SLEndpoint.local.id { didSet { defaults.set(runnerID, forKey: Keys.runner) } }
-    @Published var targetID: String = SLEndpoint.publicNet.id { didSet { defaults.set(targetID, forKey: Keys.target) } }
-    @Published var path: SLPathMode = .direct { didSet { defaults.set(path.rawValue, forKey: Keys.path) } }
+    /// 名册：只来自「发现」与「添加」，没有内置项。A 执行端、C 目标都从这里选。
+    @Published private(set) var roster: [SLEndpoint] = [] { didSet { save(roster, Keys.roster) } }
+    @Published private(set) var discovering = false
+    @Published private(set) var discoverNote: String?
+    /// 选择：初始为空，由用户选定。
+    @Published var runnerID: String = "" { didSet { defaults.set(runnerID, forKey: Keys.runner) } }
+    @Published var targetID: String = "" { didSet { defaults.set(targetID, forKey: Keys.target) } }
+    /// 每台执行端选的路径（runnerID → 网卡名，或 SLIface.system 表示跟随系统路由）；没有 = 未选。
+    @Published private var routes: [String: String] = [:] { didSet { save(routes, Keys.routes) } }
+    /// 各执行端探测到的网卡（路径 B 的选项）。
+    @Published private(set) var ifaces: [String: [SLIface]] = [:]
+    @Published private(set) var ifaceErrors: [String: String] = [:]
+    @Published private(set) var probing: Set<String> = []
     @Published var params = SLParams() { didSet { save(params, Keys.params) } }
     /// 用户手动添加的源（远程源列表见 SLSourceCatalog）。
     @Published var downloadSources: [String] = [] { didSet { save(downloadSources, Keys.dlSources) } }
@@ -43,6 +50,9 @@ final class SpeedLabStore: ObservableObject {
     @Published private(set) var history: [SLResult] = []
 
     private var task: Task<Void, Never>?
+    /// 本次（或上一次）测量开跑时冻结的测法：跑中改参数不影响这一次。
+    private var runMethod: SLParams?
+    var activeMethod: SLParams { runMethod ?? params }
     private(set) var idleRTTs: [Double] = []
     private(set) var downRTTs: [Double] = []
     private(set) var upRTTs: [Double] = []
@@ -57,151 +67,227 @@ final class SpeedLabStore: ObservableObject {
     @Published private(set) var idleTimed: [SLTimedSample] = []
     @Published private(set) var sourceResults: [SLSourceResult] = []
     @Published private(set) var reconnects: [SLConnEvent] = []
+    /// HUD 用的统计轨迹：样本到达时增量更新一次。
+    @Published private(set) var trails = SLTrails()
     private var capabilities: [String: [String: String]] = [:]
-    private var discoveredOnce = false
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let manual = "speedLab.manualEndpoints"
-        static let peers = "speedLab.peers"
-        static let scenes = "speedLab.scenes"
+        static let roster = "speedLab.roster"
         static let runner = "speedLab.runner"
         static let target = "speedLab.target"
-        static let path = "speedLab.path"
+        static let routes = "speedLab.routes"
         static let params = "speedLab.params"
         static let dlSources = "speedLab.downloadSources"
         static let ulSources = "speedLab.uploadSources"
     }
 
     private init() {
-        manual = load(Keys.manual) ?? []
-        peers = load(Keys.peers) ?? []
-        savedScenes = load(Keys.scenes) ?? []
+        // 旧版手动添加的主机并入名册；旧版的内置端点、自动 peer 缓存一律不带过来
+        roster = load(Keys.roster) ?? (load("speedLab.manualEndpoints") ?? [])
+        defaults.removeObject(forKey: "speedLab.manualEndpoints")
+        defaults.removeObject(forKey: "speedLab.peers")
+        routes = load(Keys.routes) ?? [:]
+        // 旧版的写死场景与二选一路径，已由探测出的网卡取代
+        defaults.removeObject(forKey: "speedLab.scenes")
+        defaults.removeObject(forKey: "speedLab.path")
         params = load(Keys.params) ?? SLParams()
         downloadSources = load(Keys.dlSources) ?? []
         uploadSources = load(Keys.ulSources) ?? []
         SLSourceCatalog.shared.refreshIfStale()
-        path = SLPathMode(rawValue: defaults.string(forKey: Keys.path) ?? "") ?? .direct
         history = Self.loadHistory()
-        // 首次：执行端默认给路由器（有的话），测宽带最常用。
-        if let runner = defaults.string(forKey: Keys.runner) {
-            runnerID = runner
-        } else if let router = routers.first {
-            runnerID = router.id
-        }
-        targetID = defaults.string(forKey: Keys.target) ?? SLEndpoint.publicNet.id
+        runnerID = defaults.string(forKey: Keys.runner) ?? ""
+        targetID = defaults.string(forKey: Keys.target) ?? ""
     }
 
-    // MARK: - 名册
+    // MARK: - 名册（发现 / 添加）
 
-    /// 代理后端里配了 SSH 的路由器（规则源也走这条 SSH）。
-    var routers: [SLEndpoint] {
-        var seen = Set<String>()
-        return MihomoBackendStore.shared.backends.compactMap { backend in
-            let host = backend.effectiveSSHHost
-            guard !host.isEmpty else { return nil }
-            let endpoint = SLEndpoint.ssh(name: backend.label.isEmpty ? host : backend.label, host: host,
-                                          port: backend.sshPort, user: backend.sshUser, origin: "代理后端")
-            return seen.insert(endpoint.id).inserted ? endpoint : nil
-        }
-    }
-
-    /// 全部端点：本机 → 路由器 → 手动 → WG peer → 公网。
-    var endpoints: [SLEndpoint] {
-        var list = [SLEndpoint.local] + routers
-        for item in manual where !list.contains(where: { $0.id == item.id }) { list.append(item) }
-        let sshHosts = Set(list.map(\.host))
-        for peer in peers where !sshHosts.contains(peer.host) { list.append(peer) }
-        list.append(.publicNet)
-        return list
-    }
-
-    var runners: [SLEndpoint] { endpoints.filter(\.canRun) }
-    var runner: SLEndpoint? { endpoints.first { $0.id == runnerID } }
-    var target: SLEndpoint? { endpoints.first { $0.id == targetID } }
+    var endpoints: [SLEndpoint] { roster }
+    var runners: [SLEndpoint] { roster.filter(\.canRun) }
+    var targets: [SLEndpoint] { roster }
+    var runner: SLEndpoint? { roster.first { $0.id == runnerID } }
+    var target: SLEndpoint? { roster.first { $0.id == targetID } }
 
     /// 当前组合不能测的原因；能测为空。
     var blocker: String? {
-        guard let runner else { return "选择执行端" }
+        guard let runner else { return roster.isEmpty ? "名册为空：先发现或添加端点" : "选择执行端" }
         guard let target else { return "选择目标" }
         if runner.id == target.id { return "执行端和目标是同一台机器" }
         if target.kind == .local, runner.kind == .local { return "执行端和目标是同一台机器" }
+        if target.isPublic, route == nil { return "选择路径" }
         return nil
     }
 
     /// 目标为公网时才有路径可选；其余由地址决定走哪张网卡（台账里注明）。
     var pathSelectable: Bool { target?.isPublic ?? false }
 
-    func addManual(name: String, host: String, port: Int, user: String) {
-        let endpoint = SLEndpoint.ssh(name: name.isEmpty ? host : name, host: host, port: port, user: user, origin: "手动添加")
-        manual.removeAll { $0.id == endpoint.id }
-        manual.append(endpoint)
-    }
-
-    func removeManual(_ endpoint: SLEndpoint) {
-        manual.removeAll { $0.id == endpoint.id }
-        if runnerID == endpoint.id { runnerID = SLEndpoint.local.id }
-        if targetID == endpoint.id { targetID = SLEndpoint.publicNet.id }
-    }
-
-    /// 从路由器上发现 WG peer（每次打开页面最多一次；结果缓存，下次启动直接可用）。
-    func discoverPeersIfNeeded() {
-        guard !discoveredOnce, !running else { return }
-        discoveredOnce = true
-        let sources = routers + manual
-        guard !sources.isEmpty else { return }
+    /// 添加能 SSH 登录的主机：可当执行端，也可当目标。
+    func addSSH(name: String, host: String, port: Int, user: String) {
+        var endpoint = SLEndpoint.ssh(host: host, port: port, user: user, via: "手动添加")
+        endpoint.label = name
+        merge([endpoint])
         Task {
-            var found: [SLEndpoint] = []
-            for endpoint in sources {
-                guard let events = try? await SLShell(endpoint: endpoint).collect(["MODE": "probe"]) else { continue }
-                remember(endpoint, events)
-                for event in events where event.ev == "peer" {
-                    guard let ip = event.ip, !found.contains(where: { $0.host == ip }) else { continue }
-                    found.append(.peer(name: event.name ?? ip, ip: ip))
-                }
-            }
-            let mine = Self.localIPv4s()
-            found.removeAll { mine.contains($0.host) }
-            guard !found.isEmpty else { return }
-            peers = found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            save(peers, Keys.peers)
+            guard let events = try? await SLShell(endpoint: endpoint).collect(params.scriptVars.merging(["MODE": "probe"]) { $1 }) else { return }
+            let caps = remember(endpoint, events)
+            endpoint.hostname = caps["hostname"] ?? ""
+            endpoint.seenAt = Date()
+            merge([endpoint])
         }
     }
 
-    // MARK: - 场景
+    /// 添加只知道地址的机器：只能当目标，要求它自己开着 iperf3 服务端。
+    func addAddress(name: String, ip: String) {
+        var endpoint = SLEndpoint.peer(ip: ip, via: "手动添加")
+        endpoint.label = name
+        merge([endpoint])
+    }
 
-    var builtInScenes: [SLScene] {
-        var list: [SLScene] = []
-        if let router = routers.first {
-            list.append(SLScene(title: "宽带", runnerID: router.id, targetID: SLEndpoint.publicNet.id, path: .direct, builtIn: true))
-            list.append(SLScene(title: "隧道", runnerID: SLEndpoint.local.id, targetID: router.id, path: .system, builtIn: true))
+    func remove(_ endpoint: SLEndpoint) {
+        roster.removeAll { $0.id == endpoint.id }
+        routes[endpoint.id] = nil
+        ifaces[endpoint.id] = nil
+        if runnerID == endpoint.id { runnerID = "" }
+        if targetID == endpoint.id { targetID = "" }
+    }
+
+    /// 给名册里的一项起名（空 = 不起名，显示主机名或地址）。
+    func rename(_ id: String, to label: String) {
+        guard let i = roster.firstIndex(where: { $0.id == id }) else { return }
+        roster[i].label = label.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 同 id 更新扫描到的事实（保留你起的名字），新的追加；地址已被可登录主机占用的 peer 不重复列。
+    private func merge(_ found: [SLEndpoint]) {
+        var list = roster
+        for var e in found {
+            if let i = list.firstIndex(where: { $0.id == e.id }) {
+                if e.label.isEmpty { e.label = list[i].label }
+                list[i] = e
+            } else {
+                list.append(e)
+            }
         }
-        list.append(SLScene(title: "本机上网", runnerID: SLEndpoint.local.id, targetID: SLEndpoint.publicNet.id, path: .system, builtIn: true))
+        let sshHosts = Set(list.filter(\.canRun).map(\.host))
+        list.removeAll { $0.kind == .peer && sshHosts.contains($0.host) }
+        roster = list
+    }
+
+    /// 发现：逐个来源去探，探到什么入册什么，名字只用设备自己报的主机名。
+    ///   · 这台 Mac：本地跑一次 probe
+    ///   · 代理后端里配了 SSH 的机器、名册里已有的 SSH 主机：登上去 probe，登得上才入册；顺带它们 WireGuard 配置里的 peer 地址
+    ///   · 公网：测速源列表里有可用源才入册
+    var discoverScope: [String] {
+        ["本机"] + discoverCandidates.filter { $0.kind == .ssh }.map(\.address) + ["测速源列表"]
+    }
+
+    private var discoverCandidates: [SLEndpoint] {
+        var list = [SLEndpoint.local(hostname: "")]
+        for backend in MihomoBackendStore.shared.backends {
+            let host = backend.effectiveSSHHost
+            guard !host.isEmpty else { continue }
+            let e = SLEndpoint.ssh(host: host, port: backend.sshPort, user: backend.sshUser, via: "代理后端 \(backend.host)")
+            if !list.contains(where: { $0.id == e.id }) { list.append(e) }
+        }
+        for e in roster where e.canRun && !list.contains(where: { $0.id == e.id }) { list.append(e) }
         return list
     }
 
-    var scenes: [SLScene] { builtInScenes + savedScenes }
-
-    func isCurrent(_ scene: SLScene) -> Bool {
-        scene.runnerID == runnerID && scene.targetID == targetID && (!pathSelectable || scene.path == path)
+    func discover() {
+        guard !discovering, !running else { return }
+        discovering = true
+        discoverNote = "发现中：" + discoverScope.joined(separator: "、")
+        Task {
+            var found: [SLEndpoint] = [], failed: [String] = [], peers: [SLEndpoint] = []
+            for var endpoint in discoverCandidates {
+                capabilities[endpoint.id] = nil
+                guard let events = try? await SLShell(endpoint: endpoint).collect(params.scriptVars.merging(["MODE": "probe"]) { $1 }) else {
+                    failed.append(endpoint.address); continue
+                }
+                let caps = remember(endpoint, events)
+                endpoint.hostname = caps["hostname"] ?? ""
+                endpoint.seenAt = Date()
+                found.append(endpoint)
+                for event in events where event.ev == "peer" {
+                    guard let ip = event.ip, !peers.contains(where: { $0.host == ip }) else { continue }
+                    var peer = SLEndpoint.peer(ip: ip, via: "\(endpoint.name) · \(event.iface ?? "wg")")
+                    peer.seenAt = Date()
+                    peers.append(peer)
+                }
+            }
+            let mine = Self.localIPv4s()
+            peers.removeAll { mine.contains($0.host) }
+            found += peers.sorted { $0.host.localizedStandardCompare($1.host) == .orderedAscending }
+            let catalog = SLSourceCatalog.shared
+            let n = catalog.candidates("dl", manual: downloadSources, retireAfter: params.retireAfter).count
+                + catalog.candidates("ul", manual: uploadSources, retireAfter: params.retireAfter).count
+            if n > 0 { var pub = SLEndpoint.publicNet(sources: n); pub.seenAt = Date(); found.append(pub) }
+            merge(found)
+            discovering = false
+            let note = "发现 \(found.count) 个" + (failed.isEmpty ? "" : " · 连不上：\(failed.joined(separator: "、"))")
+            discoverNote = note
+            try? await Task.sleep(for: .seconds(6))
+            if discoverNote == note { discoverNote = nil }
+        }
     }
 
-    func apply(_ scene: SLScene) {
-        guard !running else { return }
-        runnerID = scene.runnerID
-        targetID = scene.targetID
-        path = scene.path
+    // MARK: - 路径（执行端的网卡）
+
+    /// 当前执行端选的路径；nil = 未选。
+    var route: String? {
+        get { routes[runnerID] }
+        set { routes[runnerID] = newValue }
     }
 
-    func saveCurrentAsScene() {
-        guard let runner, let target, blocker == nil else { return }
-        let title = target.isPublic ? "\(runner.name)·\(path.title)" : "\(runner.name)→\(target.name)"
-        guard !scenes.contains(where: isCurrent) else { return }
-        savedScenes.append(SLScene(title: title, runnerID: runnerID, targetID: targetID, path: path))
+    var runnerIfaces: [SLIface] { ifaces[runnerID] ?? [] }
+
+    /// 探测当前执行端的网卡（每台每次启动一次，结果在 remember 里落到 ifaces）。
+    func refreshIfaces() {
+        guard let runner, !probing.contains(runner.id) else { return }
+        capabilities[runner.id] = nil
+        probing.insert(runner.id)
+        ifaceErrors[runner.id] = nil
+        Task {
+            do { _ = try await probe(runner) } catch { ifaceErrors[runner.id] = error.localizedDescription }
+            probing.remove(runner.id)
+        }
     }
 
-    func deleteScene(_ scene: SLScene) {
-        savedScenes.removeAll { $0.id == scene.id }
+    /// 线路上 B 的文字：网卡名或"系统路由"；非公网目标由对端地址决定。
+    func pathTitle(_ target: SLEndpoint) -> String {
+        guard target.isPublic else { return "iperf3" }
+        return route.map { $0 == SLIface.system ? "系统路由" : $0 } ?? "—"
+    }
+
+    // MARK: - 最近线路（从历史得出，不写死）
+
+    /// 历史里最近用过的不同线路（端点仍在名册里的），最多 n 条。
+    func recentRoutes(_ n: Int = 3) -> [SLResult] {
+        var seen = Set<String>(), out: [SLResult] = []
+        for r in history {
+            guard let ids = ids(of: r) else { continue }
+            let key = "\(ids.runner)|\(ids.target)|\(r.iface ?? "")"
+            if seen.insert(key).inserted { out.append(r) }
+            if out.count == n { break }
+        }
+        return out
+    }
+
+    /// 套用一条历史线路。
+    func use(_ r: SLResult) {
+        guard !running, let ids = ids(of: r) else { return }
+        runnerID = ids.runner
+        targetID = ids.target
+        if endpoints.first(where: { $0.id == ids.target })?.isPublic == true {
+            route = r.iface ?? (r.path == "系统路由" ? SLIface.system : nil)
+        }
+    }
+
+    private func ids(of r: SLResult) -> (runner: String, target: String)? {
+        let runner = r.runnerID ?? endpoints.first { $0.name == r.runner }?.id
+        let target = r.targetID ?? endpoints.first { $0.name == r.target }?.id
+        guard let runner, let target, endpoints.contains(where: { $0.id == runner }),
+              endpoints.contains(where: { $0.id == target }) else { return nil }
+        return (runner, target)
     }
 
     // MARK: - 结果
@@ -211,23 +297,19 @@ final class SpeedLabStore: ObservableObject {
     /// 当前组合的上一次结果（待机时表盘停在这里）。
     var lastForCurrent: SLResult? {
         guard let runner, let target else { return nil }
-        let key = SLResult(runner: runner.name, target: target.name, path: currentPathTitle(target), engine: "").sceneKey
+        let key = SLResult(runner: runner.name, target: target.name, path: pathTitle(target), engine: "").sceneKey
         return history.first { $0.sceneKey == key && $0.error == nil }
     }
 
-    /// 执行端回报的采样间隔（秒）：默认每秒 4 次，执行端不支持亚秒等待时退回 1。
+    /// 执行端回报的采样间隔（秒）：默认每秒 10 次，执行端不支持亚秒等待时退回 1。
     var tick: Double { info["tick"].flatMap(Double.init) ?? 1 }
-    var downStat: SLStat? { SLStat.from(downSeries, rtts: downRTTs, tick: tick) }
-    var upStat: SLStat? { SLStat.from(upSeries, rtts: upRTTs, tick: tick) }
+    var downStat: SLStat? { SLStat.from(downSeries, rtts: downRTTs, tick: tick, method: runMethod ?? params) }
+    var upStat: SLStat? { SLStat.from(upSeries, rtts: upRTTs, tick: tick, method: runMethod ?? params) }
     var idleRTT: Double? { idleRTTs.isEmpty ? nil : SLStat.median(idleRTTs) }
 
     func clearHistory() {
         history = []
         Self.saveHistory(history)
-    }
-
-    private func currentPathTitle(_ target: SLEndpoint) -> String {
-        target.isPublic ? path.title : "iperf3"
     }
 
     // MARK: - 运行
@@ -243,6 +325,8 @@ final class SpeedLabStore: ObservableObject {
         startedAt = Date(); finishedAt = nil
         phaseDates = [.prepare: Date()]; infoDates = [:]
         downTimed = []; upTimed = []; idleTimed = []; sourceResults = []; reconnects = []; skipped = []
+        runMethod = params
+        trails = SLTrails()
         scaleMax = 1000
         task = Task { await execute(runner: runner, target: target) }
     }
@@ -252,8 +336,10 @@ final class SpeedLabStore: ObservableObject {
     }
 
     private func execute(runner: SLEndpoint, target: SLEndpoint) async {
-        var result = SLResult(runner: runner.name, target: target.name, path: currentPathTitle(target),
-                              engine: target.isPublic ? "HTTP" : "iperf3")
+        var result = SLResult(runner: runner.name, target: target.name, path: pathTitle(target),
+                              engine: target.isPublic ? "HTTP" : "iperf3",
+                              runnerID: runner.id, targetID: target.id, iface: target.isPublic && route != SLIface.system ? route : nil,
+                              method: runMethod)
         do {
             if target.isPublic {
                 try await runHTTP(runner: runner)
@@ -297,19 +383,18 @@ final class SpeedLabStore: ObservableObject {
     // MARK: HTTP（公网）
 
     private func runHTTP(runner: SLEndpoint) async throws {
-        note = "公网测速：\(runner.name) · \(path.title)"
+        note = "公网测速：\(runner.name) · \(pathTitle(.publicNet(sources: 0)))"
         var vars = commonVars()
         vars["MODE"] = "http"
-        vars["PATHMODE"] = path.rawValue
+        if let route, route != SLIface.system { vars["IFACE"] = route }
         let catalog = SLSourceCatalog.shared
-        let dl = catalog.candidates("dl", manual: downloadSources), ul = catalog.candidates("ul", manual: uploadSources)
+        let dl = catalog.candidates("dl", manual: downloadSources, retireAfter: params.retireAfter)
+        let ul = catalog.candidates("ul", manual: uploadSources, retireAfter: params.retireAfter)
         guard !dl.isEmpty || !ul.isEmpty else {
             throw SLShell.Failure(message: catalog.url.isEmpty ? "未配置测速源 · 在「测速源」里填源列表地址" : "测速源列表为空")
         }
         vars["DL_URLS"] = dl.joined(separator: " ")
         vars["UL_URLS"] = ul.joined(separator: " ")
-        vars["DL_THREADS"] = "\(params.httpDownThreads)"
-        vars["UL_THREADS"] = "\(params.httpUpThreads)"
         try await consume(SLShell(endpoint: runner).stream(vars), runner: runner)
     }
 
@@ -325,7 +410,7 @@ final class SpeedLabStore: ObservableObject {
             note = "在 \(target.name) 上启动 iperf3 服务端…"
             let bin = try await ensureIperf(on: target)
             deployed = bin.deployed
-            var vars = ["MODE": "iperf-server", "IPERF_PORT": "\(port)"]
+            var vars = params.scriptVars.merging(["MODE": "iperf-server", "IPERF_PORT": "\(port)"]) { $1 }
             if let path = bin.path { vars["IPERF_BIN"] = path }
             let events = try await targetShell.collect(vars)
             if let p = events.first(where: { $0.k == "port" })?.v.flatMap(Int.init) { port = p }
@@ -339,7 +424,6 @@ final class SpeedLabStore: ObservableObject {
             vars["MODE"] = "iperf"
             vars["IPERF_HOST"] = host
             vars["IPERF_PORT"] = "\(port)"
-            vars["IPERF_P"] = "\(params.iperfStreams)"
             if let path = bin.path { vars["IPERF_BIN"] = path }
             info["target"] = "\(host):\(port)"
             try await consume(SLShell(endpoint: runner).stream(vars), runner: runner)
@@ -381,7 +465,7 @@ final class SpeedLabStore: ObservableObject {
     /// 能力探测（每台机器每次启动探一次）。
     private func probe(_ endpoint: SLEndpoint) async throws -> [String: String] {
         if let cached = capabilities[endpoint.id] { return cached }
-        let events = try await SLShell(endpoint: endpoint).collect(["MODE": "probe"])
+        let events = try await SLShell(endpoint: endpoint).collect(params.scriptVars.merging(["MODE": "probe"]) { $1 })
         return remember(endpoint, events)
     }
 
@@ -392,14 +476,20 @@ final class SpeedLabStore: ObservableObject {
             if let k = event.k { caps[k] = event.v ?? "" }
         }
         capabilities[endpoint.id] = caps
+        ifaces[endpoint.id] = events.filter { $0.ev == "iface" }.compactMap { e in
+            guard let name = e.name else { return nil }
+            return SLIface(name: name, addr: e.ip ?? "", phy: e.k ?? name, link: e.v ?? "", isDefault: e.keep ?? false)
+        }
+        // 系统路由也是探测结果：它此刻实际走哪张网卡
+        if let via = caps["sysroute"], !via.isEmpty {
+            ifaces[endpoint.id]?.insert(SLIface(name: SLIface.system, addr: "", phy: via, link: "", isDefault: false), at: 0)
+        }
         return caps
     }
 
     // MARK: 事件
 
-    private func commonVars() -> [String: String] {
-        ["DUR": "\(params.duration)", "DIRS": params.directions.script]
-    }
+    private func commonVars() -> [String: String] { params.scriptVars }
 
     private func consume(_ stream: AsyncThrowingStream<SLEvent, Error>, runner: SLEndpoint) async throws {
         for try await event in stream {
@@ -437,6 +527,10 @@ final class SpeedLabStore: ObservableObject {
 
     private func take(_ event: SLEvent) {
         let rtt = event.rtt
+        if let ph = event.ph {
+            let v = ph == "dl" ? (event.rx ?? 0) : (ph == "ul" ? (event.tx ?? 0) : (rtt ?? 0))
+            trails.add(ph, value: v, rtt: rtt, at: Date(), tick: tick, method: activeMethod)
+        }
         rttNow = rtt
         switch event.ph {
         case "idle":
@@ -501,7 +595,7 @@ final class SpeedLabStore: ObservableObject {
             }
             let conf = Self.shell("/sbin/ifconfig", [iface])
             for line in conf.split(separator: "\n") {
-                let parts = line.split(separator: " ")
+                let parts = line.split(whereSeparator: \.isWhitespace)
                 if let i = parts.firstIndex(of: "inet"), i + 1 < parts.count { return String(parts[i + 1]) }
             }
             throw SLShell.Failure(message: "\(iface) 上没有 IPv4 地址")
@@ -512,7 +606,7 @@ final class SpeedLabStore: ObservableObject {
         let conf = shell("/sbin/ifconfig", [])
         var set = Set<String>()
         for line in conf.split(separator: "\n") {
-            let parts = line.split(separator: " ")
+            let parts = line.split(whereSeparator: \.isWhitespace)
             if let i = parts.firstIndex(of: "inet"), i + 1 < parts.count { set.insert(String(parts[i + 1])) }
         }
         return set
@@ -571,7 +665,7 @@ extension SLHUDData {
         runner = lab.runner?.name ?? "—"
         target = lab.target?.name ?? "—"
         isPublic = lab.target?.isPublic ?? true
-        path = isPublic ? (lab.path == .direct ? "direct" : "system") : "iperf3"
+        path = isPublic ? (lab.route.map { $0 == SLIface.system ? "system" : $0 } ?? "—") : "iperf3"
         running = lab.running
         startedAt = lab.startedAt
         finishedAt = lab.finishedAt
@@ -585,10 +679,12 @@ extension SLHUDData {
         sources = lab.sourceResults
         reconnects = lab.reconnects
         skipped = lab.skipped
-        downThreads = isPublic ? lab.params.httpDownThreads : lab.params.iperfStreams
-        upThreads = isPublic ? lab.params.httpUpThreads : lab.params.iperfStreams
+        downThreads = isPublic ? lab.activeMethod.httpDownThreads : lab.activeMethod.iperfStreams
+        upThreads = isPublic ? lab.activeMethod.httpUpThreads : lab.activeMethod.iperfStreams
         unit = lab.params.unit
         tick = lab.tick
+        method = lab.activeMethod
+        trails = lab.trails
         error = lab.error
     }
 

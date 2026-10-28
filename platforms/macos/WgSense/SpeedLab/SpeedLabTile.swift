@@ -33,7 +33,7 @@ struct SLSpeedTile: View {
             if size == .large {
                 gauges(last).frame(height: 74).frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
-                sceneButtons
+                quickButtons
             }
         }
         .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, size == .small ? 13 : 12)
@@ -68,7 +68,8 @@ struct SLSpeedTile: View {
     private func gauges(_ last: SLResult?) -> some View {
         let scale = Double(lab.running ? (lab.linkMbps ?? 1000) : (last?.linkMbps ?? 1000))
         return VStack(alignment: .leading, spacing: 6) {
-            channel("↓", lab.running ? lab.downNow : last?.down?.stable, scale)
+            // 测速中下行测完（上行已开始）就定格在下行稳态值，不显示收尾的 0
+            channel("↓", lab.running ? (lab.upNow != nil ? lab.downStat?.stable ?? lab.downNow : lab.downNow) : last?.down?.stable, scale)
             channel("↑", lab.running ? lab.upNow : last?.up?.stable, scale)
         }
         .frame(width: 128)
@@ -91,19 +92,25 @@ struct SLSpeedTile: View {
         }
     }
 
-    private var sceneButtons: some View {
+    private var quickButtons: some View {
         HStack(spacing: 6) {
             if lab.running {
                 Button { lab.stop() } label: { Label("停止", systemImage: "stop.fill") }
                     .buttonStyle(SLChipStyle(selected: true))
             } else {
-                ForEach(lab.scenes.prefix(3)) { scene in
-                    Button(scene.title) {
-                        lab.apply(scene)
+                // 最近用过的线路（从历史得出）；没有历史就按当前线路开测
+                let recent = lab.recentRoutes()
+                if recent.isEmpty {
+                    Button("开测") { lab.start() }.buttonStyle(SLChipStyle(selected: false))
+                }
+                ForEach(recent) { r in
+                    Button(SLHistoryList.routeText(r)) {
+                        lab.use(r)
                         lab.start()
                     }
                     .buttonStyle(SLChipStyle(selected: false))
-                    .help("开测：\(scene.title)")
+                    .lineLimit(1)
+                    .help("开测：\(SLHistoryList.routeText(r))")
                 }
             }
             Spacer(minLength: 0)

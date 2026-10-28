@@ -26,7 +26,7 @@ struct SpeedLabRender {
     static func data(now: Date) -> SLHUDData {
         var d = SLHUDData()
         let t = now.timeIntervalSince(t0)
-        d.runner = "OpenClash"; d.path = "direct"; d.target = "公网"; d.isPublic = true
+        d.runner = "BPI-R4"; d.path = "direct"; d.target = "公网"; d.isPublic = true
         d.downThreads = 12; d.upThreads = 4; d.tick = tick
         guard t >= 0 else { return d }
         d.startedAt = t0
@@ -58,6 +58,8 @@ struct SpeedLabRender {
             d.up.append(SLTimedSample(v: v, rtt: 5.6 + Double((i * 3) % 4) * 0.08, at: at(tUL + 0.3 + Double(i) * tick)))
         }
         if t >= tDone { d.finishedAt = at(tDone); d.phaseDates[.done] = at(tDone); d.running = false }
+        // 真实运行时由 Store 随样本增量维护统计轨迹；离线渲染按样本回放生成
+        d.replayTrails()
         return d
     }
 

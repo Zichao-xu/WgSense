@@ -4,7 +4,7 @@ import Foundation
 //
 //   源列表 = 远程 JSON（默认放在 secret gist，地址在「测速源」里填）+ 用户手动添加的。
 //   拉到就缓存到本地；拉不到用上次的缓存。代码里不放任何源地址——节点早晚会失效，失效了改远程文件即可，不用发版。
-//   每次测速后按试跑结果记健康分：连续失败 retireAfter 次的源自动跳过；全部都被跳过时再全部重试一遍。
+//   每次测速后按试跑结果记健康分：连续失败「测法 · 坏源退役」次的源自动跳过；全部都被跳过时再全部重试一遍。
 
 struct SLCatalogFile: Codable, Equatable {
     struct Entry: Codable, Equatable, Hashable {
@@ -26,7 +26,6 @@ struct SLSourceHealth: Codable, Equatable {
 @MainActor
 final class SLSourceCatalog: ObservableObject {
     static let shared = SLSourceCatalog()
-    static let retireAfter = 3
 
     @Published var url: String { didSet { UserDefaults.standard.set(url, forKey: Keys.url) } }
     @Published private(set) var file: SLCatalogFile?
@@ -90,15 +89,15 @@ final class SLSourceCatalog: ObservableObject {
     // MARK: 选源
 
     /// 某方向本次要试跑的源：远程 + 手动，去重；跳过连续失败的，全被跳过时全部重试。
-    func candidates(_ dir: String, manual: [String]) -> [String] {
+    func candidates(_ dir: String, manual: [String], retireAfter: Int) -> [String] {
         let remote = (dir == "dl" ? file?.download : file?.upload)?.map(\.url) ?? []
         var all: [String] = []
         for u in remote + manual where !all.contains(u) && !u.contains(" ") { all.append(u) }
-        let alive = all.filter { (health[$0]?.fails ?? 0) < Self.retireAfter }
+        let alive = all.filter { (health[$0]?.fails ?? 0) < retireAfter }
         return alive.isEmpty ? all : alive
     }
 
-    func isRetired(_ url: String) -> Bool { (health[url]?.fails ?? 0) >= Self.retireAfter }
+    func isRetired(_ url: String, after retireAfter: Int) -> Bool { (health[url]?.fails ?? 0) >= retireAfter }
 
     /// 测速结束：按试跑结果更新健康分。
     func record(_ results: [SLSourceResult]) {

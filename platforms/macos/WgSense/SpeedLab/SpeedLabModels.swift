@@ -20,48 +20,77 @@ enum SLEndpointKind: String, Codable {
 
 struct SLEndpoint: Codable, Identifiable, Hashable {
     var id: String
-    var name: String
     var kind: SLEndpointKind
     var host: String = ""
     var sshPort: Int = 22
     var sshUser: String = "root"
-    /// 来源注记：本机 / 代理后端 / WG peer / 手动添加。
-    var origin: String = ""
+    /// 用户起的名字；空 = 没起。
+    var label: String = ""
+    /// 扫描时设备自己报的主机名；报不出为空。
+    var hostname: String = ""
+    /// 在哪发现：本机探测 / 代理后端 x.x.x.x / <路由器> · wg0 / 手动添加 / 测速源列表。
+    var via: String = ""
+    /// 最近一次扫描成功登上去（或看到它）的时刻。
+    var seenAt: Date?
 
     var canRun: Bool { kind == .local || kind == .ssh }
     var isPublic: Bool { kind == .publicNet }
 
-    static let local = SLEndpoint(id: "local", name: "本机", kind: .local, origin: "本机")
-    static let publicNet = SLEndpoint(id: "public", name: "公网", kind: .publicNet, origin: "国内测速源")
+    /// 显示名：你起的名字 → 设备报的主机名 → 地址。不替你挑别的字段。
+    var name: String { !label.isEmpty ? label : !hostname.isEmpty ? hostname : address }
 
-    static func ssh(name: String, host: String, port: Int, user: String, origin: String) -> SLEndpoint {
-        SLEndpoint(id: "ssh:\(user)@\(host):\(port)", name: name, kind: .ssh, host: host, sshPort: port, sshUser: user, origin: origin)
+    static func local(hostname: String) -> SLEndpoint {
+        SLEndpoint(id: "local", kind: .local, hostname: hostname, via: "本机探测")
     }
 
-    static func peer(name: String, ip: String) -> SLEndpoint {
-        SLEndpoint(id: "peer:\(ip)", name: name, kind: .peer, host: ip, origin: "WG peer")
+    static func publicNet(sources: Int) -> SLEndpoint {
+        SLEndpoint(id: "public", kind: .publicNet, via: "测速源列表 · \(sources) 个源")
     }
 
-    /// 台账里的地址注记。
+    static func ssh(host: String, port: Int, user: String, via: String) -> SLEndpoint {
+        SLEndpoint(id: "ssh:\(user)@\(host):\(port)", kind: .ssh, host: host, sshPort: port, sshUser: user, via: via)
+    }
+
+    static func peer(ip: String, via: String) -> SLEndpoint {
+        SLEndpoint(id: "peer:\(ip)", kind: .peer, host: ip, via: via)
+    }
+
+    /// 地址。
     var address: String {
         switch kind {
         case .local: return "localhost"
         case .ssh: return "\(sshUser)@\(host):\(sshPort)"
         case .peer: return host
-        case .publicNet: return "auto"
+        case .publicNet: return "公网"
+        }
+    }
+
+    /// 能做什么。
+    var ability: String {
+        switch kind {
+        case .local, .ssh: return "可执行 · 可当目标"
+        case .peer: return "仅目标 · 需自备 iperf3 服务端"
+        case .publicNet: return "仅目标 · HTTP 测速"
         }
     }
 }
 
 // MARK: - 路径与参数
 
-enum SLPathMode: String, Codable, CaseIterable, Identifiable {
-    /// 绑物理网卡 + 真 DNS：绕开隧道、代理与 fake-ip，测的是宽带本身。
-    case direct
-    /// 系统默认路由与 DNS：测的是这台机器上网的实际体验（可能经隧道/代理）。
-    case system
-    var id: String { rawValue }
-    var title: String { self == .direct ? "宽带直连" : "系统默认" }
+/// 执行端上的一张网卡（probe 探测得来）：路径 B 的选项。
+struct SLIface: Codable, Hashable, Identifiable {
+    var name: String
+    var addr: String
+    /// 承载它的物理口（pppoe-wan → wan）；不同于 name 时才有意义。
+    var phy: String
+    /// 物理口协商速率，原始 "1000 full"；虚拟口、Wi-Fi 为空。
+    var link: String
+    /// 是不是默认路由出口。
+    var isDefault: Bool
+    var id: String { name }
+    /// 「跟随系统路由与 DNS」这一项的名字；phy = 探测时系统路由实际走的网卡。
+    static let system = "@system"
+    var isSystem: Bool { name == Self.system }
 }
 
 enum SLDirections: String, Codable, CaseIterable, Identifiable {
@@ -90,15 +119,125 @@ enum SLUnit: String, Codable, CaseIterable, Identifiable {
     func value(_ mbps: Double) -> Double { self == .mbps ? mbps : mbps / 8 }
 }
 
+/// 测法：一次测速里每一个会影响结果的决定。全部在「测法」抽屉里摊开、可改；
+/// 下面的初值只是出厂配方，界面上标明哪些被改过、可逐项恢复。脚本自己不带任何取值。
 struct SLParams: Codable, Equatable {
-    /// 每个方向的秒数。
+    // 通用
     var duration: Int = 10
     var directions: SLDirections = .both
+    var unit: SLUnit = .mbps
+    var tick: Double = 0.1
+    var idleSeconds: Int = 3
+    var dns: String = "223.5.5.5"
+    /// 空载/负载延迟 ping 谁；空 = 公网测速 ping 上面的 DNS，iperf3 ping 对端。
+    var pingHost: String = ""
+    var userAgent: String = "Mozilla/5.0 (Macintosh) WgSense-SpeedLab"
+    /// 查出口 IP 的地址；空 = 不查。
+    var exitIPURL: String = "https://myip.ipip.net/"
+    var watchdogExtra: Int = 60
+    /// 探测时解析哪个域名来判断系统 DNS 是否被 fake-ip 接管。
+    var probeDomain: String = "www.baidu.com"
+
+    // 公网 · 选源
+    var pickDownConns: Int = 3
+    var pickDownSeconds: Int = 3
+    var pickUpMB: Int = 64
+    var pickUpSeconds: Int = 2
+    var pickSlowRatio: Double = 4
+    var pickDownKeep: Int = 3
+    var pickUpKeep: Int = 2
+    var redirectMax: Int = 5
+    var redirectTimeout: Int = 8
+    var retireAfter: Int = 3
+
+    // 公网 · 下行 / 上行
     var httpDownThreads: Int = 12
+    var stallMBps: Double = 1
+    var stallSeconds: Int = 2
     var httpUpThreads: Int = 4
+    var upChunkMB: Int = 8192
+
+    // iperf3
     var iperfStreams: Int = 4
     var iperfPort: Int = 5201
-    var unit: SLUnit = .mbps
+    var iperfPortSpan: Int = 9
+    var iperfRate: SLRateSource = .tool
+    var directionGap: Int = 1
+    var iperfServerTTL: Int = 600
+
+    // 结果
+    var statistic: SLStatistic = .median
+    var warmupSeconds: Double = 2
+    var peakWindow: Double = 1
+    var flatWindow: Double = 4
+    var flatTolerance: Double = 0.05
+    var flatShare: Double = 0.9
+
+    init() {}
+
+    /// 旧版存档只有部分字段：缺的按出厂配方补，不整份丢弃。
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: Key.self)
+        func take<T: Decodable>(_ k: WritableKeyPath<SLParams, T>, _ name: String) {
+            if let key = Key(stringValue: name), let v = try? c.decodeIfPresent(T.self, forKey: key) { self[keyPath: k] = v }
+        }
+        take(\.duration, "duration"); take(\.directions, "directions"); take(\.unit, "unit"); take(\.tick, "tick")
+        take(\.idleSeconds, "idleSeconds"); take(\.dns, "dns"); take(\.pingHost, "pingHost"); take(\.userAgent, "userAgent")
+        take(\.exitIPURL, "exitIPURL"); take(\.watchdogExtra, "watchdogExtra")
+        take(\.probeDomain, "probeDomain"); take(\.iperfServerTTL, "iperfServerTTL")
+        take(\.pickDownConns, "pickDownConns"); take(\.pickDownSeconds, "pickDownSeconds"); take(\.pickUpMB, "pickUpMB")
+        take(\.pickUpSeconds, "pickUpSeconds"); take(\.pickSlowRatio, "pickSlowRatio"); take(\.pickDownKeep, "pickDownKeep")
+        take(\.pickUpKeep, "pickUpKeep"); take(\.redirectMax, "redirectMax"); take(\.redirectTimeout, "redirectTimeout")
+        take(\.retireAfter, "retireAfter")
+        take(\.httpDownThreads, "httpDownThreads"); take(\.stallMBps, "stallMBps"); take(\.stallSeconds, "stallSeconds")
+        take(\.httpUpThreads, "httpUpThreads"); take(\.upChunkMB, "upChunkMB")
+        take(\.iperfStreams, "iperfStreams"); take(\.iperfPort, "iperfPort"); take(\.iperfPortSpan, "iperfPortSpan")
+        take(\.iperfRate, "iperfRate"); take(\.directionGap, "directionGap")
+        take(\.statistic, "statistic"); take(\.warmupSeconds, "warmupSeconds"); take(\.peakWindow, "peakWindow")
+        take(\.flatWindow, "flatWindow"); take(\.flatTolerance, "flatTolerance"); take(\.flatShare, "flatShare")
+    }
+
+    private struct Key: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    /// 传给执行端脚本的全部变量。
+    var scriptVars: [String: String] {
+        [
+            "DUR": "\(duration)", "DIRS": directions.script, "TICK": Self.num(tick), "IDLE": "\(idleSeconds)",
+            "DNS": dns, "PING_HOST": pingHost, "UA": userAgent, "EXIT_URL": exitIPURL, "WATCHDOG": "\(watchdogExtra)", "PROBE_DOMAIN": probeDomain,
+            "PICK_DL_CONNS": "\(pickDownConns)", "PICK_DL_SEC": "\(pickDownSeconds)",
+            "PICK_UL_MB": "\(pickUpMB)", "PICK_UL_SEC": "\(pickUpSeconds)", "PICK_RATIO": Self.num(pickSlowRatio),
+            "PICK_DL_KEEP": "\(pickDownKeep)", "PICK_UL_KEEP": "\(pickUpKeep)",
+            "REDIR_MAX": "\(redirectMax)", "REDIR_TIMEOUT": "\(redirectTimeout)",
+            "DL_THREADS": "\(httpDownThreads)", "STALL_BPS": "\(Int(stallMBps * 1_048_576))", "STALL_SEC": "\(stallSeconds)",
+            "UL_THREADS": "\(httpUpThreads)", "UL_CHUNK_MB": "\(upChunkMB)",
+            "IPERF_P": "\(iperfStreams)", "IPERF_PORT": "\(iperfPort)", "IPERF_SPAN": "\(iperfPortSpan)",
+            "IPERF_RATE": iperfRate.rawValue, "GAP": "\(directionGap)", "IPERF_TTL": "\(iperfServerTTL)",
+        ]
+    }
+
+    static func num(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%g", v)
+    }
+}
+
+/// 速率从哪来：读网卡字节计数，或用测速工具自己报的数。
+enum SLRateSource: String, Codable, CaseIterable, Identifiable {
+    case nic, tool
+    var id: String { rawValue }
+    var title: String { self == .nic ? "网卡计数" : "iperf3 自报" }
+}
+
+/// 稳定值取什么统计量。
+enum SLStatistic: String, Codable, CaseIterable, Identifiable {
+    case median, mean
+    var id: String { rawValue }
+    var title: String { self == .median ? "中位数" : "平均值" }
 }
 
 // MARK: - 测量过程
@@ -129,6 +268,7 @@ struct SLEvent: Decodable {
     var msg: String?
     var name: String?
     var ip: String?
+    var iface: String?
     /// src：该候选源是否入选；conn：第几条连接。
     var keep: Bool?
     var n: Int?
@@ -147,26 +287,27 @@ struct SLStat: Codable, Equatable {
     var flat: Bool
     var loadedRTT: Double?
 
-    /// - tick: 采样间隔（秒）。
-    static func from(_ series: [Double], rtts: [Double], tick: Double) -> SLStat? {
+    /// - tick: 采样间隔（秒）；m: 测法里的结果算法。
+    static func from(_ series: [Double], rtts: [Double], tick: Double, method m: SLParams) -> SLStat? {
         guard !series.isEmpty else { return nil }
-        let perSecond = max(1, Int((1 / max(tick, 0.05)).rounded()))
-        let warmup = 2 * perSecond
-        let body = series.count > warmup + 2 * perSecond ? Array(series.dropFirst(warmup)) : series
-        let median = Self.median(body)
-        let tail = body.suffix(4 * perSecond)
-        let close = tail.filter { median > 0 && abs($0 - median) / median < 0.05 }.count
-        let flat = tail.count >= 3 * perSecond && median > 1 && Double(close) >= Double(tail.count) * 0.9
-        // 峰值也取 1 秒滑动平均，不让单个采样的毛刺当峰值
+        let perSecond = 1 / max(tick, 0.05)
+        let warmup = Int((m.warmupSeconds * perSecond).rounded())
+        let body = series.count > warmup + Int(2 * perSecond) ? Array(series.dropFirst(warmup)) : series
+        let stable = m.statistic == .median ? Self.median(body) : body.reduce(0, +) / Double(body.count)
+        let tail = body.suffix(Int((m.flatWindow * perSecond).rounded()))
+        let close = tail.filter { stable > 0 && abs($0 - stable) / stable < m.flatTolerance }.count
+        let flat = Double(tail.count) >= m.flatWindow * perSecond * 0.75 && stable > 1 && Double(close) >= Double(tail.count) * m.flatShare
+        // 峰值取 peakWindow 秒滑动平均的最大值，不让单个采样的毛刺当峰值
+        let w = max(1, Int((m.peakWindow * perSecond).rounded()))
         var peak = 0.0
-        if series.count >= perSecond {
-            for i in 0...(series.count - perSecond) {
-                peak = max(peak, series[i..<(i + perSecond)].reduce(0, +) / Double(perSecond))
+        if series.count >= w {
+            for i in 0...(series.count - w) {
+                peak = max(peak, series[i..<(i + w)].reduce(0, +) / Double(w))
             }
         } else {
             peak = series.max() ?? 0
         }
-        return SLStat(stable: median, peak: peak, flat: flat,
+        return SLStat(stable: stable, peak: peak, flat: flat,
                       loadedRTT: rtts.isEmpty ? nil : Self.median(rtts))
     }
 
@@ -211,6 +352,62 @@ struct SLTimedSample: Equatable {
     var at: Date
 }
 
+// MARK: - 统计轨迹（HUD 每帧只查表，不重算）
+
+/// 一个量随时间的取值：每个新样本到达时记一笔，查询 = 时刻 t 之前最后一笔。
+struct SLTrail {
+    private(set) var at: [Date] = []
+    private(set) var v: [Double] = []
+
+    mutating func append(_ value: Double, _ t: Date) { at.append(t); v.append(value) }
+
+    func value(at t: Date) -> Double? {
+        var lo = 0, hi = at.count
+        while lo < hi { let m = (lo + hi) / 2; if at[m] <= t { lo = m + 1 } else { hi = m } }
+        return lo == 0 ? nil : v[lo - 1]
+    }
+}
+
+/// 一次测量里 HUD 要的全部统计。样本到达时增量更新一次（每秒约 10 次），
+/// 而不是每帧（120 次 × 平滑窗口 8 点）重新排序求中位数。
+struct SLTrails {
+    var idleMedian = SLTrail(), loadMedian = SLTrail()
+    var downStable = SLTrail(), upStable = SLTrail()
+    var rttLo = SLTrail(), rttHi = SLTrail()
+    private(set) var downStat: SLStat?
+    private(set) var upStat: SLStat?
+    private var idle: [Double] = [], load: [Double] = []
+    private var dl: [Double] = [], ul: [Double] = [], dlR: [Double] = [], ulR: [Double] = []
+    private var lo = Double.infinity, hi = -Double.infinity
+
+    mutating func add(_ phase: String, value: Double, rtt sampleRTT: Double?, at t: Date, tick: Double, method: SLParams) {
+        // 空载样本的值本身就是延迟
+        let rtt = phase == "idle" ? value : sampleRTT
+        if let rtt {
+            lo = min(lo, rtt); hi = max(hi, rtt)
+            rttLo.append(lo, t); rttHi.append(hi, t)
+        }
+        switch phase {
+        case "idle":
+            guard let rtt else { return }
+            idle.append(rtt); idleMedian.append(SLStat.median(idle), t)
+        case "dl", "ul":
+            if let rtt { load.append(rtt); loadMedian.append(SLStat.median(load), t) }
+            if phase == "dl" {
+                dl.append(value); if let rtt { dlR.append(rtt) }
+                downStat = SLStat.from(dl, rtts: dlR, tick: tick, method: method)
+                if let s = downStat { downStable.append(s.stable, t) }
+            } else {
+                ul.append(value); if let rtt { ulR.append(rtt) }
+                upStat = SLStat.from(ul, rtts: ulR, tick: tick, method: method)
+                if let s = upStat { upStable.append(s.stable, t) }
+            }
+        default:
+            break
+        }
+    }
+}
+
 // MARK: - 结果与历史
 
 struct SLResult: Codable, Identifiable, Equatable {
@@ -220,6 +417,12 @@ struct SLResult: Codable, Identifiable, Equatable {
     var target: String
     var path: String
     var engine: String
+    /// 复用这条线路用的身份（旧记录没有，按名字回查）。iface 为空 = 系统路由。
+    var runnerID: String?
+    var targetID: String?
+    var iface: String?
+    /// 这次用的测法（旧记录没有）。
+    var method: SLParams?
     var down: SLStat?
     var up: SLStat?
     var idleRTT: Double?
@@ -234,17 +437,6 @@ struct SLResult: Codable, Identifiable, Equatable {
     var tick: Double?
     var error: String?
 
-    /// 场景键：同一组 A/B/C 的历史互相比较。
+    /// 线路键：同一组 A/B/C 的历史互相比较。
     var sceneKey: String { "\(runner)|\(path)|\(target)" }
-}
-
-// MARK: - 场景
-
-struct SLScene: Codable, Identifiable, Hashable {
-    var id = UUID()
-    var title: String
-    var runnerID: String
-    var targetID: String
-    var path: SLPathMode
-    var builtIn = false
 }

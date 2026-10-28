@@ -2,22 +2,10 @@ import AppKit
 import Combine
 import SwiftUI
 
-// 原生滚动容器：NSScrollView + 整页一个 SwiftUI 宿主。
-//
-// SwiftUI 的 ScrollView 在 macOS 上每滚一帧都让内容重新布局（采样可见 NSHostingView.layout 占满主线程）。
-// 这里滚动完全交给 AppKit：内容宿主尺寸固定，滚动只是移动剪裁区，SwiftUI 不参与。
-// 不做懒加载——适合普通页面；长列表用 PPGroupTable 那种按行复用的表格。
-//
-// 内容是独立的宿主根：外层环境（EnvironmentObject、locale、tint）不会自动传进来，
-// 调用方在 content 里自行注入。
-
-/// 原生滚动容器 + 左侧刻度条（系统滚动条隐藏）。
+/// Native scrolling keeps ordinary page hosts out of scroll-position layout updates.
 struct WgScrollView: View {
     var content: AnyView
     @StateObject private var rail = WgScrollRailModel()
-
-    init(content: AnyView) { self.content = content }
-
     var body: some View {
         WgNativeScrollView(content: content, rail: rail)
             .overlay(alignment: .leading) {
@@ -29,98 +17,85 @@ struct WgScrollView: View {
 struct WgNativeScrollView: NSViewRepresentable {
     var content: AnyView
     var rail: WgScrollRailModel
-    var contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-
     func makeCoordinator() -> Coordinator { Coordinator() }
-
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = false   // 由左侧刻度条代替
-        scroll.autohidesScrollers = true
+        scroll.hasVerticalScroller = false
         scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = contentInsets
         let document = WgFlippedView()
         scroll.documentView = document
         let host = context.coordinator.controller
         host.view.translatesAutoresizingMaskIntoConstraints = true
         document.addSubview(host.view)
-        context.coordinator.attach(scroll: scroll, document: document)
-        context.coordinator.railLink = rail.link(scroll)
+        context.coordinator.attach(scroll: scroll, document: document, rail: rail)
         return scroll
     }
-
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        // 纵向按理想高度排版（等同 ScrollView 内的语义），Spacer 等弹性视图不会被撑到无限高。
         context.coordinator.controller.rootView = AnyView(content.fixedSize(horizontal: false, vertical: true).modifier(WgScrollHitGate()))
-        context.coordinator.relayout()
+        context.coordinator.invalidate()
     }
 
     final class Coordinator: NSObject {
         let controller = NSHostingController(rootView: AnyView(EmptyView()))
         private weak var scroll: NSScrollView?
         private weak var document: NSView?
+        private weak var rail: WgScrollRailModel?
         private var observers: [Any] = []
         private var pending = false
-        var railLink: Any?
+        private var layingOut = false
+        private var dirty = true
+        private var measuredWidth: CGFloat = -1
+        private var railLink: Any?
 
         override init() {
             super.init()
-            // preferredContentSize 只用作“内容尺寸变了”的信号；真实高度按当前宽度另行测量。
+            // Preserve intrinsic content changes (disclosures, async content), not just width changes.
             controller.sizingOptions = [.preferredContentSize]
-            // 只在内容理想高度真的变化时重测：内容里的局部动画（图表读数等）会频繁触发这个通知，
-            // 每次都整页重测会连带重画页面里所有画布（实测桑基图因此持续重绘）。
             observers.append(controller.observe(\.preferredContentSize, options: [.old, .new]) { [weak self] _, change in
-                guard let old = change.oldValue, let new = change.newValue, abs(old.height - new.height) < 0.5 else {
-                    self?.scheduleRelayout(); return
+                guard let self, !self.layingOut else { return }
+                if let old = change.oldValue, let new = change.newValue, abs(old.height - new.height) < 0.5 { return }
+                self.dirty = true
+                guard !self.pending else { return }
+                self.pending = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.pending = false
+                    self?.relayout()
                 }
             })
         }
-
-        func attach(scroll: NSScrollView, document: NSView) {
-            self.scroll = scroll
-            self.document = document
+        func attach(scroll: NSScrollView, document: NSView, rail: WgScrollRailModel) {
+            self.scroll = scroll; self.document = document; self.rail = rail
             scroll.contentView.postsFrameChangedNotifications = true
-            observers.append(NotificationCenter.default.addObserver(
-                forName: NSView.frameDidChangeNotification, object: scroll.contentView, queue: .main
-            ) { [weak self] _ in self?.relayout() })
+            observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in self?.relayout() })
             observers.append(contentsOf: MainActor.assumeIsolated { WgScrollActivity.track(scroll) })
+            railLink = MainActor.assumeIsolated { rail.link(scroll) }
         }
-
-        private func scheduleRelayout() {
-            // 滚动中不重测文档高度，停下后再补。
-            if MainActor.assumeIsolated({ WgScrollActivity.isScrolling }) {
-                MainActor.assumeIsolated { WgScrollActivity.whenIdle("wgscroll.\(ObjectIdentifier(self).hashValue)") { [weak self] in self?.relayout() } }
-                return
-            }
-            guard !pending else { return }
-            pending = true
-            DispatchQueue.main.async { [weak self] in
-                self?.pending = false
-                self?.relayout()
-            }
-        }
-
-        private var lastSize: CGSize = .zero
-
+        func invalidate() { dirty = true; relayout() }
         func relayout() {
-            guard let scroll, let document else { return }
+            guard !layingOut, let scroll, let document else { return }
             let width = scroll.contentView.bounds.width
-            guard width > 1 else { return }
+            guard width > 1, dirty || measuredWidth != width else { return }
+            layingOut = true
+            defer { layingOut = false }
+            dirty = false; measuredWidth = width
             let fitted = controller.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
             let size = CGSize(width: width, height: ceil(fitted.height))
-            guard size != lastSize else { return }
-            lastSize = size
-            document.frame = CGRect(origin: .zero, size: size)
-            controller.view.frame = document.bounds
+            if document.frame.size != size { document.setFrameSize(size) }
+            if controller.view.frame != document.bounds { controller.view.frame = document.bounds }
+            let oldY = scroll.contentView.bounds.origin.y
+            let maxY = max(0, size.height - scroll.contentView.bounds.height)
+            scroll.contentView.setBoundsOrigin(CGPoint(x: 0, y: min(max(0, oldY), maxY)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            MainActor.assumeIsolated { rail?.refresh() }
+        }
+        deinit {
+            for case let token as NSObjectProtocol in observers { NotificationCenter.default.removeObserver(token) }
+            if let token = railLink { NotificationCenter.default.removeObserver(token) }
         }
     }
 }
-
-/// 左上角为原点的文档视图（内容从顶部开始排）。
-final class WgFlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
+private final class WgFlippedView: NSView { override var isFlipped: Bool { true } }
 
 /// 滚动期间“冻结”界面上的动态刷新：数据照常接收，但写入界面的动作先按 key 暂存（只留最新一次），
 /// 滚动结束再一次性提交。滚动时 SwiftUI 不必重排整页，用户也察觉不到——停下的瞬间就是最新值。

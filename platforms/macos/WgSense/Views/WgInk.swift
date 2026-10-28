@@ -142,28 +142,70 @@ struct SlantShape: Shape {
 
 // MARK: - 材质
 
-/// 在画布里画一块形状底板（填充 + 描边 + 顶部细高光）。
-///
-/// 为什么不直接用 `shape.fill()`：隐藏标题栏的窗口要算“哪些区域是内容、不能拖动窗口”，SwiftUI 会把每个带形状的
-/// 背景都算进去，非矩形路径在滚动的每一帧都要重新栅格化（实测滚动掉帧 5% → 55%）。画布对系统而言只是一个矩形。
+/// Backing layers keep the panel live at every width without allocating a new bitmap.
+/// AppKit sees a rectangular decorative view, avoiding SwiftUI shape-region rasterization.
 struct WgShapePlate<S: Shape>: View {
     var shape: S
     var fill: Color
     var border: Color
     var highlight: Color
-
     var body: some View {
-        Canvas { ctx, size in
-            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
-            let path = shape.path(in: rect)
-            ctx.fill(path, with: .color(fill))
-            ctx.stroke(path, with: .color(border), lineWidth: 1)
-            // 顶部细高光：只取形状上沿一条。
-            var top = ctx
-            top.clip(to: Path(CGRect(x: 0, y: 0, width: size.width, height: 1.5)))
-            top.stroke(path, with: .color(highlight), lineWidth: 1)
+        WgLayerPlate(shape: shape, fill: fill, border: border, highlight: highlight)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct WgLayerPlate<S: Shape>: NSViewRepresentable {
+    var shape: S
+    var fill: Color
+    var border: Color
+    var highlight: Color
+    @Environment(\.colorScheme) private var scheme
+    func makeNSView(context: Context) -> WgPlateNativeView { WgPlateNativeView() }
+    func updateNSView(_ view: WgPlateNativeView, context: Context) {
+        view.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            view.plate.fillColor = NSColor(fill).cgColor
+            view.plate.strokeColor = NSColor(border).cgColor
+            view.glint.strokeColor = NSColor(highlight).cgColor
         }
-        .allowsHitTesting(false)
+        view.makePath = { shape.path(in: $0.insetBy(dx: 0.5, dy: 0.5)).cgPath }
+        view.needsLayout = true
+    }
+}
+
+private final class WgPlateNativeView: NSView {
+    let plate = CAShapeLayer()
+    let glint = CAShapeLayer()
+    private let topMask = CALayer()
+    var makePath: ((CGRect) -> CGPath)?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        plate.lineWidth = 1
+        glint.lineWidth = 1
+        glint.fillColor = nil
+        topMask.backgroundColor = NSColor.white.cgColor
+        glint.mask = topMask
+        layer?.addSublayer(plate)
+        layer?.addSublayer(glint)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let rect = CGRect(origin: .zero, size: bounds.size)
+        plate.frame = rect
+        glint.frame = rect
+        let path = makePath?(rect)
+        plate.path = path
+        glint.path = path
+        topMask.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1.5)
+        CATransaction.commit()
     }
 }
 
