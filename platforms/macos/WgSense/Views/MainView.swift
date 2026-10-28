@@ -642,7 +642,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
-            Color.clear.frame(height: 40)
+            Color.clear.frame(height: WgLayout.sidebarTop)
 
             // 磁贴网格区域
             GeometryReader { geometry in

@@ -17,13 +17,14 @@ struct WgTokenSpec: Identifiable {
 }
 
 enum WgTokenGroup: String, CaseIterable, Identifiable {
-    case space, type, radius
+    case space, type, radius, layout
     var id: String { rawValue }
     var title: String {
         switch self {
         case .space: return "间距"
         case .type: return "字号"
         case .radius: return "圆角"
+        case .layout: return "版面"
         }
     }
     var step: CGFloat { self == .type ? 0.5 : 1 }
@@ -58,6 +59,11 @@ enum WgTokenGroup: String, CaseIterable, Identifiable {
             return [
                 .init(key: "radius.s", label: "s · 小件", fallback: 3, range: 0...12),
                 .init(key: "radius.m", label: "m · 卡片", fallback: 4, range: 0...16),
+            ]
+        case .layout:
+            // 不归档的具体版面尺寸，每个滑块只管一处。
+            return [
+                .init(key: "layout.sidebarTop", label: "侧栏顶部留白（让红绿灯）", fallback: 40, range: 0...80),
             ]
         }
     }
@@ -167,6 +173,10 @@ enum WgType {
     static var readout: CGFloat { WgTokens.shared["type.readout"] }
     static var page: CGFloat { WgTokens.shared["type.page"] }
     static var display: CGFloat { WgTokens.shared["type.display"] }
+}
+
+enum WgLayout {
+    static var sidebarTop: CGFloat { WgTokens.shared["layout.sidebarTop"] }
 }
 
 enum WgRadius {
