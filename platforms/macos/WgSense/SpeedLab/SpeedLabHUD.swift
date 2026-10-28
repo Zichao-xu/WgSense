@@ -290,7 +290,7 @@ private struct SLHUDPainter {
             g.stroke(poly([CGPoint(x: x, y: yTop), CGPoint(x: x, y: yTop - 7)]), with: .color(g2), lineWidth: 1)
             // 外角那一格不标数字：会撞上通道标题
             guard abs(x - corner.x) > 40 else { continue }
-            g.draw(Text(verbatim: SLFormat.tick(d.scale * Double(r))).font(.system(size: 11, design: .monospaced)).foregroundColor(g2),
+            g.draw(Text(verbatim: SLFormat.tick(d.scale * Double(r))).font(.system(size: WgType.caption, design: .monospaced)).foregroundColor(g2),
                    at: CGPoint(x: x, y: yTop - 16), anchor: .center)
         }
         // 通道标签 + 百分比（亮部占协商速率）

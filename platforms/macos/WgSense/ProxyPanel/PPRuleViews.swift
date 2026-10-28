@@ -133,9 +133,9 @@ struct PPInlineMessage: View {
     var symbol: String
     var text: String
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(.tertiary)
-            Text(verbatim: text).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        VStack(spacing: WgSpace.s) {
+            Image(systemName: symbol).font(.system(size: WgType.section)).foregroundStyle(.tertiary)
+            Text(verbatim: text).font(.system(size: WgType.footnote)).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 220)
     }
@@ -147,19 +147,19 @@ struct PPCacheHintBar: View {
     var reload: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: WgSpace.m) {
             Image(systemName: cache.isEmpty ? "externaldrive.badge.exclamationmark" : "info.circle")
                 .foregroundStyle(cache.isEmpty ? .orange : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
                 if let hint = model.cacheHint {
-                    Text(verbatim: hint).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(verbatim: hint).font(.system(size: WgType.caption)).foregroundStyle(.secondary)
                 }
                 if let snap = cache.snapshot {
                     Text(verbatim: "规则源 \(snap.plugin) · 更新于 \(snap.syncedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.system(size: WgType.caption)).foregroundStyle(.tertiary)
                 }
                 if let error = cache.lastError {
-                    Text(verbatim: error).font(.system(size: 11)).foregroundStyle(.red)
+                    Text(verbatim: error).font(.system(size: WgType.caption)).foregroundStyle(.red)
                 }
             }
             Spacer()
@@ -170,17 +170,17 @@ struct PPCacheHintBar: View {
                 }
             } label: {
                 if cache.syncing {
-                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(verbatim: cache.progress) }
+                    HStack(spacing: WgSpace.s) { ProgressView().controlSize(.small); Text(verbatim: cache.progress) }
                 } else {
                     Label("更新缓存", systemImage: "arrow.clockwise")
                 }
             }
             .buttonStyle(WgPillButtonStyle())
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: WgType.caption, weight: .medium))
             .disabled(cache.syncing)
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.primary.opacity(0.04)))
+        .wgPadding(WgSpace.m)
+        .background(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).fill(Color.primary.opacity(0.04)))
     }
 }
 
@@ -192,17 +192,17 @@ struct PPRulePenetrationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("域名穿透").font(.system(size: 17, weight: .bold))
+                VStack(alignment: .leading, spacing: WgSpace.hair) {
+                    Text("域名穿透").font(.system(size: WgType.title, weight: .bold))
                     Text(verbatim: "\(group) · 规则 \(model.totalRules) 条，明细 \(model.items.count) 条")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("完成") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 PPFamilyTabs(model: model)
                 PPSearchField(text: $model.search, placeholder: "输入关键字查询")
             }
@@ -211,7 +211,7 @@ struct PPRulePenetrationSheet: View {
             }
             PPRuleTable(model: model)
         }
-        .padding(20)
+        .wgPadding(WgSpace.xl)
         .frame(minWidth: 760, minHeight: 520)
         .task { await model.load(group: group, provider: nil) }
     }
@@ -222,18 +222,18 @@ struct PPSearchField: View {
     var placeholder: LocalizedStringKey
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(.secondary)
-            TextField(placeholder, text: $text).textFieldStyle(.plain).font(.system(size: 12))
+        HStack(spacing: WgSpace.s) {
+            Image(systemName: "magnifyingglass").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+            TextField(placeholder, text: $text).textFieldStyle(.plain).font(.system(size: WgType.footnote))
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
                     .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 10)
+        .wgPadding(.horizontal, WgSpace.m)
         .frame(height: 28)
         .frame(minWidth: 140, maxWidth: 320)
-        .wgInteractiveSurface(cornerRadius: 3)
+        .wgInteractiveSurface(cornerRadius: WgRadius.s)
     }
 }
 
@@ -247,8 +247,8 @@ struct PPDomainGroupView: View {
     @State private var groups: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
+            HStack(spacing: WgSpace.m) {
                 Menu {
                     ForEach(groups, id: \.self) { name in
                         Button(title(name)) { select(name) }
@@ -258,9 +258,9 @@ struct PPDomainGroupView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .padding(.horizontal, 10)
+                .wgPadding(.horizontal, WgSpace.m)
                 .frame(height: 28)
-                .wgInteractiveSurface(cornerRadius: 3)
+                .wgInteractiveSurface(cornerRadius: WgRadius.s)
 
                 let options = RulePenetration.ruleSetOptions(group: selectedGroup, rules: model.rules)
                 Picker("", selection: Binding(

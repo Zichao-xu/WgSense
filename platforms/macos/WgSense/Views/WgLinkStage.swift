@@ -115,16 +115,16 @@ struct WgLinkStage: View {
                 .accessibilityAction(named: "聚焦发送") { select(.send) }
                 .help("移动指针感应构成，点击斜面聚焦收发；移到流量轨迹查看采样，点击可固定，再点解除。")
                 .overlay(alignment: .bottomLeading) {
-                    HStack(spacing: 2) {
+                    HStack(spacing: WgSpace.hair) {
                         ForEach(WgHUDFocus.allCases, id: \.rawValue) { item in
                             Button { select(item) } label: {
-                                Text(item.title).font(.system(size: 10, weight: displayedFocus == item ? .semibold : .regular))
-                                    .padding(.horizontal, 9).frame(height: 23)
+                                Text(item.title).font(.system(size: WgType.caption, weight: displayedFocus == item ? .semibold : .regular))
+                                    .wgPadding(.horizontal, WgSpace.s).frame(height: 23)
                                     .background(displayedFocus == item ? Color.primary.opacity(0.12) : Color.clear)
                             }.buttonStyle(.plain).accessibilityAddTraits(displayedFocus == item ? .isSelected : [])
                                 .help(item == .all ? "显示完整收发构成" : "聚焦" + item.title + "，再次点击恢复全部")
                         }
-                    }.padding(.leading, 20).padding(.bottom, 8)
+                    }.wgPadding(.leading, WgSpace.xl).wgPadding(.bottom, WgSpace.s)
                 }
         }
     }
@@ -150,19 +150,19 @@ struct WgLinkStage: View {
     }
 
     private var narrowSummary: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("链路舞台").font(.system(size: 13, weight: .semibold))
+        VStack(alignment: .leading, spacing: WgSpace.m) {
+            Text("链路舞台").font(.system(size: WgType.body, weight: .semibold))
             Text(WgLinkComposition.status(phase: phase, snapshot: monitor.snapshot))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.system(size: WgType.caption)).foregroundStyle(.secondary)
             if phase == .linked && monitor.snapshot.trafficAvailable {
                 Text("接收 \(WgFormat.speed(monitor.snapshot.rxRate))")
                 Text("发送 \(WgFormat.speed(monitor.snapshot.txRate))")
             }
-            Text("加宽窗口可查看完整舞台").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("加宽窗口可查看完整舞台").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: WgType.caption, design: .monospaced))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .wgPadding(WgSpace.l)
     }
 
     private func stage(at now: Date) -> some View {

@@ -28,8 +28,8 @@ private struct PPOverviewContent: View {
     @State private var showCardSettings = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: WgSpace.l) {
+            HStack(alignment: .center, spacing: WgSpace.m) {
                 PPStatsStrip()
                 Button { showCardSettings = true } label: { Image(systemName: "slider.horizontal.3") }
                     .buttonStyle(WgToolbarIconButtonStyle())
@@ -40,7 +40,7 @@ private struct PPOverviewContent: View {
                 card(setting.card).environment(\.ppCardIndex, index + 1)
             }
         }
-        .padding(.bottom, 24)
+        .wgPadding(.bottom, WgSpace.xxl)
     }
 
     @ViewBuilder
@@ -81,20 +81,20 @@ struct PPCard<Accessory: View, Content: View>: View {
             WgShapePlate(shape: shape, fill: .clear, border: Color.primary.opacity(0.2), highlight: .clear)
                 .offset(x: 8, y: 8)
                 .allowsHitTesting(false)
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: WgSpace.l) {
                 content()
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 36)
-            .padding(.bottom, 22)
+            .wgPadding(.horizontal, WgSpace.xxl)
+            .wgPadding(.top, WgSpace.xxxl)
+            .wgPadding(.bottom, WgSpace.xxl)
             .frame(maxWidth: .infinity, alignment: .leading)
             .wgGlassPanel(shape)
             WgSectionMark(title: title, caption: caption) { accessory() }
-                .padding(.leading, 18).padding(.trailing, 18)
+                .wgPadding(.leading, WgSpace.xl).wgPadding(.trailing, WgSpace.xl)
                 .offset(y: -19)
         }
-        .padding(.top, 19)
-        .padding(.trailing, 8).padding(.bottom, 8)
+        .wgPadding(.top, WgSpace.xl)
+        .wgPadding(.trailing, WgSpace.s).wgPadding(.bottom, WgSpace.s)
     }
 }
 
@@ -112,7 +112,7 @@ private struct PPStatsStrip: View {
     var body: some View {
         let s = live.stats
         // 六个独立的斜切读数格，奇偶错落 10pt；下载、上传是主读数（亮一档 + 顶部短白线）。
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: WgSpace.s) {
             metric("下载速度", "DOWN", WgFormat.speed(Double(s.downSpeed)), primary: true, index: 0)
             metric("上传速度", "UP", WgFormat.speed(Double(s.upSpeed)), primary: true, index: 1)
             metric("累计下载", "RX", WgFormat.size(UInt64(max(0, s.downloadTotal))), index: 2)
@@ -120,22 +120,22 @@ private struct PPStatsStrip: View {
             metric("连接", "CONN", "\(s.connections)", index: 4)
             metric("内存", "MEM", s.memory > 0 ? WgFormat.size(UInt64(s.memory)) : "—", index: 5)
         }
-        .padding(.bottom, 10)
+        .wgPadding(.bottom, WgSpace.m)
     }
 
     /// 读数格：上为等宽代号 + 中文名，下为读数（单位降级）。
     private func metric(_ title: LocalizedStringKey, _ code: String, _ text: String, primary: Bool = false, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
+            HStack(spacing: WgSpace.s) {
                 Text(verbatim: code).font(WgInk.mono(10, .medium)).tracking(1.4).foregroundStyle(WgInk.ink3)
-                Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(WgInk.ink2)
+                Text(title).font(.system(size: WgType.footnote, weight: .medium)).foregroundStyle(WgInk.ink2)
             }
             .lineLimit(1)
             // 不用 numericText 过渡：它对每个字形做模糊+位移动画，6 个数字每秒变化等于持续的 CPU 模糊卷积。
             WgReadout(text: text, size: WgInk.sizeReadout, weight: .light)
                 .minimumScaleFactor(0.6)
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
+        .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .topLeading) {
             if primary { Rectangle().fill(WgInk.ink.opacity(0.85)).frame(width: 48, height: 2) }
@@ -153,9 +153,9 @@ private struct PPChartsCard: View {
     var body: some View {
         // 单色：主系列亮墨铺面，次系列淡墨描线；颜色不承担区分，靠明度与粗细。
         PPCard(title: "实时", caption: "Realtime · 60s") {
-            VStack(spacing: 22) {
+            VStack(spacing: WgSpace.xxl) {
                 // 下载、上传分成两条窄图，各自一个镜头：一方冲高不会把另一方压扁。
-                VStack(spacing: 16) {
+                VStack(spacing: WgSpace.l) {
                     PPStreamChart(title: "下载", code: "A1", buffer: overview.downSpeed,
                                   series: [.init(name: "下载", color: WgInk.ink)],
                                   format: { WgFormat.speed($0) }, floor: 512)
@@ -165,7 +165,7 @@ private struct PPChartsCard: View {
                                   format: { WgFormat.speed($0) }, floor: 512)
                         .frame(height: 128)
                 }
-                HStack(spacing: 28) {
+                HStack(spacing: WgSpace.xxxl) {
                     PPStreamChart(title: "内存", code: "B1", buffer: overview.memory,
                                   series: [.init(name: "内存使用", color: WgInk.ink2)],
                                   format: { WgFormat.size(UInt64(max(0, $0))) }, floor: 2 * 1024 * 1024)
@@ -187,7 +187,7 @@ private struct PPNetworkCard: View {
 
     var body: some View {
         PPCard(title: "网络信息", caption: "Network") {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: WgSpace.l) {
                 pane {
                     ipRow("ipip.net", overview.chinaIP)
                     ipRow(overview.ipInfoAPI.title, overview.globalIP)
@@ -206,7 +206,7 @@ private struct PPNetworkCard: View {
                 pane {
                     ForEach(PPOverviewStore.latencyTargets, id: \.name) { target in
                         HStack {
-                            Text(verbatim: target.name).font(.system(size: 12)).foregroundStyle(WgInk.ink2)
+                            Text(verbatim: target.name).font(.system(size: WgType.footnote)).foregroundStyle(WgInk.ink2)
                             Spacer()
                             latencyText(overview.latencies[target.name])
                         }
@@ -223,20 +223,20 @@ private struct PPNetworkCard: View {
     }
 
     private func pane<C: View, A: View>(@ViewBuilder _ content: () -> C, @ViewBuilder actions: () -> A) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             content()
             HStack { Spacer(); actions() }
         }
-        .padding(12)
+        .wgPadding(WgSpace.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Rectangle().fill(WgInk.well))
     }
 
     private func ipRow(_ source: String, _ result: PPIPResult?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: WgSpace.m) {
             Text(verbatim: source).font(WgInk.mono(10)).foregroundStyle(WgInk.ink3).frame(width: 64, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: result?.location ?? "—").font(.system(size: 12.5, weight: .medium)).foregroundStyle(WgInk.ink).lineLimit(1)
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
+                Text(verbatim: result?.location ?? "—").font(.system(size: WgType.body, weight: .medium)).foregroundStyle(WgInk.ink).lineLimit(1)
                 if let ip = result?.ip, !ip.isEmpty {
                     Text(verbatim: overview.showPrivacy ? ip : "•••.•••.•••.•••")
                         .font(WgInk.mono(10.5)).foregroundStyle(WgInk.ink3)
@@ -263,7 +263,7 @@ private struct PPProviderTrafficCard: View {
         let items = PPOverviewStore.shared.providerTraffic(panel.providers)
         if !items.isEmpty {
             PPCard(title: "提供商流量概览", caption: "Quota") {
-                VStack(spacing: 12) {
+                VStack(spacing: WgSpace.m) {
                     ForEach(items) { row($0.name, used: $0.used, total: $0.total) }
                     if items.count > 1 {
                         Divider()
@@ -277,9 +277,9 @@ private struct PPProviderTrafficCard: View {
     private func row(_ name: String, used: Int64, total: Int64) -> some View {
         let fraction = total > 0 ? min(1, Double(used) / Double(total)) : 0
         let fmt = ByteCountFormatter()
-        return VStack(alignment: .leading, spacing: 5) {
+        return VStack(alignment: .leading, spacing: WgSpace.xs) {
             HStack {
-                Text(verbatim: name).font(.system(size: 12, weight: .medium))
+                Text(verbatim: name).font(.system(size: WgType.footnote, weight: .medium))
                 Spacer()
                 Text(verbatim: "已使用 \(fmt.string(fromByteCount: used)) · 剩余 \(fmt.string(fromByteCount: max(0, total - used))) · 共 \(fmt.string(fromByteCount: total))")
                     .font(WgInk.figure(11, .regular)).foregroundStyle(WgInk.ink3)
@@ -313,7 +313,7 @@ private struct PPTopologyCard: View {
     var body: some View {
         let m = model
         PPCard(title: "连接拓扑", caption: "Topology · \(overview.topologyConnections.count) conn") {
-            HStack(spacing: 2) {
+            HStack(spacing: WgSpace.hair) {
                 Button { togglePause() } label: { Image(systemName: paused ? "play.fill" : "pause.fill") }
                     .buttonStyle(WgToolbarIconButtonStyle(isActive: paused))
                     .help(paused ? "继续" : "暂停")
@@ -322,9 +322,9 @@ private struct PPTopologyCard: View {
                     .help("全屏")
             }
         } content: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
                 if m.nodes.isEmpty {
-                    Text("暂无数据").font(.system(size: 12)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 160)
+                    Text("暂无数据").font(.system(size: WgType.footnote)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 160)
                 } else {
                     PPSankeyView(model: m, onHoverChange: { overview.topologyPaused = $0 || paused })
                         .equatable()
@@ -333,15 +333,15 @@ private struct PPTopologyCard: View {
             }
         }
         .sheet(isPresented: $fullScreen) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
                 HStack {
-                    Text("连接拓扑").font(.system(size: 17, weight: .bold))
+                    Text("连接拓扑").font(.system(size: WgType.title, weight: .bold))
                     Spacer()
                     Button("完成") { fullScreen = false }.keyboardShortcut(.defaultAction)
                 }
                 PPSankeyView(model: model, onHoverChange: { overview.topologyPaused = $0 || paused }, labelLimit: 45)
             }
-            .padding(20)
+            .wgPadding(WgSpace.xl)
             .frame(minWidth: 1100, minHeight: 760)
         }
     }
@@ -383,8 +383,8 @@ private struct PPHistoryCard: View {
                 .buttonStyle(WgToolbarIconButtonStyle())
                 .help("清空连接历史")
         } content: {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
+                HStack(spacing: WgSpace.l) {
                     Picker("聚合方式", selection: $overview.historyType) {
                         ForEach(PPHistoryType.allCases) { Text($0.title).tag($0) }
                     }
@@ -395,7 +395,7 @@ private struct PPHistoryCard: View {
                     .fixedSize()
                     Spacer()
                 }
-                .font(.system(size: 12))
+                .font(.system(size: WgType.footnote))
                 HStack(spacing: 0) {
                     summary("下载", WgFormat.size(UInt64(rows.reduce(0) { $0 + $1.download })))
                     summary("上传", WgFormat.size(UInt64(rows.reduce(0) { $0 + $1.upload })))
@@ -416,7 +416,7 @@ private struct PPHistoryCard: View {
                         UserDefaults.standard.set(key, forKey: "pp.historySort")
                     }
                 Text(verbatim: "只能统计面板打开期间的连接。记录开始时间：\(overview.historyStart?.formatted(date: .abbreviated, time: .shortened) ?? "—")")
-                    .font(.system(size: 11)).foregroundStyle(WgInk.ink3)
+                    .font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
             }
         }
         .confirmationDialog("清空连接历史", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -427,8 +427,8 @@ private struct PPHistoryCard: View {
     }
 
     private func summary(_ title: LocalizedStringKey, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.system(size: 11)).foregroundStyle(WgInk.ink2)
+        VStack(alignment: .leading, spacing: WgSpace.hair) {
+            Text(title).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink2)
             WgReadout(text: value, size: 17, weight: .regular)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -442,7 +442,7 @@ private struct PPRuleHitsCard: View {
 
     var body: some View {
         PPCard(title: "规则命中统计", caption: "Rule hits") {
-            HStack(alignment: .top, spacing: 28) {
+            HStack(alignment: .top, spacing: WgSpace.xxxl) {
                 bars(title: "命中统计", color: WgInk.ink2, hit: true)
                 bars(title: "未命中统计", color: WgInk.ink3, hit: false)
             }
@@ -460,10 +460,10 @@ private struct PPRuleHitsCard: View {
                            value: item.value,
                            at: (hit ? item.rule.hitAt : item.rule.missAt) ?? "")
         }
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 12, weight: .semibold)).padding(.bottom, 2)
+        return VStack(alignment: .leading, spacing: WgSpace.s) {
+            Text(title).font(.system(size: WgType.footnote, weight: .semibold)).wgPadding(.bottom, WgSpace.hair)
             if rows.isEmpty {
-                Text("暂无数据").font(.system(size: 11)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 60)
+                Text("暂无数据").font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 60)
             } else {
                 PPRuleBars(rows: rows, color: color, hit: hit)
             }
@@ -498,8 +498,8 @@ private struct PPRuleBars: View {
                 let valueSize = valueText.measure(in: size)
                 ctx.draw(valueText, at: CGPoint(x: size.width, y: y + 7), anchor: .trailing)
                 let nameWidth = size.width - 24 - valueSize.width - 8
-                let name = PPNodeCard.truncate(row.name, font: .systemFont(ofSize: 11), width: nameWidth)
-                ctx.draw(Text(verbatim: name).font(.system(size: 11)).foregroundColor(focused ? WgInk.signal : .primary),
+                let name = PPNodeCard.truncate(row.name, font: .systemFont(ofSize: WgType.caption), width: nameWidth)
+                ctx.draw(Text(verbatim: name).font(.system(size: WgType.caption)).foregroundColor(focused ? WgInk.signal : .primary),
                          at: CGPoint(x: 24, y: y + 7), anchor: .leading)
                 let barRect = CGRect(x: 24, y: y + 16, width: size.width - 24, height: 2)
                 ctx.fill(Path(barRect), with: .color(WgInk.rule))
@@ -521,15 +521,15 @@ private struct PPRuleBars: View {
             if let i = hover, rows.indices.contains(i) {
                 let row = rows[i]
                 let at = PPPersist.parseDate(row.at).map { Self.fmt.string(from: $0) } ?? "—"
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: row.name).font(.system(size: 11, weight: .medium)).lineLimit(2)
+                VStack(alignment: .leading, spacing: WgSpace.xs) {
+                    Text(verbatim: row.name).font(.system(size: WgType.caption, weight: .medium)).lineLimit(2)
                     Text(verbatim: "\(hit ? "命中" : "未命中")  \(row.value) 次").font(WgInk.mono(10)).foregroundStyle(WgInk.ink2)
                     Text(verbatim: "\(hit ? "最后命中" : "最后未命中")  \(at)").font(WgInk.mono(10)).foregroundStyle(WgInk.ink3)
                 }
-                .padding(.horizontal, 9).padding(.vertical, 7)
+                .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, WgSpace.s)
                 .frame(maxWidth: 300, alignment: .leading)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).strokeBorder(WgInk.rule))
                 .offset(x: 24, y: CGFloat(i + 1) * Self.rowHeight)
                 .allowsHitTesting(false)
             }
@@ -545,14 +545,14 @@ private struct PPCardSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("卡片设置").font(.system(size: 13, weight: .semibold)).padding(12)
+            Text("卡片设置").font(.system(size: WgType.body, weight: .semibold)).wgPadding(WgSpace.m)
             Divider()
             List {
                 ForEach($overview.cards) { $setting in
-                    HStack(spacing: 10) {
+                    HStack(spacing: WgSpace.m) {
                         Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
-                        Image(systemName: setting.card.symbol).font(.system(size: 11)).foregroundStyle(WgInk.ink2).frame(width: 18)
-                        Text(setting.card.title).font(.system(size: 12)).foregroundStyle(setting.visible ? WgInk.ink : WgInk.ink3)
+                        Image(systemName: setting.card.symbol).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink2).frame(width: 18)
+                        Text(setting.card.title).font(.system(size: WgType.footnote)).foregroundStyle(setting.visible ? WgInk.ink : WgInk.ink3)
                         Spacer()
                         Toggle("", isOn: $setting.visible).toggleStyle(.switch).controlSize(.mini).labelsHidden()
                     }
@@ -589,7 +589,7 @@ private struct PPHistoryTable: View {
                 header("总流量", \PPHistoryRow.total).frame(width: Self.numberColumns[2], alignment: .trailing)
                 header("连接数", \PPHistoryRow.count).frame(width: Self.numberColumns[3], alignment: .trailing)
             }
-            .padding(.horizontal, 10)
+            .wgPadding(.horizontal, WgSpace.m)
             .frame(height: 26)
             .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.14)).frame(height: 1) }
 
@@ -601,7 +601,7 @@ private struct PPHistoryTable: View {
                     if i % 2 == 1 { ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: Self.rowHeight)), with: .color(Color.primary.opacity(0.025))) }
                     let mid = y + Self.rowHeight / 2
                     let keyWidth = size.width - 20 - numbersWidth - 8
-                    ctx.draw(Text(verbatim: PPNodeCard.truncate(row.key, font: .systemFont(ofSize: 11.5), width: keyWidth)).font(.system(size: 11.5)).foregroundColor(.primary),
+                    ctx.draw(Text(verbatim: PPNodeCard.truncate(row.key, font: .systemFont(ofSize: WgType.footnote), width: keyWidth)).font(.system(size: WgType.footnote)).foregroundColor(.primary),
                              at: CGPoint(x: 10, y: mid), anchor: .leading)
                     var x = size.width - 10
                     // 自右向左：连接数、总流量、上传、下载。
@@ -616,10 +616,10 @@ private struct PPHistoryTable: View {
             .frame(height: CGFloat(max(1, slice.count)) * Self.rowHeight)
 
             if rows.isEmpty {
-                Text("暂无数据").font(.system(size: 11)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 60)
+                Text("暂无数据").font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, minHeight: 60)
             }
             if pageCount > 1 {
-                HStack(spacing: 10) {
+                HStack(spacing: WgSpace.m) {
                     Spacer()
                     Button { page = max(0, current - 1) } label: { Image(systemName: "chevron.left") }
                         .buttonStyle(WgToolbarIconButtonStyle()).disabled(current == 0)
@@ -627,7 +627,7 @@ private struct PPHistoryTable: View {
                     Button { page = min(pageCount - 1, current + 1) } label: { Image(systemName: "chevron.right") }
                         .buttonStyle(WgToolbarIconButtonStyle()).disabled(current >= pageCount - 1)
                 }
-                .padding(.top, 8)
+                .wgPadding(.top, WgSpace.s)
             }
         }
         .background(Rectangle().fill(WgInk.well))
@@ -641,9 +641,9 @@ private struct PPHistoryTable: View {
             let order: SortOrder = active ? (ascending ? .reverse : .forward) : (ascendingFirst ? .forward : .reverse)
             sortOrder = [KeyPathComparator(path, order: order)]
         } label: {
-            HStack(spacing: 3) {
-                Text(title).font(.system(size: 11, weight: active ? .semibold : .regular))
-                if active { Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold)) }
+            HStack(spacing: WgSpace.xs) {
+                Text(title).font(.system(size: WgType.caption, weight: active ? .semibold : .regular))
+                if active { Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.system(size: WgType.micro, weight: .bold)) }
             }
             .foregroundStyle(active ? WgInk.signal : WgInk.ink2)
         }

@@ -24,13 +24,13 @@ enum WgInk {
     static let control = adaptive(light: NSColor(white: 0.25, alpha: 1), dark: NSColor(white: 0.62, alpha: 1))
 
     // MARK: 字号层级（全局唯一来源）
-    //   页标题 40 · 章节标题 20 · 小节标题 15 · 正文 13 · 辅助 11 · 等宽注释 9.5–10.5；大读数 30 细体。
-    static let sizePage: CGFloat = 40
-    static let sizeSection: CGFloat = 20
-    static let sizeSubsection: CGFloat = 15
-    static let sizeBody: CGFloat = 13
-    static let sizeCaption: CGFloat = 11
-    static let sizeReadout: CGFloat = 30
+    //   数值由 WgTokens（WgType）统一管理，这里只是语义别名。
+    static var sizePage: CGFloat { WgType.page }
+    static var sizeSection: CGFloat { WgType.section }
+    static var sizeSubsection: CGFloat { WgType.sub }
+    static var sizeBody: CGFloat { WgType.body }
+    static var sizeCaption: CGFloat { WgType.caption }
+    static var sizeReadout: CGFloat { WgType.readout }
 
     // MARK: 斜切尺寸
     static let cutPanel: CGFloat = 22
@@ -266,7 +266,7 @@ struct WgReadout: View {
 
     var body: some View {
         let parts = WgInk.split(text)
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
+        HStack(alignment: .firstTextBaseline, spacing: WgSpace.xs) {
             Text(verbatim: parts.value)
                 .font(WgInk.figure(size, weight))
                 .foregroundStyle(tint)
@@ -350,14 +350,14 @@ struct WgSectionMark<Accessory: View>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 WgSignalMark(size: 8)
                 Text(title)
                     .font(.system(size: WgInk.sizeSection, weight: .heavy))
                     .tracking(0.8)
                     .foregroundStyle(WgInk.ink)
             }
-            .padding(.leading, 14).padding(.trailing, 26)
+            .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.xxl)
             .frame(height: 38)
             .wgGlassAccent(ChamferShape(tr: 12))
             WgRuler(opacity: 0.45)
@@ -367,9 +367,9 @@ struct WgSectionMark<Accessory: View>: View {
                     .tracking(1.8)
                     .foregroundStyle(WgInk.ink3)
                     .fixedSize()
-                    .padding(.leading, 12)
+                    .wgPadding(.leading, WgSpace.m)
             }
-            HStack(spacing: 2) { accessory() }.padding(.leading, 6)
+            HStack(spacing: WgSpace.hair) { accessory() }.wgPadding(.leading, WgSpace.s)
         }
     }
 }
@@ -386,13 +386,13 @@ struct WgTagBox: View {
     var title: LocalizedStringKey
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        HStack(alignment: .firstTextBaseline, spacing: WgSpace.s) {
             if !code.isEmpty {
                 Text(verbatim: code).font(WgInk.mono(10, .medium)).tracking(1.2).foregroundStyle(WgInk.ink2)
             }
             Text(title).font(.system(size: WgInk.sizeSubsection, weight: .bold)).foregroundStyle(WgInk.ink)
         }
-        .padding(.leading, 8).padding(.trailing, 16).padding(.vertical, 4)
+        .wgPadding(.leading, WgSpace.s).wgPadding(.trailing, WgSpace.l).wgPadding(.vertical, WgSpace.xs)
         .overlay(WgShapePlate(shape: ChamferShape(tr: WgInk.cutControl), fill: .clear, border: Color.primary.opacity(0.55), highlight: .clear))
     }
 }

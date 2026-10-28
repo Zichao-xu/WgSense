@@ -9,7 +9,7 @@ struct OverviewView: View {
     @EnvironmentObject var client: DaemonClient
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: WgSpace.xl) {
             WgPageHeader(title: "概览", subtitleText: "WGSENSE · STATUS", word: "OVERVIEW") { EmptyView() }
 
             hero
@@ -17,8 +17,8 @@ struct OverviewView: View {
             linkStage
 
             LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-                spacing: 12
+                columns: [GridItem(.flexible(), spacing: WgSpace.m), GridItem(.flexible(), spacing: WgSpace.m)],
+                spacing: WgSpace.m
             ) {
                 networkCard
                 guardCard
@@ -47,15 +47,15 @@ struct OverviewView: View {
 
     private var hero: some View {
         let vpn = client.vpnPresentation
-        return HStack(spacing: 20) {
+        return HStack(spacing: WgSpace.xl) {
             StatusOrb(symbol: vpn.symbol, tint: vpn.tint, isActive: vpn.phase == .connected || vpn.phase == .home, isBusy: vpn.isBusy)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(vpn.title)
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.system(size: WgType.readout, weight: .semibold))
                     .contentTransition(.opacity)
                 Text(vpn.detail)
-                    .font(.system(size: 13))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
@@ -65,7 +65,7 @@ struct OverviewView: View {
 
             primaryAction(vpn)
         }
-        .padding(24)
+        .wgPadding(WgSpace.xxl)
         .wgInteractiveSurface(cornerRadius: WgDesign.heroRadius)
     }
 
@@ -200,11 +200,11 @@ struct OverviewView: View {
 
     /// 隧道接管了什么、哪些不走隧道以及原因 —— 后台做的事都要在这里看得见。
     private var coverage: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             Text("隧道覆盖")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: WgType.footnote, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 4)
+                .wgPadding(.leading, WgSpace.xs)
 
             VStack(spacing: 0) {
                 let rows = coverageRows
@@ -301,11 +301,11 @@ struct OverviewView: View {
     // MARK: - 模块
 
     private var modules: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             Text("模块")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: WgType.footnote, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 4)
+                .wgPadding(.leading, WgSpace.xs)
 
             VStack(spacing: 0) {
                 ModuleRow(
@@ -356,7 +356,7 @@ private struct StatusOrb: View {
                 .fill(isActive ? fill : Color.clear)
                 .frame(width: 48, height: 48)
             Image(systemName: symbol)
-                .font(.system(size: 21, weight: .semibold))
+                .font(.system(size: WgType.section, weight: .semibold))
                 .foregroundStyle(isActive ? Color(nsColor: .windowBackgroundColor) : Color.primary.opacity(0.6))
                 .contentTransition(.symbolEffect(.replace))
             if isBusy {
@@ -384,30 +384,30 @@ private struct InfoCard<Accessory: View>: View {
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
+            HStack(spacing: WgSpace.s) {
                 WgSquareBadge(symbol: symbol, tint: tint, size: 22)
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: WgType.footnote, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 accessory()
             }
             .frame(height: 22)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 value
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: WgType.title, weight: .semibold))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 detail
-                    .font(.system(size: 11))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
-        .padding(16)
+        .wgPadding(WgSpace.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
@@ -427,18 +427,18 @@ private struct ModuleRow: View {
     var isOn: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             WgSquareBadge(symbol: symbol, tint: tint, size: 24, dimmed: !isOn)
             Text(name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: WgType.body, weight: .medium))
             Spacer()
             status
-                .font(.system(size: 12))
+                .font(.system(size: WgType.footnote))
                 .foregroundStyle(.secondary)
             WgStatusDot(color: .green, isOn: isOn)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .wgPadding(.horizontal, WgSpace.l)
+        .wgPadding(.vertical, WgSpace.m)
     }
 }
 
@@ -454,29 +454,29 @@ private struct CoverageRow: View {
     var row: CoverageRowModel
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: WgSpace.m) {
             WgSquareBadge(symbol: row.symbol, tint: row.tint, size: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
+                HStack(spacing: WgSpace.s) {
                     Text(row.name)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: WgType.body, weight: .medium))
                     Spacer(minLength: 8)
                     row.value
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: WgType.footnote, design: .monospaced))
                         .foregroundStyle(.primary.opacity(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
                 row.detail
-                    .font(.system(size: 11))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .wgPadding(.horizontal, WgSpace.l)
+        .wgPadding(.vertical, WgSpace.s)
     }
 }
 
@@ -497,6 +497,6 @@ enum WgCoverageFormat {
 
 private struct RowDivider: View {
     var body: some View {
-        Divider().opacity(0.5).padding(.leading, 50)
+        Divider().opacity(0.5).wgPadding(.leading, 50)
     }
 }

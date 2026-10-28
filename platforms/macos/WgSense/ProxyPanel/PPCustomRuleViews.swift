@@ -18,12 +18,12 @@ struct PPCustomRuleList: View {
 
     var body: some View {
         let rows = model.visible
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             if !canReorder {
-                Text("切换到全部并清除搜索和排序后可拖拽").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("切换到全部并清除搜索和排序后可拖拽").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
             }
             if let errorText {
-                Text(verbatim: errorText).font(.system(size: 11)).foregroundStyle(.red)
+                Text(verbatim: errorText).font(.system(size: WgType.caption)).foregroundStyle(.red)
             }
             if model.loading && rows.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 200)
@@ -32,7 +32,7 @@ struct PPCustomRuleList: View {
             } else {
                 List {
                     ForEach(rows) { entry in
-                        HStack(spacing: 10) {
+                        HStack(spacing: WgSpace.m) {
                             Image(systemName: "line.3.horizontal")
                                 .foregroundStyle(canReorder ? Color.secondary : Color.secondary.opacity(0.3))
                             Text(verbatim: entry.displayType).frame(width: 70, alignment: .leading)
@@ -43,7 +43,7 @@ struct PPCustomRuleList: View {
                                 .buttonStyle(WgToolbarIconButtonStyle())
                                 .help("删除自定义规则")
                         }
-                        .font(.system(size: 12))
+                        .font(.system(size: WgType.footnote))
                         .contentShape(Rectangle())
                         .onTapGesture { editing = entry }
                         .help("点击修改这条自定义规则")
@@ -96,7 +96,7 @@ struct PPCustomRuleActions: View {
     @State private var restarting = false
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: WgSpace.hair) {
             Button { adding = true } label: { Image(systemName: "plus") }
                 .buttonStyle(WgToolbarIconButtonStyle(isActive: enabled))
                 .disabled(!enabled)
@@ -144,9 +144,9 @@ struct PPCustomRuleSheet: View {
     private var isIP: Bool { CustomRuleInput.ipTypes.contains(type) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(original == nil ? "新增域名规则" : "修改自定义规则").font(.system(size: 17, weight: .bold))
-            Text("规则名称：\(mode == "pre" ? "前置自定义" : "后置自定义")").font(.system(size: 12)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: WgSpace.l) {
+            Text(original == nil ? "新增域名规则" : "修改自定义规则").font(.system(size: WgType.title, weight: .bold))
+            Text("规则名称：\(mode == "pre" ? "前置自定义" : "后置自定义")").font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
 
             Picker("规则类型", selection: $type) {
                 ForEach(CustomRuleInput.allTypes, id: \.self) { Text(CustomRuleInput.typeTitles[$0] ?? $0).tag($0) }
@@ -154,9 +154,9 @@ struct PPCustomRuleSheet: View {
             TextField(isIP ? "IP" : "域名", text: $value, prompt: Text(isIP ? (type.hasSuffix("6") ? "2001:db8::/32" : "1.2.3.4/32") : "example.com"))
                 .textFieldStyle(.roundedBorder)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: WgSpace.s) {
                 HStack {
-                    Text("节点").font(.system(size: 12, weight: .medium))
+                    Text("节点").font(.system(size: WgType.footnote, weight: .medium))
                     Spacer()
                     Picker("", selection: $targetTab) {
                         Text("节点组").tag(0)
@@ -193,8 +193,8 @@ struct PPCustomRuleSheet: View {
             }
 
             Text(original == nil ? "新增只会写入配置文件，点击右上角重启后生效" : "修改只会写入配置文件，点击右上角重启后生效")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-            if let errorText { Text(verbatim: errorText).font(.system(size: 11)).foregroundStyle(.red) }
+                .font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+            if let errorText { Text(verbatim: errorText).font(.system(size: WgType.caption)).foregroundStyle(.red) }
 
             HStack {
                 Spacer()
@@ -204,7 +204,7 @@ struct PPCustomRuleSheet: View {
                     .disabled(saving)
             }
         }
-        .padding(20)
+        .wgPadding(WgSpace.xl)
         .frame(width: 480)
         .onAppear(perform: prefill)
     }

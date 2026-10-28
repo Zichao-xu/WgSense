@@ -17,22 +17,22 @@ struct MenuBarView: View {
         let vpn = client.vpnPresentation
         VStack(alignment: .leading, spacing: 0) {
             header(vpn)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+                .wgPadding(.horizontal, WgSpace.l)
+                .wgPadding(.top, WgSpace.l)
+                .wgPadding(.bottom, WgSpace.m)
 
-            HStack(spacing: 8) {
+            HStack(spacing: WgSpace.s) {
                 guardModule
                 pauseModule
                 receiveModule
             }
-            .padding(.horizontal, 12)
+            .wgPadding(.horizontal, WgSpace.m)
 
             infoLine
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .wgPadding(.horizontal, WgSpace.l)
+                .wgPadding(.vertical, WgSpace.m)
 
-            Divider().padding(.horizontal, 12)
+            Divider().wgPadding(.horizontal, WgSpace.m)
 
             VStack(spacing: 0) {
                 MenuItemRow(title: "打开 WgSense…", symbol: "macwindow") {
@@ -43,7 +43,7 @@ struct MenuBarView: View {
                     NSApplication.shared.terminate(nil)
                 }
             }
-            .padding(6)
+            .wgPadding(WgSpace.s)
         }
         .frame(width: 300)
         .focusEffectDisabled()
@@ -57,23 +57,23 @@ struct MenuBarView: View {
     // MARK: - 顶部
 
     private func header(_ vpn: WgVPNPresentation) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             Button(action: toggleVPN) {
                 WgCircleBadge(symbol: vpn.symbol, tint: vpn.tint, isOn: vpn.isConnected, size: 40, isBusy: vpn.isBusy)
             }
             .buttonStyle(.plain)
             .help(toggleHelp(vpn))
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
+                HStack(spacing: WgSpace.s) {
                     Text("VPN")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: WgType.body, weight: .semibold))
                     Text(vpn.title)
-                        .font(.system(size: 13, weight: vpn.isConnected ? .semibold : .regular))
+                        .font(.system(size: WgType.body, weight: vpn.isConnected ? .semibold : .regular))
                         .foregroundStyle(vpn.isConnected ? vpn.tint : Color.secondary)
                 }
                 Text(vpn.detail)
-                    .font(.system(size: 11))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -158,46 +158,46 @@ struct MenuBarView: View {
     @ViewBuilder
     private var infoLine: some View {
         if client.isTunnelUp {
-            HStack(spacing: 14) {
+            HStack(spacing: WgSpace.l) {
                 speed("arrow.down", client.traffic?.rx_speed ?? 0)
                 speed("arrow.up", client.traffic?.tx_speed ?? 0)
                 Spacer()
                 Text(verbatim: client.status?.service ?? "")
-                    .font(.system(size: 11))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.tertiary)
             }
         } else if let s = client.status {
-            HStack(spacing: 6) {
+            HStack(spacing: WgSpace.s) {
                 // 状态已在顶部说明，这里只给网络事实：网卡 + IP。
                 let iface = s.network_interfaces?.first
                 Image(systemName: iface?.hardware_port?.localizedCaseInsensitiveContains("wi-fi") == true ? "wifi" : "cable.connector")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: WgType.caption, weight: .semibold))
                     .foregroundStyle(.tertiary)
                 Text(verbatim: iface?.hardware_port ?? iface?.name ?? "—")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: WgType.caption, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let ip = s.primaryIPv4 {
                     Text(verbatim: ip)
-                        .font(.system(size: 11).monospacedDigit())
+                        .font(.system(size: WgType.caption).monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
             }
         } else {
             Text("后台服务未运行")
-                .font(.system(size: 11))
+                .font(.system(size: WgType.caption))
                 .foregroundStyle(.secondary)
         }
     }
 
     private func speed(_ symbol: String, _ value: Double) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: WgSpace.xs) {
             Image(systemName: symbol)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: WgType.micro, weight: .bold))
                 .foregroundStyle(.tertiary)
             Text(verbatim: WgFormat.speed(value))
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .font(.system(size: WgType.footnote, weight: .medium).monospacedDigit())
         }
     }
 
@@ -229,22 +229,22 @@ private struct MenuModule: View {
     var action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             WgCircleBadge(symbol: symbol, tint: tint, isOn: isOn, size: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: WgType.footnote, weight: .semibold))
                     .lineLimit(1)
                 Text(status)
-                    .font(.system(size: 10))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
-        .padding(10)
+        .wgPadding(WgSpace.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(isEnabled ? 1 : 0.45)
-        .wgInteractiveSurface(cornerRadius: 3, isEnabled: isEnabled, action: action)
+        .wgInteractiveSurface(cornerRadius: WgRadius.s, isEnabled: isEnabled, action: action)
     }
 }
 
@@ -258,24 +258,24 @@ private struct MenuItemRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: WgSpace.s) {
                 Image(systemName: symbol)
-                    .font(.system(size: 12))
+                    .font(.system(size: WgType.footnote))
                     .frame(width: 16)
                 Text(title)
-                    .font(.system(size: 13))
+                    .font(.system(size: WgType.body))
                 Spacer()
                 if let shortcut {
                     Text(verbatim: shortcut)
-                        .font(.system(size: 12))
+                        .font(.system(size: WgType.footnote))
                         .foregroundStyle(hovering ? Color.white.opacity(0.8) : Color.secondary)
                 }
             }
             .foregroundStyle(hovering ? Color.white : Color.primary)
-            .padding(.horizontal, 8)
+            .wgPadding(.horizontal, WgSpace.s)
             .frame(height: 26)
             .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous)
                     .fill(hovering ? WgInk.signal : Color.clear)
             )
             .contentShape(Rectangle())

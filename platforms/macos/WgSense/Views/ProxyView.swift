@@ -43,10 +43,10 @@ struct ProxyView: View {
         switch section {
         case .overview:
             PPOverviewPage()
-                .padding(.horizontal, WgTheme.pagePadding)
+                .wgPadding(.horizontal, WgTheme.pagePadding)
         case .proxies:
             PPProxiesPage()
-                .padding(.horizontal, WgTheme.pagePadding)
+                .wgPadding(.horizontal, WgTheme.pagePadding)
         case .connections:
             ProxyConnectionsPage()
         case .rules:
@@ -129,15 +129,15 @@ private struct ProxySectionTabs: View {
                 } label: {
                     let index = (ProxySection.allCases.firstIndex(of: item) ?? 0) + 1
                     let on = selection == item
-                    HStack(spacing: 7) {
+                    HStack(spacing: WgSpace.s) {
                         Text(verbatim: String(format: "%02d", index))
                             .font(WgInk.mono(10, .medium))
                             .foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
                         Text(item.title)
-                            .font(.system(size: 13.5, weight: on ? .bold : .semibold))
+                            .font(.system(size: WgType.body, weight: on ? .bold : .semibold))
                             .foregroundStyle(on ? WgInk.ink : WgInk.ink2)
                     }
-                    .padding(.leading, 18).padding(.trailing, 22)
+                    .wgPadding(.leading, WgSpace.xl).wgPadding(.trailing, WgSpace.xxl)
                     .frame(height: 34)
                     .background {
                         if on {
@@ -156,8 +156,8 @@ private struct ProxySectionTabs: View {
         }
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, WgTheme.pagePadding)
-        .padding(.bottom, 14)
+        .wgPadding(.horizontal, WgTheme.pagePadding)
+        .wgPadding(.bottom, WgSpace.l)
         .focusEffectDisabled()
     }
 }
@@ -178,14 +178,14 @@ private struct ProxyPageHeader: View {
                 }
                 GridRow {
                     Text(verbatim: "STATE").font(WgInk.mono(10)).tracking(1).foregroundStyle(WgInk.ink3)
-                    HStack(spacing: 5) {
+                    HStack(spacing: WgSpace.xs) {
                         Rectangle().fill(client.proxyRunning ? WgInk.ink : WgInk.ink4).frame(width: 6, height: 6)
                         statusLabel.font(WgInk.mono(10.5, .medium)).foregroundStyle(WgInk.ink)
                     }
                 }
             }
             .lineLimit(1)
-            .padding(.leading, 18).padding(.trailing, 14).padding(.vertical, 9)
+            .wgPadding(.leading, WgSpace.xl).wgPadding(.trailing, WgSpace.l).wgPadding(.vertical, WgSpace.s)
             .wgGlassPanel(ChamferShape(tl: 12))
 
             Button {
@@ -197,8 +197,8 @@ private struct ProxyPageHeader: View {
             .accessibilityLabel("刷新代理状态")
             .help("刷新连接状态")
         }
-        .padding(.horizontal, WgTheme.pagePadding)
-        .padding(.bottom, 14)
+        .wgPadding(.horizontal, WgTheme.pagePadding)
+        .wgPadding(.bottom, WgSpace.l)
     }
 
     @ViewBuilder
@@ -219,7 +219,7 @@ private struct ProxyFeedbackBar: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: WgSpace.s) {
             Image(systemName: color == .red ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(color)
             Text(LocalizedStringKey(message))
@@ -235,7 +235,7 @@ private struct ProxyFeedbackBar: View {
             .accessibilityLabel("关闭提示")
             .help("关闭")
         }
-        .padding(.horizontal, WgTheme.pagePadding)
+        .wgPadding(.horizontal, WgTheme.pagePadding)
         .frame(minHeight: 36)
         .background(color.opacity(0.07))
     }
@@ -248,7 +248,7 @@ private struct ProxyUnavailableView: View {
     var startDaemon: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: WgSpace.l) {
             ContentUnavailableView {
                 Label(
                     title: { Text(LocalizedStringKey(client.proxyServiceRunning ? "控制器未连接" : "后台服务未启动")) },
@@ -257,7 +257,7 @@ private struct ProxyUnavailableView: View {
             } description: {
                 Text(LocalizedStringKey(client.proxyServiceRunning ? "请在设置中检查 Mihomo 地址与密钥" : "先启动 WgSense 后台服务，再连接 Mihomo 控制器"))
             }
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 if let startDaemon, !client.proxyServiceRunning {
                     Button(action: startDaemon) {
                         Label {
@@ -371,11 +371,11 @@ private struct ProxyOverviewPage: View {
             )
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: WgSpace.xl) {
                     ProxyOverviewMetricStrip(sample: current)
 
                     ProxyPanel {
-                        HStack(spacing: 18) {
+                        HStack(spacing: WgSpace.xl) {
                             ProxyLineChart(
                                 title: "实时速度",
                                 series: [
@@ -421,14 +421,14 @@ private struct ProxyOverviewPage: View {
                     }
 
                     ProxyPanel(title: "规则命中统计") {
-                        HStack(spacing: 18) {
+                        HStack(spacing: WgSpace.xl) {
                             ProxyBarChart(title: "命中统计", data: Array(ruleHitStats.prefix(18)), color: .indigo)
                             ProxyBarChart(title: "未命中统计", data: Array(ruleUnhitStats.prefix(18)), color: .cyan)
                         }
                         .frame(height: 300)
                     }
                 }
-                .padding(WgTheme.pagePadding)
+                .wgPadding(WgTheme.pagePadding)
             }
             .wgTimelineScroller()
             .task {
@@ -540,13 +540,13 @@ private struct ProxyPanel<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: WgSpace.l) {
             if let title {
                 Text(title).font(.headline)
             }
             content
         }
-        .padding(18)
+        .wgPadding(WgSpace.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
@@ -569,12 +569,12 @@ private struct ProxyOverviewMetricStrip: View {
     }
 
     private func metric(_ title: LocalizedStringKey, _ value: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: WgSpace.s) {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .font(.system(size: WgType.large, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -593,7 +593,7 @@ private struct ProxyLineChart: View {
     private var allValues: [Double] { series.flatMap(\.values) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             GeometryReader { geometry in
                 if allValues.isEmpty {
@@ -601,14 +601,14 @@ private struct ProxyLineChart: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3))
+                        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s))
                 } else {
                     ProxyCoreAnimationChart(series: series, timeWindow: timeWindow)
                     .overlay(alignment: .topLeading) {
                         Text(formatter(allValues.last ?? allValues.max() ?? 0))
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
-                            .padding(6)
+                            .wgPadding(WgSpace.s)
                             .contentTransition(.numericText())
                     }
                 }
@@ -618,9 +618,9 @@ private struct ProxyLineChart: View {
     }
 
     private var legend: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             ForEach(series) { item in
-                HStack(spacing: 5) {
+                HStack(spacing: WgSpace.xs) {
                     Circle().fill(item.color).frame(width: 8, height: 8)
                     Text(item.name).font(.caption2)
                 }
@@ -821,7 +821,7 @@ private struct ProxyInfoBox: View {
     let lines: [(String, String)]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             ForEach(lines, id: \.0) { key, value in
                 HStack(alignment: .firstTextBaseline) {
                     Text(key)
@@ -835,9 +835,9 @@ private struct ProxyInfoBox: View {
             }
         }
         .font(.system(.callout, design: .monospaced))
-        .padding(14)
+        .wgPadding(WgSpace.l)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3))
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s))
     }
 }
 
@@ -1014,7 +1014,7 @@ private struct ProxyNetworkInformationView: View {
     @State private var isRefreshing = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: WgSpace.xxl) {
             identityColumn
                 .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
 
@@ -1023,7 +1023,7 @@ private struct ProxyNetworkInformationView: View {
             latencyColumn
                 .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
         }
-        .padding(.vertical, 4)
+        .wgPadding(.vertical, WgSpace.xs)
         .task {
             await refresh()
             while !Task.isCancelled {
@@ -1035,14 +1035,14 @@ private struct ProxyNetworkInformationView: View {
 
     private var identityColumn: some View {
         ZStack(alignment: .bottomTrailing) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
                 if identities.isEmpty {
                     ProgressView("正在检测公网出口")
                         .controlSize(.small)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(identities) { identity in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: WgSpace.s) {
                             Text(identity.source)
                                 .frame(width: 70, alignment: .leading)
                             Text(":").foregroundStyle(.secondary)
@@ -1058,9 +1058,9 @@ private struct ProxyNetworkInformationView: View {
                 }
             }
             .font(.system(.callout, design: .rounded))
-            .padding(.trailing, 82)
+            .wgPadding(.trailing, 82)
 
-            HStack(spacing: 8) {
+            HStack(spacing: WgSpace.s) {
                 Button {
                     withAnimation(.smooth(duration: 0.2)) {
                         revealsIPAddress.toggle()
@@ -1070,7 +1070,7 @@ private struct ProxyNetworkInformationView: View {
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
-                .wgGlassSurface(cornerRadius: 3, interactive: true)
+                .wgGlassSurface(cornerRadius: WgRadius.s, interactive: true)
                 .help(revealsIPAddress ? "隐藏 IP 地址" : "显示 IP 地址")
 
                 Button {
@@ -1086,7 +1086,7 @@ private struct ProxyNetworkInformationView: View {
                     .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
-                .wgGlassSurface(cornerRadius: 3, interactive: true)
+                .wgGlassSurface(cornerRadius: WgRadius.s, interactive: true)
                 .disabled(isRefreshing)
                 .help("立即重新检测")
             }
@@ -1094,9 +1094,9 @@ private struct ProxyNetworkInformationView: View {
     }
 
     private var latencyColumn: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             ForEach(latencies.isEmpty ? placeholderLatencies : latencies) { latency in
-                HStack(spacing: 8) {
+                HStack(spacing: WgSpace.s) {
                     Text(latency.name)
                         .frame(width: 104, alignment: .leading)
                     Text(":").foregroundStyle(.secondary)
@@ -1178,7 +1178,7 @@ private struct ProxyTopologyView: View {
     private var canvasMinWidth: CGFloat { graph.recommendedWidth }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
             ScrollView(.horizontal, showsIndicators: canvasMinWidth > 900) {
                 topologyCanvas
                     .frame(minWidth: canvasMinWidth, maxWidth: .infinity, minHeight: canvasHeight)
@@ -1204,7 +1204,7 @@ private struct ProxyTopologyView: View {
             let activeNodeIDs = activeNodeID.map { graph.connectedNodeIDs(to: $0) } ?? Set(graph.nodes.map(\.id))
             let activeLinkIDs = activeNodeID.map { graph.connectedLinkIDs(to: $0) } ?? Set(graph.links.map(\.id))
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous)
                     .fill(Color.black.opacity(0.10))
                 Canvas(opaque: false, colorMode: .linear, rendersAsynchronously: true) { context, size in
                     for link in graph.links {
@@ -1599,12 +1599,12 @@ private struct ProxyTopologyNodeButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .center, spacing: 3) {
+            VStack(alignment: .center, spacing: WgSpace.xs) {
                     Text(shortLabel(node.label, maxLength: 24))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(isSelected || isHovered ? node.color : (isDimmed ? Color.secondary : Color.primary))
                         .lineLimit(1)
-                    HStack(spacing: 5) {
+                    HStack(spacing: WgSpace.xs) {
                         Text("\(node.count)")
                         Text(proxyFormatBytes(node.bytes))
                     }
@@ -1612,8 +1612,8 @@ private struct ProxyTopologyNodeButton: View {
                     .foregroundStyle(isSelected || isHovered ? node.color.opacity(0.72) : Color.secondary.opacity(0.55))
             }
             .multilineTextAlignment(.center)
-            .padding(.vertical, 2)
-            .padding(.horizontal, 6)
+            .wgPadding(.vertical, WgSpace.hair)
+            .wgPadding(.horizontal, WgSpace.s)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }
@@ -1627,7 +1627,7 @@ private struct ProxyTopologyTooltip: View {
     let node: ProxyTopologyNode
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: WgSpace.xs) {
             Text(node.label)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -1635,12 +1635,12 @@ private struct ProxyTopologyTooltip: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .wgPadding(.horizontal, WgSpace.m)
+        .wgPadding(.vertical, WgSpace.s)
         .frame(maxWidth: 260, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
+            RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous)
                 .stroke(node.color.opacity(0.32), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 8)
@@ -1654,7 +1654,7 @@ private struct ProxyTopologySelectionBar: View {
     let clearSelection: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             if let selected {
                 Circle().fill(selected.color).frame(width: 8, height: 8)
                 Text(selected.label)
@@ -1669,7 +1669,7 @@ private struct ProxyTopologySelectionBar: View {
                 Spacer()
                 Button(action: clearSelection) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: WgType.sub, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1687,9 +1687,9 @@ private struct ProxyTopologySelectionBar: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 12)
+        .wgPadding(.horizontal, WgSpace.m)
         .frame(height: 34)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
     }
 }
 
@@ -1715,7 +1715,7 @@ private struct ProxySourceStatsTable: View {
                     .frame(maxWidth: .infinity, minHeight: 80)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: WgRadius.s))
     }
 
     private func row(_ values: [String], header: Bool = false) -> some View {
@@ -1728,7 +1728,7 @@ private struct ProxySourceStatsTable: View {
                     .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
             }
         }
-        .padding(.horizontal, 12)
+        .wgPadding(.horizontal, WgSpace.m)
         .frame(height: header ? 36 : 42)
         .background(header ? Color.black.opacity(0.14) : Color.white.opacity(0.025))
     }
@@ -1740,7 +1740,7 @@ private struct ProxyBarChart: View {
     let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             Text(title).font(.subheadline.weight(.semibold))
             GeometryReader { geometry in
                 Canvas { context, size in
@@ -1752,7 +1752,7 @@ private struct ProxyBarChart: View {
                         let x = rect.minX + rect.width * (CGFloat(index) + 0.5) / CGFloat(max(data.count, 1))
                         let h = rect.height * CGFloat(item.value / maxValue)
                         let bar = CGRect(x: x - barWidth / 2, y: rect.maxY - h, width: barWidth, height: h)
-                        context.fill(Path(roundedRect: bar, cornerRadius: 4), with: .color(color.opacity(0.82)))
+                        context.fill(Path(roundedRect: bar, cornerRadius: WgRadius.m), with: .color(color.opacity(0.82)))
                         context.draw(Text("\(Int(item.value))").font(.caption2).foregroundStyle(.primary), at: CGPoint(x: x, y: max(rect.minY, bar.minY - 9)), anchor: .center)
                     }
                 }
@@ -1766,7 +1766,7 @@ private struct ProxyBarChart: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    .padding(.leading, 34)
+                    .wgPadding(.leading, WgSpace.xxxl)
                 }
             }
         }
@@ -1790,18 +1790,18 @@ private struct ProxyMetric: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: WgType.title, weight: .medium))
                 .foregroundStyle(color)
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
                 Text(value).font(.title3.weight(.semibold)).monospacedDigit()
                 Text(title).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(12)
+        .wgPadding(WgSpace.m)
         .frame(minHeight: 64)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius, tint: color)
     }
@@ -1812,15 +1812,15 @@ private struct ProviderUsageRow: View {
 	let emojiEnabled: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: WgSpace.m) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(proxyDisplayName(provider.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.medium))
                 Text("\(provider.proxyCount) 个节点")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             Spacer()
             if let info = provider.subscriptionInfo, let total = info.total, total > 0 {
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: WgSpace.xs) {
                     Text("\(proxyFormatBytes((info.download ?? 0) + (info.upload ?? 0))) / \(proxyFormatBytes(total))")
                         .font(.caption.monospacedDigit())
                     ProgressView(value: min(Double((info.download ?? 0) + (info.upload ?? 0)) / Double(total), 1))
@@ -1831,7 +1831,7 @@ private struct ProviderUsageRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 10)
+        .wgPadding(.vertical, WgSpace.m)
     }
 }
 
@@ -1876,7 +1876,7 @@ private struct ProxyBrowserPage: View {
             ProxyUnavailableView()
         } else {
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: WgSpace.m) {
                     Picker("视图", selection: $mode) {
                         ForEach(ProxyBrowserMode.allCases) { item in
                             Text(item.title).tag(item)
@@ -1886,13 +1886,13 @@ private struct ProxyBrowserPage: View {
                     .frame(width: 280)
 
                     Spacer()
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("搜索", text: $search).textFieldStyle(.plain)
                     }
-                    .padding(.horizontal, 9)
+                    .wgPadding(.horizontal, WgSpace.s)
                     .frame(width: 230, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 3)
+                    .wgFloatingControlSurface(cornerRadius: WgRadius.s)
 
                     if mode == .groups {
                         Button {
@@ -1914,7 +1914,7 @@ private struct ProxyBrowserPage: View {
                     .buttonStyle(.plain)
                     .help("刷新")
                 }
-                .padding(.horizontal, 20)
+                .wgPadding(.horizontal, WgSpace.xl)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -1929,7 +1929,7 @@ private struct ProxyBrowserPage: View {
 
     private var groupsContent: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
+            LazyVStack(spacing: WgSpace.m) {
                 ForEach(groups, id: \.0) { name, info in
                     ProxyGroupRow(
                         name: name,
@@ -1957,7 +1957,7 @@ private struct ProxyBrowserPage: View {
                     )
                 }
             }
-            .padding(20)
+            .wgPadding(WgSpace.xl)
         }
         .wgTimelineScroller()
         .overlay {
@@ -1969,12 +1969,12 @@ private struct ProxyBrowserPage: View {
 
     private var providersContent: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
+            LazyVStack(spacing: WgSpace.m) {
                 ForEach(client.proxyProviders.values.sorted(by: { $0.name < $1.name })) { provider in
                     ProxyProviderRow(provider: provider, emojiEnabled: emojiEnabled)
                 }
             }
-            .padding(20)
+            .wgPadding(WgSpace.xl)
         }
         .wgTimelineScroller()
         .overlay {
@@ -1986,7 +1986,7 @@ private struct ProxyBrowserPage: View {
 
     private var nodesContent: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: WgSpace.m)], spacing: WgSpace.m) {
                 ForEach(nodes) { node in
                     ProxyNodeCell(node: node, delay: delays[node.name] ?? node.history?.last?.delay, emojiEnabled: emojiEnabled) {
                         Task {
@@ -1997,7 +1997,7 @@ private struct ProxyBrowserPage: View {
                     }
                 }
             }
-            .padding(20)
+            .wgPadding(WgSpace.xl)
         }
         .wgTimelineScroller()
         .overlay {
@@ -2039,10 +2039,10 @@ private struct ProxyGroupRow: View {
     private var visibleOptions: [String] { expanded ? options : Array(options.prefix(8)) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
+            HStack(spacing: WgSpace.m) {
+                VStack(alignment: .leading, spacing: WgSpace.xs) {
+                    HStack(spacing: WgSpace.s) {
                         Text(proxyDisplayName(name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.semibold)).lineLimit(1)
                         Text(info.type)
                             .font(.caption2)
@@ -2061,7 +2061,7 @@ private struct ProxyGroupRow: View {
                 .help("测试策略组")
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 7)], spacing: 7) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: WgSpace.s)], spacing: WgSpace.s) {
                 ForEach(visibleOptions, id: \.self) { node in
                     ProxyChoiceButton(
                         name: node,
@@ -2086,7 +2086,7 @@ private struct ProxyGroupRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(13)
+        .wgPadding(WgSpace.m)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
 }
@@ -2101,9 +2101,9 @@ private struct ProxyChoiceButton: View {
     let test: () -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: WgSpace.s) {
             Button(action: select) {
-                HStack(spacing: 7) {
+                HStack(spacing: WgSpace.s) {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selected ? WgTheme.accent : Color.secondary.opacity(0.45))
                     VStack(alignment: .leading, spacing: 1) {
@@ -2126,12 +2126,12 @@ private struct ProxyChoiceButton: View {
             .buttonStyle(.plain)
             .help("测试延迟")
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 5)
+        .wgPadding(.leading, WgSpace.s)
+        .wgPadding(.trailing, WgSpace.xs)
         .frame(height: nestedSelection == nil ? 34 : 42)
         .background(selected ? WgTheme.accent.opacity(0.12) : Color.white.opacity(0.025))
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(selected ? WgTheme.accent.opacity(0.35) : WgTheme.cardBorder))
+        .clipShape(RoundedRectangle(cornerRadius: WgRadius.s))
+        .overlay(RoundedRectangle(cornerRadius: WgRadius.s).stroke(selected ? WgTheme.accent.opacity(0.35) : WgTheme.cardBorder))
     }
 }
 
@@ -2142,11 +2142,11 @@ private struct ProxyNodeCell: View {
     let test: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: WgSpace.m) {
             Circle()
                 .fill(node.alive == false ? Color.red : Color.green)
                 .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
                 Text(proxyDisplayName(node.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.medium)).lineLimit(1)
                 Text(node.type + (node.sourceProvider.map { " · \($0)" } ?? ""))
                     .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -2161,7 +2161,7 @@ private struct ProxyNodeCell: View {
             .buttonStyle(.plain)
             .help("测试延迟")
         }
-        .padding(11)
+        .wgPadding(WgSpace.m)
         .frame(height: 58)
         .wgGlassSurface()
     }
@@ -2174,18 +2174,18 @@ private struct ProxyProviderRow: View {
     @State private var busyAction: String?
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: WgSpace.l) {
             Image(systemName: "shippingbox")
-                .font(.system(size: 18))
+                .font(.system(size: WgType.title))
                 .foregroundStyle(.blue)
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
+                HStack(spacing: WgSpace.s) {
                     Text(proxyDisplayName(provider.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.semibold))
                     Text(provider.vehicleType ?? provider.type ?? "Provider")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
-                HStack(spacing: 10) {
+                HStack(spacing: WgSpace.m) {
                     Text("\(provider.proxyCount) 个节点").font(.caption).foregroundStyle(.secondary)
                     Text(proxyFormatDate(provider.updatedAt)).font(.caption).foregroundStyle(.tertiary)
                     if let info = provider.subscriptionInfo, let total = info.total, total > 0 {
@@ -2214,7 +2214,7 @@ private struct ProxyProviderRow: View {
             .disabled(busyAction != nil)
             .help("更新订阅")
         }
-        .padding(13)
+        .wgPadding(WgSpace.m)
         .wgGlassSurface()
     }
 
@@ -2250,7 +2250,7 @@ private struct ProxyConnectionsPage: View {
             ProxyUnavailableView()
         } else {
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: WgSpace.m) {
                     Text("\(filtered.count) 个连接")
                         .font(.subheadline.weight(.semibold))
                     Text("↓ \(proxyFormatBytes(client.connections?.downloadTotal))")
@@ -2258,13 +2258,13 @@ private struct ProxyConnectionsPage: View {
                     Text("↑ \(proxyFormatBytes(client.connections?.uploadTotal))")
                         .font(.caption.monospacedDigit()).foregroundStyle(.blue)
                     Spacer()
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("域名、IP、进程或规则", text: $search).textFieldStyle(.plain)
                     }
-                    .padding(.horizontal, 9)
+                    .wgPadding(.horizontal, WgSpace.s)
                     .frame(width: 260, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 3)
+                    .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Button {
                         confirmCloseAll = true
                     } label: {
@@ -2274,7 +2274,7 @@ private struct ProxyConnectionsPage: View {
                     .disabled(filtered.isEmpty)
                     .help("关闭全部连接")
                 }
-                .padding(.horizontal, 20)
+                .wgPadding(.horizontal, WgSpace.xl)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -2285,7 +2285,7 @@ private struct ProxyConnectionsPage: View {
                             Divider().opacity(0.1)
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .wgPadding(.horizontal, WgSpace.xl)
                 }
                 .wgTimelineScroller()
                 .overlay {
@@ -2315,13 +2315,13 @@ private struct ProxyConnectionRow: View {
     @State private var closing = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             Image(systemName: connection.metadata.netWork?.lowercased() == "udp" ? "wave.3.right" : "arrow.left.arrow.right")
                 .foregroundStyle(connection.metadata.netWork?.lowercased() == "udp" ? Color.orange : Color.blue)
                 .frame(width: 24)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(primaryDestination).font(.subheadline.weight(.medium)).lineLimit(1)
-                HStack(spacing: 7) {
+                HStack(spacing: WgSpace.s) {
                     Text(connection.metadata.process ?? "未知进程")
                     Text(connection.metadata.netWork?.uppercased() ?? "")
                     if let rule = connection.rule { Text(rule) }
@@ -2331,7 +2331,7 @@ private struct ProxyConnectionRow: View {
                 .lineLimit(1)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: WgSpace.hair) {
                 Text("↓ \(proxyFormatBytes(connection.download))  ↑ \(proxyFormatBytes(connection.upload))")
                     .font(.caption.monospacedDigit())
                 Text((connection.chains ?? []).joined(separator: " › "))
@@ -2394,20 +2394,20 @@ private struct ProxyRulesPage: View {
             ProxyUnavailableView()
         } else {
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: WgSpace.m) {
                     Picker("规则视图", selection: $mode) {
                         ForEach(ProxyRulesMode.allCases) { item in Text(item.title).tag(item) }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 220)
                     Spacer()
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("搜索规则", text: $search).textFieldStyle(.plain)
                     }
-                    .padding(.horizontal, 9)
+                    .wgPadding(.horizontal, WgSpace.s)
                     .frame(width: 240, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 3)
+                    .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Button {
                         Task { await refresh() }
                     } label: {
@@ -2416,7 +2416,7 @@ private struct ProxyRulesPage: View {
                     .buttonStyle(.plain)
                     .help("刷新规则")
                 }
-                .padding(.horizontal, 20)
+                .wgPadding(.horizontal, WgSpace.xl)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -2428,17 +2428,17 @@ private struct ProxyRulesPage: View {
                                 Divider().opacity(0.1)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .wgPadding(.horizontal, WgSpace.xl)
                     }
                     .wgTimelineScroller()
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: WgSpace.m) {
                             ForEach(filteredProviders) { provider in
                                 ProxyRuleProviderRow(provider: provider)
                             }
                         }
-                        .padding(20)
+                        .wgPadding(WgSpace.xl)
                     }
                     .wgTimelineScroller()
                 }
@@ -2456,7 +2456,7 @@ private struct ProxyRuleRow: View {
     let rule: DaemonClient.RuleInfo
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             Text(rule.type)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(proxyRuleColor(rule.type))
@@ -2485,12 +2485,12 @@ private struct ProxyRuleProviderRow: View {
     @State private var updating = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.orange)
                 .frame(width: 26)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
+                HStack(spacing: WgSpace.s) {
                     Text(provider.name).font(.subheadline.weight(.semibold))
                     Text(provider.behavior ?? "rule-set").font(.caption2).foregroundStyle(.tertiary)
                 }
@@ -2512,7 +2512,7 @@ private struct ProxyRuleProviderRow: View {
             .disabled(updating)
             .help("更新规则集")
         }
-        .padding(13)
+        .wgPadding(WgSpace.m)
         .wgGlassSurface()
     }
 }
@@ -2548,20 +2548,20 @@ private struct ProxyLogsPage: View {
             ProxyUnavailableView()
         } else {
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: WgSpace.m) {
                     Picker("级别", selection: $filter) {
                         ForEach(ProxyLogFilter.allCases) { item in Text(item.title).tag(item) }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 360)
                     Spacer()
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("筛选日志", text: $search).textFieldStyle(.plain)
                     }
-                    .padding(.horizontal, 9)
+                    .wgPadding(.horizontal, WgSpace.s)
                     .frame(width: 220, height: 30)
-                    .wgFloatingControlSurface(cornerRadius: 3)
+                    .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Toggle("自动刷新", isOn: $autoRefresh)
                         .toggleStyle(.switch)
                         .controlSize(.small)
@@ -2573,14 +2573,14 @@ private struct ProxyLogsPage: View {
                     .buttonStyle(.plain)
                     .help("清空本地日志视图")
                 }
-                .padding(.horizontal, 20)
+                .wgPadding(.horizontal, WgSpace.xl)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filtered) { entry in
-                            HStack(alignment: .top, spacing: 10) {
+                            HStack(alignment: .top, spacing: WgSpace.m) {
                                 Text(proxyLogTime(entry.time))
                                     .font(.caption2.monospacedDigit())
                                     .foregroundStyle(.tertiary)
@@ -2594,11 +2594,11 @@ private struct ProxyLogsPage: View {
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .padding(.vertical, 6)
+                            .wgPadding(.vertical, WgSpace.s)
                             Divider().opacity(0.07)
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .wgPadding(.horizontal, WgSpace.xl)
                 }
                 .wgTimelineScroller()
                 .overlay {
@@ -2625,14 +2625,14 @@ private struct ProxySettingsPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: WgSpace.xxxl) {
 				ProxyAppearanceSettings()
                 ProxyControllerSettingsEditor()
                 ProxyRuntimeSettingsEditor()
                 ProxyMaintenanceSettings()
                 ProxyDNSQuerySettings()
             }
-            .padding(WgTheme.pagePadding)
+            .wgPadding(WgTheme.pagePadding)
             .frame(maxWidth: 920, alignment: .leading)
         }
         .wgTimelineScroller()
@@ -2678,14 +2678,14 @@ private struct ProxyControllerSettingsEditor: View {
 
     var body: some View {
         ProxySectionBlock(title: "控制器", icon: "network") {
-            VStack(spacing: 12) {
+            VStack(spacing: WgSpace.m) {
                 controllerStatusRow
                 ProxySettingRow(label: "地址") {
                     TextField("http://127.0.0.1:9090", text: $address)
                         .textFieldStyle(.roundedBorder)
                 }
                 ProxySettingRow(label: "密钥") {
-                    HStack(spacing: 8) {
+                    HStack(spacing: WgSpace.s) {
                         SecureField(client.proxySettings?.secretSet == true ? "已保存，留空保持不变" : "可选", text: $secret)
                             .textFieldStyle(.roundedBorder)
                         if client.proxySettings?.secretSet == true {
@@ -2713,7 +2713,7 @@ private struct ProxyControllerSettingsEditor: View {
                     }
                 }
                 ProxySettingRow(label: "延迟阈值") {
-                    HStack(spacing: 8) {
+                    HStack(spacing: WgSpace.s) {
                         TextField("200", value: $low, format: .number)
                             .textFieldStyle(.roundedBorder).frame(width: 90)
                         Text("/ ").foregroundStyle(.tertiary)
@@ -2750,11 +2750,11 @@ private struct ProxyControllerSettingsEditor: View {
     }
 
     private var controllerStatusRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: WgSpace.m) {
             Image(systemName: client.proxyServiceRunning ? (client.proxyRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill") : "powerplug")
                 .foregroundStyle(client.proxyServiceRunning ? (client.proxyRunning ? .green : .orange) : .orange)
                 .frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: WgSpace.hair) {
                 Text(client.proxyServiceRunning ? (client.proxyRunning ? "控制器已连接" : "后台服务已启动，控制器未连接") : "后台服务未启动")
                     .font(.callout.weight(.medium))
                 Text(client.proxyServiceRunning ? "地址或密钥错误时会连接失败。" : "点击启动后台服务，系统会要求管理员授权。不会自动连接 VPN。")
@@ -2783,8 +2783,8 @@ private struct ProxyControllerSettingsEditor: View {
                 .buttonStyle(.bordered)
             }
         }
-        .padding(12)
-        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .wgPadding(WgSpace.m)
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
     }
 
     private var saveDisabledReason: String? {
@@ -2854,7 +2854,7 @@ private struct ProxyRuntimeSettingsEditor: View {
     var body: some View {
         ProxySectionBlock(title: "运行配置", icon: "slider.horizontal.3") {
             if let config = client.mihomoConfig {
-                VStack(spacing: 12) {
+                VStack(spacing: WgSpace.m) {
                     ProxySettingRow(label: "模式") {
                         Picker("模式", selection: $mode) {
                             ForEach(availableModes(config), id: \.self) { value in
@@ -2873,7 +2873,7 @@ private struct ProxyRuntimeSettingsEditor: View {
                         .frame(width: 180)
                     }
                     ProxySettingRow(label: "网络") {
-                        HStack(spacing: 22) {
+                        HStack(spacing: WgSpace.xxl) {
                             Toggle("TUN", isOn: $tun)
                             Toggle("允许局域网", isOn: $allowLAN)
                             Toggle("IPv6", isOn: $ipv6)
@@ -2886,7 +2886,7 @@ private struct ProxyRuntimeSettingsEditor: View {
                         TextField("*", text: $bindAddress).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
                     }
                     ProxySettingRow(label: "端口") {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: WgSpace.s)], spacing: WgSpace.s) {
                             ProxyPortField(label: "HTTP", value: $port)
                             ProxyPortField(label: "SOCKS", value: $socksPort)
                             ProxyPortField(label: "Mixed", value: $mixedPort)
@@ -2978,7 +2978,7 @@ private struct ProxyMaintenanceSettings: View {
 
     var body: some View {
         ProxySectionBlock(title: "维护", icon: "wrench.and.screwdriver") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 9)], spacing: 9) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: WgSpace.s)], spacing: WgSpace.s) {
                 ProxyActionButton(title: "清除 DNS 缓存", icon: "network.badge.shield.half.filled", busy: busyAction == "flush-dns") {
                     run("flush-dns", success: "DNS 缓存已清除")
                 }
@@ -3023,16 +3023,16 @@ private struct ProxyActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: WgSpace.s) {
                 Image(systemName: busy ? "hourglass" : icon)
                     .foregroundStyle(roleColor)
                     .frame(width: 20)
                 Text(title).font(.subheadline)
                 Spacer()
             }
-            .padding(.horizontal, 11)
+            .wgPadding(.horizontal, WgSpace.m)
             .frame(height: 38)
-            .wgGlassSurface(cornerRadius: 3, tint: roleColor.opacity(0.8), interactive: true)
+            .wgGlassSurface(cornerRadius: WgRadius.s, tint: roleColor.opacity(0.8), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -3046,8 +3046,8 @@ private struct ProxyDNSQuerySettings: View {
 
     var body: some View {
         ProxySectionBlock(title: "DNS 查询", icon: "magnifyingglass") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
+                HStack(spacing: WgSpace.s) {
                     TextField("example.com", text: $name)
                         .textFieldStyle(.roundedBorder)
                     Picker("类型", selection: $type) {
@@ -3099,8 +3099,8 @@ private struct ProxySectionBlock<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
+            HStack(spacing: WgSpace.s) {
                 Image(systemName: icon).foregroundStyle(WgTheme.accent).frame(width: 20)
                 Text(title).font(.headline)
             }
@@ -3121,7 +3121,7 @@ private struct ProxySettingRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: WgSpace.l) {
             Text(label)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -3138,7 +3138,7 @@ private struct ProxyPortField: View {
     @Binding var value: Int
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: WgSpace.s) {
             Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
             TextField("0", value: $value, format: .number)
                 .textFieldStyle(.roundedBorder)

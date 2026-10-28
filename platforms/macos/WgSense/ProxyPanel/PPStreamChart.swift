@@ -144,7 +144,7 @@ struct PPStreamChart: View {
         let samples = buffer.samples
         let now = frozenAt ?? Date().timeIntervalSince1970
         if frozenAt == nil, let latest = samples.last?.time { camera.record(focusScale(samples, now: now), now: latest) }
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: WgSpace.s) {
             header(values: samples.last?.values ?? [])
             GeometryReader { geo in
                 let plot = CGRect(x: Self.gutter, y: 4, width: max(1, geo.size.width - Self.gutter - 2),
@@ -212,23 +212,23 @@ struct PPStreamChart: View {
     // MARK: 标题行：图例 + 当前读数
 
     private func header(values: [Double]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
+        HStack(alignment: .firstTextBaseline, spacing: WgSpace.l) {
             WgTagBox(code: code, title: title)
             ForEach(Array(series.enumerated()), id: \.offset) { index, s in
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: WgSpace.xs) {
                     Path { p in p.move(to: CGPoint(x: 0, y: 1)); p.addLine(to: CGPoint(x: 12, y: 1)) }
                         .stroke(s.color, style: StrokeStyle(lineWidth: 1.5, dash: s.dashed ? [3, 2] : []))
                         .frame(width: 12, height: 2)
                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] + 3 }
                     if series.count > 1 {
-                        Text(s.name).font(.system(size: 11)).foregroundStyle(WgInk.ink3)
+                        Text(s.name).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
                     }
                     WgReadout(text: values[safe: index].map(format) ?? "—", size: WgInk.sizeSubsection, weight: .regular)
                 }
             }
             Spacer()
             Button { togglePause() } label: {
-                Image(systemName: paused ? "play.fill" : "pause.fill").font(.system(size: 8.5, weight: .bold))
+                Image(systemName: paused ? "play.fill" : "pause.fill").font(.system(size: WgType.micro, weight: .bold))
             }
             .buttonStyle(WgToolbarIconButtonStyle(isActive: paused))
             .help(paused ? "继续" : "暂停")
@@ -253,22 +253,22 @@ struct PPStreamChart: View {
                 Circle().fill(series[i].color).frame(width: 6, height: 6)
                     .position(x: hx, y: plot.maxY - CGFloat(min(1, max(0, scale.unit(v)))) * plot.height)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(verbatim: Date(timeIntervalSince1970: t).formatted(date: .omitted, time: .standard))
                     .font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3)
                 ForEach(values, id: \.0) { i, v in
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Rectangle().fill(series[i].color).frame(width: 8, height: 2)
-                        Text(series[i].name).font(.system(size: 10.5)).foregroundStyle(WgInk.ink2)
+                        Text(series[i].name).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink2)
                         Spacer(minLength: 8)
                         Text(verbatim: format(v)).font(WgInk.figure(10.5))
                     }
                 }
             }
-            .padding(.horizontal, 9).padding(.vertical, 7)
+            .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, WgSpace.s)
             .frame(width: 168)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).strokeBorder(WgInk.rule))
             .offset(x: hx + 176 > plot.maxX ? hx - 176 : hx + 8, y: plot.minY + 2)
         }
         .allowsHitTesting(false)
@@ -632,7 +632,7 @@ final class TapeView: NSView {
         markers.addSublayer(tri)
         let text = CATextLayer()
         text.string = "PEAK " + input.format(peak.value)
-        text.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .medium)
+        text.font = NSFont.monospacedSystemFont(ofSize: WgType.micro, weight: .medium)
         text.fontSize = 9
         text.foregroundColor = resolved(NSColor.labelColor, alpha: 0.7)
         text.contentsScale = scale

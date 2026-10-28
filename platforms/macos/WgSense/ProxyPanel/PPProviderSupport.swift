@@ -13,13 +13,13 @@ struct PPProviderSectionsView: View {
 
     var body: some View {
         let now = store.proxyMap[group]?.now
-        VStack(alignment: .leading, spacing: previewOnly ? 8 : 14) {
+        VStack(alignment: .leading, spacing: previewOnly ? WgSpace.s : WgSpace.l) {
             ForEach(store.providerSections(of: names)) { section in
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: WgSpace.s) {
                     if !section.title.isEmpty {
-                        HStack(spacing: 6) {
+                        HStack(spacing: WgSpace.s) {
                             Text(verbatim: section.title)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: WgType.caption, weight: .semibold))
                                 .foregroundStyle(.secondary)
                             Spacer()
                             if !previewOnly {
@@ -55,7 +55,7 @@ struct PPCategoryTestButton: View {
             if store.isTesting("nodes:\(keyName)") {
                 ProgressView().controlSize(.mini)
             } else {
-                Image(systemName: "bolt.fill").font(.system(size: 10))
+                Image(systemName: "bolt.fill").font(.system(size: WgType.caption))
             }
         }
         .buttonStyle(WgToolbarIconButtonStyle())
@@ -72,10 +72,10 @@ struct PPCategoryControls: View {
     var body: some View {
         let enabled = store.categoryEnabledMap[provider] == true
         let active = store.categoryActive(provider: provider)
-        HStack(spacing: 6) {
+        HStack(spacing: WgSpace.s) {
             TextField("通配符", text: $draft)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
+                .font(.system(size: WgType.caption))
                 .frame(width: 90)
                 .onSubmit { commit() }
                 .help("输入通配符，节点会依据通配符前面的字符来分类。")
@@ -84,7 +84,7 @@ struct PPCategoryControls: View {
                 store.categoryEnabledMap[provider] = !enabled
             }
             .buttonStyle(WgPillButtonStyle())
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: WgType.caption, weight: .medium))
             if active {
                 let names = store.providers.first { $0.name == provider }?.proxies.map(\.name) ?? []
                 let keys = store.categoryGroups(provider: provider, proxies: names).map { "\(provider)::\($0.name)" }
@@ -120,11 +120,11 @@ struct PPCategorySections: View {
             ForEach(Array(store.categoryGroups(provider: provider, proxies: names).enumerated()), id: \.element.id) { index, category in
                 let key = "\(provider)::\(category.name)"
                 let collapsed = store.categoryCollapseMap[key] == true
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: WgSpace.s) {
                     if index > 0 { Divider() }
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 11))
+                            .font(.system(size: WgType.caption))
                             .foregroundStyle(.tertiary)
                             .frame(width: 22, height: 22)
                             .contentShape(Rectangle())
@@ -134,15 +134,15 @@ struct PPCategorySections: View {
                             }
                             .help("拖拽排序")
                         Text(verbatim: category.name)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: WgType.footnote, weight: .semibold))
                         Text(verbatim: "(\(category.available)/\(category.total))")
-                            .font(.system(size: 11))
+                            .font(.system(size: WgType.caption))
                             .foregroundStyle(.secondary)
                         Spacer()
                         PPCategoryTestButton(scope: provider, nodes: category.proxies,
                                              displayName: "\(provider) / \(category.name)", keyName: key)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: WgType.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(collapsed ? -90 : 0))
                     }
@@ -154,7 +154,7 @@ struct PPCategorySections: View {
                         PPNodeGrid(group: provider, names: category.proxies)
                     }
                 }
-                .padding(.vertical, 6)
+                .wgPadding(.vertical, WgSpace.s)
                 .onDrop(of: [.text], delegate: CategoryDropDelegate(target: category.name, provider: provider,
                                                                     dragging: $dragging, store: store))
             }

@@ -306,7 +306,7 @@ final class MenuBarShieldView: NSImageView {
 
 @MainActor
 final class MenuBarNetworkSpeedView: NSView {
-    private let font = NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .medium)
+    private let font = NSFont.monospacedDigitSystemFont(ofSize: WgType.micro, weight: .medium)
     private let horizontalPadding: CGFloat = 4
     private let rowCenterOffset: CGFloat = 4.5
     private var upload: String?
@@ -349,7 +349,7 @@ final class MenuBarNetworkSpeedView: NSView {
 
 @MainActor
 final class MenuBarTimeView: NSView {
-    private let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+    private let font = NSFont.monospacedDigitSystemFont(ofSize: WgType.footnote, weight: .regular)
     private let horizontalPadding: CGFloat = 4
     private var text = ""
 
@@ -473,7 +473,7 @@ final class MenuBarDateBadgeView: NSView {
 
 @MainActor
 private final class CenteredDateNumberView: NSView {
-    private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+    private let font = NSFont.monospacedDigitSystemFont(ofSize: WgType.caption, weight: .semibold)
     private var text = ""
     private var color = NSColor.labelColor
 

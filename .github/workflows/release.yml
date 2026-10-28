@@ -49,6 +49,9 @@ jobs:
           python3 tests/docs/check-readme.py
           python3 docs/images/check-media.py --static
 
+      - name: Verify spacing, type and radius tokens
+        run: python3 tests/tokens/tokens.py platforms/macos/WgSense --check
+
       - name: Verify native light and dark brand artwork
         run: zsh tests/branding/check-appearance.sh platforms/macos/build/Build/Products/Release/WgSense.app "${{ runner.temp }}/wgsense-brand-checks"
 

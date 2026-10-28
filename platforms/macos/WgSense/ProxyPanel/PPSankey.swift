@@ -207,7 +207,7 @@ struct PPSankeyView: View, Equatable {
     }
 
     static func textWidth(_ text: String) -> CGFloat {
-        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width
+        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: WgType.caption)]).width
     }
 
     private func truncate(_ name: String, limit: Int) -> String {
@@ -246,10 +246,10 @@ struct PPSankeyView: View, Equatable {
             .overlay(alignment: .topLeading) {
                 if let tip, let hover {
                     Text(verbatim: tip)
-                        .font(.system(size: 11, weight: .medium))
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(WgInk.rule))
+                        .font(.system(size: WgType.caption, weight: .medium))
+                        .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, WgSpace.xs)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).strokeBorder(WgInk.rule))
                         .offset(x: min(hover.x + 12, geo.size.width - 260), y: max(0, hover.y - 38))
                         .allowsHitTesting(false)
                 }
@@ -351,7 +351,7 @@ struct PPSankeyView: View, Equatable {
                              at: CGPoint(x: cx - 10, y: rect.midY), anchor: .trailing)
             case 3:
                 // 出口：细框标签块；被追踪时为白色弱玻璃。
-                let resolved = context.resolve(Text(verbatim: name).font(.system(size: 11.5, weight: hot ? .bold : .medium))
+                let resolved = context.resolve(Text(verbatim: name).font(.system(size: WgType.footnote, weight: hot ? .bold : .medium))
                     .foregroundStyle(Color.primary.opacity(active ? 0.95 : 0.3)))
                 let size = resolved.measure(in: CGSize(width: 400, height: 40))
                 let chip = CGRect(x: cx + 10, y: rect.midY - 10, width: size.width + 16, height: 20)

@@ -21,7 +21,7 @@ struct ProfileName: Identifiable {
 
     var body: some View {
         WgPage(title: "配置", subtitle: "WireGuard 隧道配置，当前使用的会标记为「使用中」", word: "PROFILES") {
-            HStack(spacing: 8) {
+            HStack(spacing: WgSpace.s) {
                 Button { showImport = true } label: { Label("导入", systemImage: "square.and.arrow.down") }
                     .buttonStyle(WgPillButtonStyle())
                 Button { showWizard = true } label: { Label("新建", systemImage: "plus") }
@@ -95,19 +95,19 @@ struct ProfileName: Identifiable {
 
     // MARK: - 空状态
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: WgSpace.m) {
             WgSquareBadge(symbol: "doc.badge.plus", tint: .orange, size: 44)
             Text("还没有配置")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: WgType.sub, weight: .semibold))
             Text("导入 .conf 文件，或手动填写一份")
-                .font(.system(size: 12))
+                .font(.system(size: WgType.footnote))
                 .foregroundStyle(.secondary)
             Button { showImport = true } label: { Text("导入配置") }
                 .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
-                .padding(.top, 6)
+                .wgPadding(.top, WgSpace.s)
         }
         .frame(maxWidth: .infinity)
-        .padding(36)
+        .wgPadding(WgSpace.xxxl)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 
@@ -119,11 +119,11 @@ struct ProfileName: Identifiable {
             title: LocalizedStringKey(name),
             subtitle: isActive ? Text("使用中") : nil
         ) {
-            HStack(spacing: 2) {
+            HStack(spacing: WgSpace.hair) {
                 if !isActive {
                     Button("切换") { Task { await client.switchProfile(name) } }
                         .buttonStyle(WgPillButtonStyle())
-                        .padding(.trailing, 6)
+                        .wgPadding(.trailing, WgSpace.s)
                 }
                 Button { editProfile = ProfileName(name: name) } label: { Image(systemName: "pencil") }
                     .buttonStyle(WgToolbarIconButtonStyle())
@@ -157,14 +157,14 @@ struct ImportConfView: View {
     let onComplete: (String, String) -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: WgSpace.xl) {
             Text("导入 WireGuard 配置").font(.title2).fontWeight(.semibold)
 
             // 拖拽区域
-            VStack(spacing: 8) {
+            VStack(spacing: WgSpace.s) {
                 if fileContent.isEmpty {
                     Image(systemName: "doc.text.fill")
-                        .font(.system(size: 36))
+                        .font(.system(size: WgType.page))
                         .foregroundStyle(.tint)
                         .scaleEffect(isDropTargeted ? 1.15 : 1.0)
                         .animation(.spring(response: 0.3), value: isDropTargeted)
@@ -180,7 +180,7 @@ struct ImportConfView: View {
                 } else {
                     // 已加载预览
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 36))
+                        .font(.system(size: WgType.page))
                         .foregroundStyle(.green)
                         .transition(.scale.combined(with: .opacity))
 
@@ -192,7 +192,7 @@ struct ImportConfView: View {
                             .textSelection(.enabled)
                     }
                     .frame(maxHeight: 150)
-                    .padding(8)
+                    .wgPadding(WgSpace.s)
                     .wgSettingsPanelSurface()
 
                     Button("重新选择") {
@@ -203,13 +203,13 @@ struct ImportConfView: View {
                     .buttonStyle(.bordered)
                 }
             }
-            .padding(30)
+            .wgPadding(WgSpace.xxxl)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: WgRadius.s)
                     .fill(isDropTargeted ? WgInk.signal.opacity(0.1) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: WgRadius.s)
                             .strokeBorder(
                                 isDropTargeted ? WgInk.signal : Color.secondary.opacity(0.3),
                                 style: StrokeStyle(lineWidth: 2, dash: [8])
@@ -223,7 +223,7 @@ struct ImportConfView: View {
 
             // Profile 名称
             if !fileContent.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: WgSpace.s) {
                     Text("Profile 名称").font(.caption).foregroundStyle(.secondary)
                     TextField("如：home-vpn", text: $profileName)
                         .textFieldStyle(.roundedBorder)
@@ -248,7 +248,7 @@ struct ImportConfView: View {
                 .disabled(fileContent.isEmpty)
             }
         }
-        .padding(24)
+        .wgPadding(WgSpace.xxl)
         .frame(width: 480, height: 560)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: fileContent.isEmpty)
     }
@@ -301,14 +301,14 @@ struct ExportConfView: View {
     let onComplete: (Bool) -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: WgSpace.xl) {
             Text("导出 \(profileName)").font(.title2).fontWeight(.semibold)
 
             if !loaded {
                 ProgressView("加载配置...")
             } else {
                 Image(systemName: done ? "checkmark.circle.fill" : "doc.text.fill")
-                    .font(.system(size: 36))
+                    .font(.system(size: WgType.page))
                     .foregroundStyle(done ? Color.green : WgInk.signal)
                     .transition(.scale.combined(with: .opacity))
 
@@ -322,7 +322,7 @@ struct ExportConfView: View {
                             .textSelection(.enabled)
                     }
                     .frame(maxHeight: 200)
-                    .padding(8)
+                    .wgPadding(WgSpace.s)
                     .wgSettingsPanelSurface()
 
                     Button("保存到文件") { saveFile() }
@@ -334,7 +334,7 @@ struct ExportConfView: View {
             Button(done ? "完成" : "关闭") { onComplete(done) }
                 .buttonStyle(.bordered)
         }
-        .padding(24)
+        .wgPadding(WgSpace.xxl)
         .frame(width: 440, height: 420)
         .task {
             let result = await client.exportProfile(name: profileName)
@@ -368,9 +368,9 @@ struct ManualWizardView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 顶部进度指示器
-            HStack(spacing: 4) {
+            HStack(spacing: WgSpace.xs) {
                 ForEach(0..<steps.count, id: \.self) { i in
-                    HStack(spacing: 6) {
+                    HStack(spacing: WgSpace.s) {
                         Circle()
                             .fill(i <= step ? WgInk.signal : Color.secondary.opacity(0.3))
                             .frame(width: 22, height: 22)
@@ -398,16 +398,16 @@ struct ManualWizardView: View {
                     }
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
+            .wgPadding(.horizontal, WgSpace.xxxl)
+            .wgPadding(.top, WgSpace.xl)
+            .wgPadding(.bottom, WgSpace.m)
 
             Divider()
 
             // 步骤内容
             ZStack {
                 if step == 0 {
-                    VStack(spacing: 20) {
+                    VStack(spacing: WgSpace.xl) {
                         wizardIcon("person.crop.circle.badge.questionmark")
                         wizardTitle("给你的配置起个名字", "方便后续识别和管理")
                         TextField("如：home-vpn", text: $profile.name)
@@ -420,15 +420,15 @@ struct ManualWizardView: View {
                 }
 
                 if step == 1 {
-                    VStack(spacing: 16) {
+                    VStack(spacing: WgSpace.l) {
                         wizardIcon("key.fill")
                         wizardTitle("本机密钥信息", "来自你的 WireGuard 服务端配置")
-                        VStack(spacing: 12) {
+                        VStack(spacing: WgSpace.m) {
                             wizardField("Private Key", "本机私钥 (base64)", text: $profile.privateKey, monospaced: true)
                             wizardField("Address", "本机隧道 IP (如 10.66.66.3/24)", text: $profile.address)
-                            HStack(spacing: 12) {
+                            HStack(spacing: WgSpace.m) {
                                 wizardField("DNS (可选)", "DNS 服务器", text: $profile.dns)
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: WgSpace.xs) {
                                     Text("MTU").font(.caption).foregroundStyle(.secondary)
                                     TextField("1420", value: $profile.mtu, format: .number)
                                         .textFieldStyle(.roundedBorder)
@@ -443,16 +443,16 @@ struct ManualWizardView: View {
                 }
 
                 if step == 2 {
-                    VStack(spacing: 16) {
+                    VStack(spacing: WgSpace.l) {
                         wizardIcon("network")
                         wizardTitle("对端（服务器）信息", "WireGuard 服务端的连接信息")
-                        VStack(spacing: 12) {
+                        VStack(spacing: WgSpace.m) {
                             wizardField("Public Key", "服务器公钥 (base64)", text: $profile.publicKey, monospaced: true)
                             wizardField("Endpoint", "服务器地址 (如 vpn.example.com:51820)", text: $profile.endpoint)
                             wizardField("Allowed IPs", "走隧道的网段", text: $profile.allowedIPs)
-                            HStack(spacing: 12) {
+                            HStack(spacing: WgSpace.m) {
                                 wizardField("Preshared Key (可选)", "预共享密钥", text: $profile.presharedKey, monospaced: true)
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: WgSpace.xs) {
                                     Text("Keepalive").font(.caption).foregroundStyle(.secondary)
                                     TextField("25", value: $profile.keepalive, format: .number)
                                         .textFieldStyle(.roundedBorder)
@@ -467,11 +467,11 @@ struct ManualWizardView: View {
                 }
 
                 if step == 3 {
-                    VStack(spacing: 16) {
+                    VStack(spacing: WgSpace.l) {
                         wizardIcon("checkmark.seal.fill")
                         wizardTitle("确认配置信息", "检查无误后点击保存")
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: WgSpace.s) {
                                 reviewRow("名称", profile.name)
                                 Divider()
                                 reviewRow("Private Key", String(profile.privateKey.prefix(16)) + "...")
@@ -487,7 +487,7 @@ struct ManualWizardView: View {
                                 }
                                 reviewRow("Keepalive", "\(profile.keepalive)s")
                             }
-                            .padding(16)
+                            .wgPadding(WgSpace.l)
                             .wgSettingsPanelSurface()
                         }
                         .frame(maxWidth: 400)
@@ -497,7 +497,7 @@ struct ManualWizardView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: step)
-            .padding(.top, 8)
+            .wgPadding(.top, WgSpace.s)
 
             Divider()
 
@@ -525,7 +525,7 @@ struct ManualWizardView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            .padding(20)
+            .wgPadding(WgSpace.xl)
         }
         .frame(width: 520, height: 560)
     }
@@ -541,21 +541,21 @@ struct ManualWizardView: View {
 
     private func wizardIcon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 44))
+            .font(.system(size: WgType.display))
             .foregroundStyle(WgInk.signal)
-            .padding(.bottom, 4)
+            .wgPadding(.bottom, WgSpace.xs)
     }
 
     private func wizardTitle(_ title: LocalizedStringKey, _ subtitle: LocalizedStringKey) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: WgSpace.xs) {
             Text(title).font(.title3).fontWeight(.semibold)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.bottom, 8)
+        .wgPadding(.bottom, WgSpace.s)
     }
 
     private func wizardField(_ label: LocalizedStringKey, _ placeholder: LocalizedStringKey, text: Binding<String>, monospaced: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: WgSpace.xs) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             if monospaced {
                 TextField(placeholder, text: text)
@@ -591,7 +591,7 @@ struct EditProfileView: View {
     @State private var saved = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: WgSpace.l) {
             Text("编辑 \(profileName)").font(.title2).fontWeight(.semibold)
 
             if !loaded {
@@ -599,7 +599,7 @@ struct EditProfileView: View {
             } else {
                 TextEditor(text: $content)
                     .font(.system(.body, design: .monospaced))
-                    .padding(8)
+                    .wgPadding(WgSpace.s)
                     .wgSettingsPanelSurface()
 
                 if saved {
@@ -626,7 +626,7 @@ struct EditProfileView: View {
                 }
             }
         }
-        .padding(24)
+        .wgPadding(WgSpace.xxl)
         .frame(width: 520, height: 500)
         .task {
             content = await client.loadProfileContent(name: profileName)

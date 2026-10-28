@@ -8,17 +8,17 @@ struct PlaceholderView: View {
     let desc: LocalizedStringKey
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: WgSpace.l) {
             Image(systemName: icon)
-                .font(.system(size: 48))
+                .font(.system(size: WgType.display))
                 .foregroundStyle(.secondary)
             Text(title).font(.title2).fontWeight(.medium)
             Text(desc).foregroundStyle(.secondary)
             Text("即将推出")
                 .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .wgFloatingControlSurface(cornerRadius: 3)
+                .wgPadding(.horizontal, WgSpace.m)
+                .wgPadding(.vertical, WgSpace.xs)
+                .wgFloatingControlSurface(cornerRadius: WgRadius.s)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -37,7 +37,7 @@ struct LogsView: View {
 
     var body: some View {
         WgPage(title: "日志", subtitle: client.status != nil ? "后台服务实时输出" : "后台服务未运行", word: "LOGS") {
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 Toggle("跟随", isOn: $autoScroll)
                     .toggleStyle(.switch)
                     .controlSize(.small)
@@ -55,7 +55,7 @@ struct LogsView: View {
             }
         } content: {
             if let s = client.status {
-                HStack(spacing: 8) {
+                HStack(spacing: WgSpace.s) {
                     statusChip("网络", s.isTrustedNetwork ? "在家" : "外部网络", tint: s.isTrustedNetwork ? .teal : .blue)
                     statusChip("隧道", client.isTunnelUp ? "已连接" : "未连接", tint: client.isTunnelUp ? .green : .gray)
                     statusChip("守护", client.isGuardOn ? "运行中" : "已关闭", tint: client.isGuardOn ? .blue : .gray)
@@ -76,13 +76,13 @@ struct LogsView: View {
     private var logStream: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
+                LazyVStack(alignment: .leading, spacing: WgSpace.xs) {
                     if visibleLogLines.isEmpty {
                         ContentUnavailableView("暂无日志", systemImage: "text.alignleft")
                             .frame(maxWidth: .infinity, minHeight: 260)
                     } else {
                         ForEach(Array(visibleLogLines.enumerated()), id: \.element.id) { index, line in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            HStack(alignment: .firstTextBaseline, spacing: WgSpace.m) {
                                 Circle()
                                     .fill(Self.levelColor(line.text))
                                     .frame(width: 5, height: 5)
@@ -96,8 +96,8 @@ struct LogsView: View {
                         }
                     }
                 }
-                .font(.system(size: 12, design: .monospaced))
-                .padding(16)
+                .font(.system(size: WgType.footnote, design: .monospaced))
+                .wgPadding(WgSpace.l)
             }
             .frame(maxWidth: .infinity, minHeight: 460)
             .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
@@ -125,15 +125,15 @@ struct LogsView: View {
     }
 
     private func statusChip(_ tag: LocalizedStringKey, _ value: LocalizedStringKey, tint: Color) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: WgSpace.s) {
             WgStatusDot(color: tint, isOn: tint != .gray)
             Text(tag).foregroundStyle(.secondary)
             Text(value).fontWeight(.medium)
         }
-        .font(.system(size: 12))
-        .padding(.horizontal, 10)
+        .font(.system(size: WgType.footnote))
+        .wgPadding(.horizontal, WgSpace.m)
         .frame(height: 26)
-        .wgInteractiveSurface(cornerRadius: 3)
+        .wgInteractiveSurface(cornerRadius: WgRadius.s)
     }
 }
 
@@ -164,7 +164,7 @@ struct SettingsView: View {
 
     var body: some View {
         WgPage(title: "设置", word: "SETTINGS") {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: WgSpace.xxl) {
                 generalSection
                 appearanceSection
                 regionColorSection
@@ -278,7 +278,7 @@ struct SettingsView: View {
     }
 
     private var policySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             WgSection(title: "守护与网络") {
                 WgRow(symbol: "shield.fill", tint: .blue, title: "非受信任网络自动连接",
                       subtitle: Text("离开受信任网络时自动连上 VPN")) {
@@ -308,11 +308,11 @@ struct SettingsView: View {
                         .frame(width: 240)
                 }
             }
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 if let settingsMessage {
                     Label(LocalizedStringKey(settingsMessage),
                           systemImage: settingsMessage.contains("失败") ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: WgType.footnote))
                         .foregroundStyle(settingsMessage.contains("失败") ? .orange : .green)
                         .transition(.opacity)
                 }
@@ -332,7 +332,7 @@ struct SettingsView: View {
                 .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .disabled(applyingConfig)
             }
-            .padding(.horizontal, 4)
+            .wgPadding(.horizontal, WgSpace.xs)
         }
     }
 
@@ -371,7 +371,7 @@ struct SettingsView: View {
                       tint: status.active ? .red : .gray,
                       title: status.active ? "拦截中" : "未拦截",
                       subtitle: Text(status.error.map { "应用失败：\($0)" } ?? status.reason)) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: WgSpace.s) {
                         if firewallSaving { ProgressView().controlSize(.small) }
                         if status.active, let interfaces = status.interfaces, !interfaces.isEmpty {
                             WgValue(interfaces.joined(separator: " "), monospaced: true)
@@ -429,7 +429,7 @@ struct SettingsView: View {
             if let settings = client.tunnelIPv6 {
                 WgRow(symbol: "6.circle", tint: .blue, title: "模式",
                       subtitle: Text(settings.mode == "block" ? "始终拦截公网 IPv6，程序全部改用 IPv4 走隧道" : "隧道有 IPv6 出口就走隧道，没有就拦截")) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: WgSpace.s) {
                         if ipv6Saving { ProgressView().controlSize(.small) }
                         Picker("", selection: Binding(
                             get: { settings.mode },
@@ -452,7 +452,7 @@ struct SettingsView: View {
                       subtitle: Text("需以 :: 结尾、在私有段 fc00::/7 内")) {
                     TextField("fd77:6773::", text: $ipv6Prefix)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: WgType.footnote, design: .monospaced))
                         .frame(width: 200)
                         .onSubmit { saveIPv6Fields(settings) }
                 }
@@ -461,7 +461,7 @@ struct SettingsView: View {
                       subtitle: Text("[IPv6]:端口，逗号分隔，任一连通即算有 IPv6")) {
                     TextField("[2400:3200::1]:53", text: $ipv6Targets)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: WgType.footnote, design: .monospaced))
                         .frame(width: 260)
                         .onSubmit { saveIPv6Fields(settings) }
                 }
@@ -475,8 +475,8 @@ struct SettingsView: View {
                             .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                             .disabled(ipv6Saving)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .wgPadding(.horizontal, WgSpace.l)
+                    .wgPadding(.vertical, WgSpace.s)
                 }
             } else {
                 WgRow(symbol: "6.circle", tint: .gray, title: "隧道 IPv6 设置不可用",
@@ -524,7 +524,7 @@ struct SettingsView: View {
         WgSection(title: "文件传输") {
             WgRow(symbol: "arrow.down", tint: .blue, title: "接收服务",
                   subtitle: Text("兼容 LocalSend，隧道内设备可直接发送")) {
-                HStack(spacing: 8) {
+                HStack(spacing: WgSpace.s) {
                     if transferToggling { ProgressView().controlSize(.small) }
                     Toggle("", isOn: Binding(
                         get: { client.transferState?.running ?? false },
@@ -561,7 +561,7 @@ struct SettingsView: View {
     private var serviceSection: some View {
         WgSection(title: "后台服务") {
             WgRow(symbol: "server.rack", tint: client.status != nil ? .green : .gray, title: "运行状态") {
-                HStack(spacing: 6) {
+                HStack(spacing: WgSpace.s) {
                     WgStatusDot(color: .green, isOn: client.status != nil)
                     WgValue(daemonModeText)
                 }
@@ -580,23 +580,23 @@ struct SettingsView: View {
                 WgValue(diagnostics.residualSummary)
             }
             if diagnostics.hasResidue && !diagnostics.routeLines.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: WgSpace.xs) {
                     ForEach(diagnostics.routeLines.prefix(4), id: \.self) { line in
                         Text(verbatim: line)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: WgType.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 50)
-                .padding(.trailing, 14)
-                .padding(.bottom, 10)
+                .wgPadding(.leading, 50)
+                .wgPadding(.trailing, WgSpace.l)
+                .wgPadding(.bottom, WgSpace.m)
             }
             WgRowDivider(inset: 14)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
+                HStack(spacing: WgSpace.s) {
                     maintenanceButton("诊断", icon: "stethoscope") { Task { await refreshDiagnostics() } }
                         .disabled(diagnosticsLoading || maintenanceRunning)
                     maintenanceButton("导出诊断", icon: "doc.text.magnifyingglass") { exportDiagnostics() }
@@ -606,7 +606,7 @@ struct SettingsView: View {
                     Spacer()
                     if maintenanceRunning || diagnosticsLoading { ProgressView().controlSize(.small) }
                 }
-                HStack(spacing: 8) {
+                HStack(spacing: WgSpace.s) {
                     maintenanceButton("重新安装", icon: "arrow.down.app") { pendingMaintenanceAction = .installSystemHelper }
                     maintenanceButton("重启服务", icon: "arrow.clockwise") { pendingMaintenanceAction = .restartSystemHelper }
                     maintenanceButton("清理网络", icon: "cross.case", roleColor: .orange) { pendingMaintenanceAction = .cleanupNetworkState }
@@ -616,12 +616,12 @@ struct SettingsView: View {
                 .disabled(maintenanceRunning || diagnosticsLoading)
                 if let maintenanceMessage {
                     Text(verbatim: maintenanceMessage)
-                        .font(.system(size: 11))
+                        .font(.system(size: WgType.caption))
                         .foregroundStyle(maintenanceMessage.contains("失败") ? .orange : .green)
                 }
                 if client.status?.app_owned == true {
                     HStack {
-                        Text("旧版临时服务仍在运行").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("旧版临时服务仍在运行").font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
                         Spacer()
                         maintenanceButton(shuttingDownDaemon ? "正在关闭…" : "关闭临时服务", icon: "power") {
                             Task {
@@ -636,7 +636,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .padding(14)
+            .wgPadding(WgSpace.l)
         }
     }
 
@@ -662,12 +662,12 @@ struct SettingsView: View {
 
     private func sliderRow(_ title: LocalizedStringKey, symbol: String, tint: Color, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
         WgRow(symbol: symbol, tint: tint, title: title) {
-            HStack(spacing: 10) {
+            HStack(spacing: WgSpace.m) {
                 Slider(value: value, in: range)
                     .controlSize(.small)
                     .frame(width: 160)
                 Text(String(format: "%.2f", value.wrappedValue))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: WgType.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 32, alignment: .trailing)
             }
@@ -677,11 +677,11 @@ struct SettingsView: View {
     private func stepperRow(_ title: LocalizedStringKey, symbol: String, tint: Color, value: Binding<Int>, range: ClosedRange<Int>, step: Int, unit: LocalizedStringKey) -> some View {
         WgRow(symbol: symbol, tint: tint, title: title) {
             Stepper(value: value, in: range, step: step) {
-                HStack(spacing: 3) {
+                HStack(spacing: WgSpace.xs) {
                     Text("\(value.wrappedValue)")
                     Text(unit)
                 }
-                .font(.system(size: 13))
+                .font(.system(size: WgType.body))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             }
@@ -697,7 +697,7 @@ struct SettingsView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: WgType.footnote, weight: .medium))
         }
         .buttonStyle(WgPillButtonStyle(tint: roleColor))
     }
@@ -759,7 +759,7 @@ struct WgRegionColorRow: View {
     }
     var body: some View {
         WgRow(symbol: "paintpalette.fill", tint: .gray, title: region.title) {
-            HStack(spacing: 12) {
+            HStack(spacing: WgSpace.m) {
                 ColorPicker(region.title, selection: Binding(
                     get: { WgRegionColor(raw).color ?? WgInk.panelFill(scheme) },
                     set: { raw = WgRegionColor.encode($0) }

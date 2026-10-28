@@ -8,9 +8,9 @@ import SwiftUI
 // 颜色只表达状态：开启才上色，关闭一律回到中性灰，不给“未运行”的东西配彩色。
 
 enum WgDesign {
-    static let tileRadius: CGFloat = 4
-    static let cardRadius: CGFloat = 4
-    static let heroRadius: CGFloat = 5
+    static var tileRadius: CGFloat { WgRadius.m }
+    static var cardRadius: CGFloat { WgRadius.m }
+    static var heroRadius: CGFloat { WgRadius.m }
 
     static let spring = Animation.spring(response: 0.32, dampingFraction: 0.82)
 }
@@ -34,7 +34,7 @@ struct WgCircleBadge: View {
         // 开启 = 实墨块（颜色只留给警示/告警与“当前选中”，否则满屏蓝块就不再有焦点）。
         let normalized = WgInk.normalize(tint)
         let color: Color = (normalized == WgInk.warn || normalized == WgInk.alert) ? normalized : WgInk.ink
-        let shape = RoundedRectangle(cornerRadius: 2, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous)
         ZStack {
             if isOn {
                 if color == WgInk.warn || color == WgInk.alert {
@@ -54,7 +54,7 @@ struct WgCircleBadge: View {
                 shape
                     .trim(from: 0, to: 0.25)
                     .stroke(onAccent ? Color.white : color, style: StrokeStyle(lineWidth: 1.5))
-                    .padding(-3)
+                    .wgPadding(-3)
                     .rotationEffect(.degrees(spin ? 360 : 0))
                     .onAppear {
                         withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { spin = true }
@@ -248,9 +248,9 @@ struct WgCapsuleButtonStyle: ButtonStyle {
             let normalized = WgInk.normalize(tint)
             let semantic = normalized == WgInk.warn || normalized == WgInk.alert
             return configuration.label
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: WgType.body, weight: .semibold))
                 .foregroundStyle(semantic ? normalized : WgInk.ink)
-                .padding(.horizontal, 18)
+                .wgPadding(.horizontal, WgSpace.xl)
                 .frame(height: 32)
                 .modifier(CapsuleFill(shape: shape, prominent: prominent, hovering: hovering))
                 .opacity(isEnabled ? 1 : 0.45)
@@ -287,11 +287,11 @@ struct WgToolbarIconButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: WgType.sub, weight: .medium))
                 .foregroundStyle(isActive ? WgInk.signal : Color.secondary)
                 .frame(width: 28, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous)
                         .strokeBorder(Color.primary.opacity(hovering || isActive ? 0.25 : 0), lineWidth: 1)
                 )
                 .scaleEffect(configuration.isPressed ? 0.92 : 1)
@@ -342,7 +342,7 @@ struct WgPage<Accessory: View, Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: WgSpace.xl) {
             WgPageHeader(title: title, subtitle: subtitle, word: word, accessory: accessory)
             content()
         }
@@ -368,7 +368,7 @@ struct WgPageHeader<Accessory: View>: View {
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 16) {
+        HStack(alignment: .lastTextBaseline, spacing: WgSpace.l) {
             Text(title)
                 .font(.system(size: WgInk.sizePage, weight: .heavy))
                 .tracking(1)
@@ -406,9 +406,9 @@ struct WgSection<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WgSpace.s) {
             if let title {
-                WgSectionMark(title: title).padding(.top, 10).padding(.bottom, 4)
+                WgSectionMark(title: title).wgPadding(.top, WgSpace.m).wgPadding(.bottom, WgSpace.xs)
             }
             VStack(spacing: 0) {
                 content()
@@ -416,9 +416,9 @@ struct WgSection<Content: View>: View {
             .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
             if let footer {
                 Text(footer)
-                    .font(.system(size: 11))
+                    .font(.system(size: WgType.caption))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
+                    .wgPadding(.horizontal, WgSpace.xs)
             }
         }
     }
@@ -433,16 +433,16 @@ struct WgRow<Accessory: View>: View {
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WgSpace.m) {
             if let symbol {
                 WgSquareBadge(symbol: symbol, tint: tint, size: 24)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 13))
+                    .font(.system(size: WgType.body))
                 if let subtitle {
                     subtitle
-                        .font(.system(size: 11))
+                        .font(.system(size: WgType.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -450,8 +450,8 @@ struct WgRow<Accessory: View>: View {
             Spacer(minLength: 12)
             accessory()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .wgPadding(.horizontal, WgSpace.l)
+        .wgPadding(.vertical, WgSpace.s)
         .frame(minHeight: 46)
     }
 }
@@ -472,7 +472,7 @@ struct WgValue: View {
     }
     var body: some View {
         Text(verbatim: text)
-            .font(monospaced ? .system(size: 12, design: .monospaced) : .system(size: 13))
+            .font(monospaced ? .system(size: WgType.footnote, design: .monospaced) : .system(size: WgType.body))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -484,7 +484,7 @@ struct WgValue: View {
 struct WgRowDivider: View {
     var inset: CGFloat = 50
     var body: some View {
-        Divider().opacity(0.5).padding(.leading, inset)
+        Divider().opacity(0.5).wgPadding(.leading, inset)
     }
 }
 
@@ -506,14 +506,14 @@ struct WgPillButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(tint == .primary ? AnyShapeStyle(Color.primary.opacity(0.85)) : AnyShapeStyle(tint))
-                .padding(.horizontal, 11)
+                .wgPadding(.horizontal, WgSpace.m)
                 .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 2, style: .continuous).fill((colorScheme == .dark ? Color.white : Color.black).opacity(hovering ? 0.11 : 0.065))
+                    RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).fill((colorScheme == .dark ? Color.white : Color.black).opacity(hovering ? 0.11 : 0.065))
                 )
                 .opacity(isEnabled ? 1 : 0.45)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
                 .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: hovering)
         }

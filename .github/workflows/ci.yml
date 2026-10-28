@@ -44,6 +44,9 @@ jobs:
         run: |
           python3 tests/docs/check-readme.py
           python3 docs/images/check-media.py --static
+      - name: Verify spacing, type and radius tokens
+        working-directory: .
+        run: python3 tests/tokens/tokens.py platforms/macos/WgSense --check
       - name: Verify all app icon representations
         working-directory: .
         run: xcrun swift branding/GenerateAppIcon.swift --check

@@ -137,6 +137,9 @@ struct WgSenseApp: App {
     init() {
         WgAppLanguage.applyPreferredLocalization()
         WgFrameProbe.startIfRequested()
+        #if DEBUG
+        WgTunePanelController.showIfRequested()
+        #endif
     }
 
     var body: some Scene {
@@ -158,6 +161,9 @@ struct WgSenseApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 900, height: 600)
+        #if DEBUG
+        .commands { WgTuneCommands() }
+        #endif
         // 菜单栏入口见 WgStatusBarController（盾牌 + 网速 + 日期 + 时间）
     }
 

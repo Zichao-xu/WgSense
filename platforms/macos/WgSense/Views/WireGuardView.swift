@@ -7,13 +7,13 @@ struct WireGuardDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WgTheme.spacing) {
             // 页面标题栏
-            HStack(spacing: 8) {
+            HStack(spacing: WgSpace.s) {
                 Text("WireGuard")
                     .font(.title2)
                     .fontWeight(.semibold)
                 Spacer()
                 Image(systemName: "pin")
-                    .font(.system(size: 14))
+                    .font(.system(size: WgType.sub))
                     .foregroundStyle(.secondary)
             }
 
@@ -30,8 +30,8 @@ struct WireGuardDetailView: View {
     // MARK: - 连接状态行
 
     private var connectionStatusRow: some View {
-        HStack(spacing: 16) {
-            HStack(spacing: 8) {
+        HStack(spacing: WgSpace.l) {
+            HStack(spacing: WgSpace.s) {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
@@ -70,7 +70,7 @@ struct WireGuardDetailView: View {
                 .help(client.isGuardBlockingVPN ? "在家由守护保持断开；关闭守护后可手动连接" : "")
             }
         }
-        .padding(14)
+        .wgPadding(WgSpace.l)
         .wgGlassSurface(tint: statusColor, interactive: true)
     }
 
@@ -78,7 +78,7 @@ struct WireGuardDetailView: View {
 
     private var profileListSection: some View {
         VStack(alignment: .leading, spacing: WgTheme.spacing) {
-            HStack(spacing: 12) {
+            HStack(spacing: WgSpace.m) {
                 Text("配置文件")
                     .font(.subheadline)
                     .fontWeight(.medium)
@@ -108,7 +108,7 @@ struct WireGuardDetailView: View {
                     ForEach(client.profiles, id: \.self) { p in
                         profileDetailRow(p)
                         if p != client.profiles.last {
-                            Divider().opacity(0.2).padding(.leading, 56)
+                            Divider().opacity(0.2).wgPadding(.leading, 56)
                         }
                     }
                 }
@@ -136,12 +136,12 @@ struct WireGuardDetailView: View {
 
     private func profileDetailRow(_ name: String) -> some View {
         let isActive = client.status?.service == name
-        return HStack(spacing: 12) {
+        return HStack(spacing: WgSpace.m) {
             Image(systemName: isActive ? "checkmark.shield.fill" : "shield")
-                .font(.system(size: 18))
+                .font(.system(size: WgType.title))
                 .foregroundStyle(isActive ? .green : .secondary.opacity(0.5))
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(name)
                     .font(.subheadline)
                     .fontWeight(isActive ? .semibold : .regular)
@@ -156,7 +156,7 @@ struct WireGuardDetailView: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
+            HStack(spacing: WgSpace.s) {
                 if !isActive {
                     Button("切换") {
                         Task { await client.switchProfile(name) }
@@ -166,27 +166,27 @@ struct WireGuardDetailView: View {
                 }
 
                 Button { editProfile = PName(name: name) } label: {
-                    Image(systemName: "pencil").font(.system(size: 11))
+                    Image(systemName: "pencil").font(.system(size: WgType.caption))
                 }.buttonStyle(.plain).help("编辑")
 
                 Button {
                     exportProfile = name
                     showExport = true
                 } label: {
-                    Image(systemName: "square.and.arrow.up").font(.system(size: 11))
+                    Image(systemName: "square.and.arrow.up").font(.system(size: WgType.caption))
                 }.buttonStyle(.plain).help("导出")
 
                 Button {
                     deleteProfileName = name
                     showDeleteConfirm = true
                 } label: {
-                    Image(systemName: "trash").font(.system(size: 11))
+                    Image(systemName: "trash").font(.system(size: WgType.caption))
                         .foregroundStyle(.red.opacity(0.6))
                 }.buttonStyle(.plain).help("删除")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .wgPadding(.horizontal, WgSpace.l)
+        .wgPadding(.vertical, WgSpace.m)
         .contentShape(Rectangle())
         .confirmationDialog("确认删除「\(name)」？", isPresented: $showDeleteConfirm) {
             Button("删除", role: .destructive) {
@@ -241,9 +241,9 @@ struct WireGuardDetailView: View {
     // MARK: - 空状态
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: WgSpace.l) {
             Image(systemName: "doc.badge.plus")
-                .font(.system(size: 40))
+                .font(.system(size: WgType.page))
                 .foregroundStyle(.secondary.opacity(0.5))
             Text("还没有 Profile")
                 .font(.subheadline)
@@ -253,7 +253,7 @@ struct WireGuardDetailView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 36)
+        .wgPadding(.vertical, WgSpace.xxxl)
         .wgGlassSurface()
     }
 

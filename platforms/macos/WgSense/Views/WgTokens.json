@@ -1,0 +1,23 @@
+{
+  "radius.m" : 5,
+  "radius.s" : 7,
+  "space.hair" : 0,
+  "space.l" : 16,
+  "space.m" : 12,
+  "space.s" : 7,
+  "space.xl" : 13,
+  "space.xs" : 4,
+  "space.xxl" : 14,
+  "space.xxxl" : 20,
+  "type.body" : 13.5,
+  "type.caption" : 13,
+  "type.display" : 48,
+  "type.footnote" : 15,
+  "type.large" : 24.5,
+  "type.micro" : 7,
+  "type.page" : 48,
+  "type.readout" : 30,
+  "type.section" : 30,
+  "type.sub" : 17,
+  "type.title" : 13
+}

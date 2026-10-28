@@ -16,12 +16,12 @@ struct SLSpeedTile: View {
 
     var body: some View {
         let last = lab.lastResult
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(TileKind.speedtest.title).font(.system(size: 15, weight: .bold)).lineLimit(1)
+        VStack(alignment: .leading, spacing: WgSpace.s) {
+            HStack(alignment: .center, spacing: WgSpace.m) {
+                VStack(alignment: .leading, spacing: WgSpace.xs) {
+                    Text(TileKind.speedtest.title).font(.system(size: WgType.sub, weight: .bold)).lineLimit(1)
                     Text(verbatim: status(last))
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .font(.system(size: WgType.caption, weight: .medium).monospacedDigit())
                         .foregroundStyle(lab.error != nil && !lab.running ? WgInk.alert : WgInk.ink3)
                         .lineLimit(1)
                 }
@@ -36,13 +36,13 @@ struct SLSpeedTile: View {
                 quickButtons
             }
         }
-        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, size == .small ? 13 : 12)
+        .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.m).wgPadding(.vertical, size == .small ? WgSpace.m : WgSpace.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: size == .large ? .topLeading : .leading)
         .overlay(alignment: .topLeading) {
             Rectangle().fill(WgInk.ink.opacity(lab.running ? 0.9 : 0.45)).frame(width: 3, height: 20)
         }
         .overlay(alignment: .topTrailing) {
-            Text(verbatim: TileKind.speedtest.code).font(WgInk.mono(9.5)).tracking(1).foregroundStyle(WgInk.ink4).padding(9)
+            Text(verbatim: TileKind.speedtest.code).font(WgInk.mono(9.5)).tracking(1).foregroundStyle(WgInk.ink4).wgPadding(WgSpace.s)
         }
         .wgInteractiveSurface(isSelected: isSelected, isEnabled: !isEditMode, action: open)
     }
@@ -67,7 +67,7 @@ struct SLSpeedTile: View {
     /// 两条通道的缩略：长度 = 吞吐 / 协商速率（和 HUD 两翼同一含义），右侧读数。
     private func gauges(_ last: SLResult?) -> some View {
         let scale = Double(lab.running ? (lab.linkMbps ?? 1000) : (last?.linkMbps ?? 1000))
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: WgSpace.s) {
             // 测速中下行测完（上行已开始）就定格在下行稳态值，不显示收尾的 0
             channel("↓", lab.running ? (lab.upNow != nil ? lab.downStat?.stable ?? lab.downNow : lab.downNow) : last?.down?.stable, scale)
             channel("↑", lab.running ? lab.upNow : last?.up?.stable, scale)
@@ -76,7 +76,7 @@ struct SLSpeedTile: View {
     }
 
     private func channel(_ arrow: String, _ value: Double?, _ scale: Double) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: WgSpace.s) {
             Text(verbatim: arrow).font(WgInk.mono(10, .bold)).foregroundStyle(WgInk.ink3)
             GeometryReader { geo in
                 let f = CGFloat(min(1, (value ?? 0) / max(scale, 1)))
@@ -93,7 +93,7 @@ struct SLSpeedTile: View {
     }
 
     private var quickButtons: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: WgSpace.s) {
             if lab.running {
                 Button { lab.stop() } label: { Label("停止", systemImage: "stop.fill") }
                     .buttonStyle(SLChipStyle(selected: true))
