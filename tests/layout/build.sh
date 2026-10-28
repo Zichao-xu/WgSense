@@ -15,6 +15,7 @@ with open(sys.argv[1], 'wb') as f:
 PY
 xcrun swiftc -O -parse-as-library \
   "$ROOT/platforms/macos/WgSense/Views/WgInk.swift" \
+  "$ROOT/platforms/macos/WgSense/Views/WgRegionColor.swift" \
   "$ROOT/platforms/macos/WgSense/Views/RetainedGrid.swift" "$ROOT/tests/layout/VisibleNativePage.swift" "$ROOT/tests/layout/LayoutLab.swift" \
   -o "$APP/Contents/MacOS/WgLayoutLab"
 codesign --force --sign - "$APP"

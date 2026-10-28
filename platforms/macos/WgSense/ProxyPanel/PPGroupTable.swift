@@ -11,6 +11,7 @@ import SwiftUI
 // 大列表用 NSTableView + NSHostingView 单元格，按种类复用、行高自己给。
 
 struct PPGroupTable: NSViewRepresentable {
+    @Environment(\.wgRegionColor) private var region
     var items: [PPListItem]
     var rail: WgScrollRailModel
     var width: CGFloat
@@ -54,10 +55,12 @@ struct PPGroupTable: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let c = context.coordinator
         c.fixedHeight = fixedHeight
-        c.makeRow = makeRow
+        let regionChanged = c.region != region
+        c.region = region
+        c.makeRow = { item in AnyView(makeRow(item).environment(\.wgRegionColor, region)) }
         let widthChanged = abs(c.width - width) > 0.5
         c.width = width
-        if c.items != items {
+        if c.items != items || regionChanged {
             c.items = items
             c.heights.removeAll()
             c.table?.reloadData()
@@ -73,6 +76,7 @@ struct PPGroupTable: NSViewRepresentable {
         weak var table: NSTableView?
         var scrollObservers: [Any] = []
         var items: [PPListItem] = []
+        var region = WgRegionColor()
         var width: CGFloat = 0
         var heights: [PPListItem.ID: CGFloat] = [:]
         var fixedHeight: (PPListItem) -> CGFloat? = { _ in nil }

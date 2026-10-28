@@ -214,13 +214,15 @@ struct WgGlassPanel<S: Shape>: ViewModifier {
     var shape: S
     var raised = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.wgRegionColor) private var region
 
     func body(content: Content) -> some View {
-        content.background(
+        let scheme = region.scheme ?? colorScheme
+        content.wgRegionContrast().background(
             WgShapePlate(shape: shape,
-                         fill: WgInk.panelFill(colorScheme, raised: raised),
-                         border: WgInk.panelBorder(colorScheme),
-                         highlight: Color.white.opacity(colorScheme == .dark ? 0.10 : 0.5))
+                         fill: region.fill(default: WgInk.panelFill(colorScheme, raised: raised), raised: raised),
+                         border: WgInk.panelBorder(scheme),
+                         highlight: Color.white.opacity(scheme == .dark ? 0.10 : 0.5))
         )
     }
 }

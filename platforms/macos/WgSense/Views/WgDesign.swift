@@ -132,17 +132,31 @@ struct WgInteractiveSurface: ViewModifier {
             .clipped()
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
-            .onTapGesture { if isEnabled { action?() } }
+            .modifier(SurfaceAction(action: isEnabled ? action : nil))
             .animation(.easeOut(duration: 0.12), value: hovering)
             .animation(.easeOut(duration: 0.18), value: isSelected)
+    }
+
+    // Passive panels must not install a competing gesture over native controls (e.g. color wells).
+    private struct SurfaceAction: ViewModifier {
+        var action: (() -> Void)?
+        func body(content: Content) -> some View {
+            if let action { content.onTapGesture(perform: action) } else { content }
+        }
     }
 
     private struct SurfaceFill: ViewModifier {
         var shape: ChamferShape
         var selected: Bool
         var raised: Bool
+        @Environment(\.wgRegionColor) private var region
         func body(content: Content) -> some View {
-            if selected { content.wgGlassAccent(shape) } else { content.wgGlassPanel(shape, raised: raised) }
+            if selected && region.color == nil {
+                content.wgGlassAccent(shape)
+            } else {
+                content.wgGlassPanel(shape, raised: raised || selected)
+                    .overlay { if selected { shape.strokeBorder(Color.primary.opacity(0.35), lineWidth: 1).allowsHitTesting(false) } }
+            }
         }
     }
 }

@@ -167,6 +167,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 22) {
                 generalSection
                 appearanceSection
+                regionColorSection
                 policySection
                 firewallSection
                 tunnelIPv6Section
@@ -263,6 +264,16 @@ struct SettingsView: View {
             }
             WgRowDivider()
             sliderRow("背景浓度", symbol: "circle.righthalf.filled", tint: .cyan, value: $glassTintStrength, range: 0.0...0.85)
+        }
+    }
+
+    private var regionColorSection: some View {
+        WgSection(title: "区域底色", footer: "分别调整左侧卡片、底部工具栏和右侧内容面板的底色，选择后立即保存。窗口大背景仍由上方的窗口材质控制。") {
+            WgRegionColorRow(.sidebar)
+            WgRowDivider()
+            WgRegionColorRow(.toolbar)
+            WgRowDivider()
+            WgRegionColorRow(.content)
         }
     }
 
@@ -734,6 +745,31 @@ struct SettingsView: View {
             let result = await maintenance.exportDaemonLog(to: url)
             maintenanceMessage = result.succeeded ? "日志已导出" : "日志导出失败：\(result.output)"
             maintenanceRunning = false
+        }
+    }
+}
+
+struct WgRegionColorRow: View {
+    let region: WgSurfaceRegion
+    @AppStorage private var raw: String
+    @Environment(\.colorScheme) private var scheme
+    init(_ region: WgSurfaceRegion) {
+        self.region = region
+        _raw = AppStorage(wrappedValue: "", region.key)
+    }
+    var body: some View {
+        WgRow(symbol: "paintpalette.fill", tint: .gray, title: region.title) {
+            HStack(spacing: 12) {
+                ColorPicker(region.title, selection: Binding(
+                    get: { WgRegionColor(raw).color ?? WgInk.panelFill(scheme) },
+                    set: { raw = WgRegionColor.encode($0) }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .accessibilityLabel(region.title)
+                Button("恢复默认") { raw = "" }
+                    .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
+                    .disabled(raw.isEmpty)
+            }
         }
     }
 }

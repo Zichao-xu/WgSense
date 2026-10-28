@@ -294,12 +294,14 @@ struct PPGroupCard: View {
             case .header:
                 header(group)
                     .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                    .wgRegionContrast()
                     .background(PPSegmentChrome(top: true, bottom: false))
                     .contentShape(Rectangle())
                     .onRightClick { Task { await store.testGroup(name) } }
             case .footer:
                 PPPenetrationSection(root: name)
                     .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 16)
+                    .wgRegionContrast()
                     .background(PPSegmentChrome(top: false, bottom: true))
             }
         }
@@ -399,12 +401,13 @@ struct PPSegmentChrome: View {
     var top: Bool
     var bottom: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.wgRegionColor) private var region
 
     var body: some View {
         // 分段拼接的斜切面板：顶段切右上角，底段切左下角，中段只画两侧边；与整卡 WgGlassPanel 外观一致。
         let border = WgInk.panelBorder(colorScheme)
         let highlight = Color.white.opacity(colorScheme == .dark ? 0.10 : 0.5)
-        let fill = WgInk.panelFill(colorScheme)
+        let fill = region.fill(default: WgInk.panelFill(colorScheme))
         Canvas { ctx, size in
             let w = size.width, h = size.height, c = WgInk.cutPanel, i: CGFloat = 0.5
             var outline = Path()
@@ -455,6 +458,7 @@ struct PPNodeRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .wgRegionContrast()
         .background(PPSegmentChrome(top: false, bottom: false))
     }
 }

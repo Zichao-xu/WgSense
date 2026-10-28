@@ -61,6 +61,7 @@
 		C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */; };
 		CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327C41F92B977872F228B46 /* WgSurfaces.swift */; };
 		D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */; };
+		D566C0534547A0C2DB44525A /* WgRegionColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79083985675926A70F6D4CBC /* WgRegionColor.swift */; };
 		D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25978E89B4CCD23B64EA7345 /* DaemonModels.swift */; };
 		D7AB1A8196C7B0C6B61A378E /* PPStreamChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB602039AF8027B15350431B /* PPStreamChart.swift */; };
 		DD547983D07C16536E2BE7B9 /* WgFrameProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025AA57CBF7107F99D3479A5 /* WgFrameProbe.swift */; };
@@ -122,6 +123,7 @@
 		6A3423D9FE2D8882A7D6E321 /* PPProxiesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProxiesPage.swift; sourceTree = "<group>"; };
 		6E158E212B731D8EB3325B66 /* PPOverviewPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPOverviewPage.swift; sourceTree = "<group>"; };
 		70A273DB94549CE4F926798A /* SpeedLabShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLabShell.swift; sourceTree = "<group>"; };
+		79083985675926A70F6D4CBC /* WgRegionColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgRegionColor.swift; sourceTree = "<group>"; };
 		796A56DA9FD3124885280DD5 /* OpenWrtRuleSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWrtRuleSource.swift; sourceTree = "<group>"; };
 		7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVPNPresentation.swift; sourceTree = "<group>"; };
 		7B99A22CE06D6D9059021F48 /* RetainedGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetainedGrid.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 				23E71D9C541002874711CBA9 /* WgInk.swift */,
 				805B104167A8BA3A2EF94FBF /* WgLinkMonitor.swift */,
 				684844BC976187E7AFFE036B /* WgLinkStage.swift */,
+				79083985675926A70F6D4CBC /* WgRegionColor.swift */,
 				1B1C9D2B646A6CA9B40C0EBC /* WgScrollView.swift */,
 				7A167F1484006D1B797E4F8E /* WgVPNPresentation.swift */,
 				F62D9EEE52A2092FAF858600 /* WgWindowVisibility.swift */,
@@ -492,6 +495,7 @@
 				B0ED1641322EEAFE01F82312 /* WgInk.swift in Sources */,
 				A9FC1E8C8EA90AE0F05953B2 /* WgLinkMonitor.swift in Sources */,
 				2D32A2D89D6779DBB72483FF /* WgLinkStage.swift in Sources */,
+				D566C0534547A0C2DB44525A /* WgRegionColor.swift in Sources */,
 				B724C8AC51CB0161D11D631B /* WgScrollView.swift in Sources */,
 				C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */,
 				8D4C5321BA4F03365A2B5363 /* WgStatusBarController.swift in Sources */,
@@ -521,7 +525,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -530,7 +534,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -604,7 +608,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -615,7 +619,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};
@@ -629,7 +633,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -638,7 +642,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -719,7 +723,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -730,7 +734,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};

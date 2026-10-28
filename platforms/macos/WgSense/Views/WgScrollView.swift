@@ -15,6 +15,7 @@ struct WgScrollView: View {
 }
 
 struct WgNativeScrollView: NSViewRepresentable {
+    @Environment(\.wgRegionColor) private var region
     var content: AnyView
     var rail: WgScrollRailModel
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -32,7 +33,7 @@ struct WgNativeScrollView: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.controller.rootView = AnyView(content.fixedSize(horizontal: false, vertical: true).modifier(WgScrollHitGate()))
+        context.coordinator.controller.rootView = AnyView(content.environment(\.wgRegionColor, region).fixedSize(horizontal: false, vertical: true).modifier(WgScrollHitGate()))
         context.coordinator.invalidate()
     }
 

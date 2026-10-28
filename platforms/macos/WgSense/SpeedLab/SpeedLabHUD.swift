@@ -93,6 +93,7 @@ enum SLMotion {
 // MARK: - 视图
 
 struct SLHUD: View {
+    @Environment(\.wgRegionColor) private var region
     var data: SLHUDData
     var now: Date
 
@@ -102,7 +103,7 @@ struct SLHUD: View {
         Canvas { ctx, size in
             let s = size.width / Self.size.width
             ctx.scaleBy(x: s, y: s)
-            SLHUDPainter(ctx: ctx, d: data, now: now).paint()
+            SLHUDPainter(ctx: ctx, d: data, now: now, region: region).paint()
         }
         .aspectRatio(Self.size.width / Self.size.height, contentMode: .fit)
         .accessibilityElement(children: .ignore)
@@ -122,12 +123,20 @@ private struct SLHUDPainter {
     var ctx: GraphicsContext
     let d: SLHUDData
     let now: Date
+    var region = WgRegionColor()
 
     // 灰阶色板（深色主场；颜色只给异常）。
     // 白色（ink）只给高光：START、正在跑的读数与表盘亮部。其余信息一律灰阶，层级靠灰阶之间的距离拉开：
     //   g0 值 · g1 标题/次要值 · g2 键名/刻度 · g3 未启用 · g4 线 · g5 底
-    let ink = Color(white: 0.95), g0 = Color(white: 0.84), g1 = Color(white: 0.7), g2 = Color(white: 0.56), g3 = Color(white: 0.32)
-    let g4 = Color(white: 0.17), g5 = Color(white: 0.11), bg = Color(red: 0.06, green: 0.063, blue: 0.07)
+    private func gray(_ value: Double) -> Color { Color(white: region.scheme == .light ? 1 - value : value) }
+    var ink: Color { gray(0.95) }
+    var g0: Color { gray(0.84) }
+    var g1: Color { gray(0.7) }
+    var g2: Color { gray(0.56) }
+    var g3: Color { gray(0.32) }
+    var g4: Color { gray(0.17) }
+    var g5: Color { gray(0.11) }
+    var bg: Color { region.fill(default: Color(red: 0.06, green: 0.063, blue: 0.07)) }
     let alert = Color(red: 1, green: 0.36, blue: 0.3)
 
     func k(_ t: Date?) -> Double { SLMotion.frames(now, since: t) }

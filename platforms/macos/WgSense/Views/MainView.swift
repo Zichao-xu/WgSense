@@ -239,6 +239,7 @@ struct MainView: View {
                 .frame(width: sidebarWidth, alignment: .leading)
                 .clipped()
                 .wgSidebarSurface()
+                .wgSurfaceRegion(.sidebar)
 
             SidebarResizeHandle(
                 width: $sidebarWidth,
@@ -251,6 +252,7 @@ struct MainView: View {
             // 子视图输入不变就整体跳过，不再每帧把整页内容重新塞进原生滚动容器（测速页曾因此拖动掉帧 70%+）。
             MainPageArea(selection: selection, language: selectedLanguage, client: client)
             .wgPageSurface()
+            .wgSurfaceRegion(.content)
         }
         // 图表缓存：主窗口可见期间采样速度/内存，打开代理概览时曲线已有历史；窗口收起即停。
         .task { PPOverviewStore.shared.startSamplingWhileVisible() }
@@ -712,6 +714,8 @@ struct SidebarView: View {
         .padding(.bottom, 14)
         .overlay(alignment: .top) { Rectangle().fill(WgInk.rule).frame(height: 1).padding(.horizontal, 16) }
         .focusEffectDisabled()
+        .wgRegionBackground()
+        .wgSurfaceRegion(.toolbar)
     }
 
     // MARK: - 磁贴内容

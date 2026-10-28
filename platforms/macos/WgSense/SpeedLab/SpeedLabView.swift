@@ -7,6 +7,7 @@ import SwiftUI
 struct SpeedLabView: View {
     @ObservedObject private var lab = SpeedLabStore.shared
 
+    @Environment(\.wgRegionColor) private var region
     @State private var tail = false
     @State private var adding = false
 
@@ -164,7 +165,8 @@ struct SpeedLabView: View {
                 rosterActions
             }
         }
-        .background(SLChamferPlate(cut: WgInk.cutControl, fill: WgInk.well))
+        .wgRegionContrast()
+        .background(SLChamferPlate(cut: WgInk.cutControl, fill: region.fill(default: WgInk.well)))
         .disabled(lab.running)
     }
 
@@ -261,6 +263,7 @@ struct SLDrawer<Content: View>: View {
     @ViewBuilder var content: () -> Content
     @AppStorage private var open: Bool
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.wgRegionColor) private var region
 
     init(key: String, title: String, code: String, badge: String = "", @ViewBuilder content: @escaping () -> Content) {
         self.key = key; self.title = title; self.code = code; self.badge = badge; self.content = content
@@ -286,7 +289,8 @@ struct SLDrawer<Content: View>: View {
                 content()
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(SLChamferPlate(cut: WgInk.cutTile, fill: WgInk.panelFill(scheme), border: WgInk.panelBorder(scheme)))
+                    .wgRegionContrast()
+                    .background(SLChamferPlate(cut: WgInk.cutTile, fill: region.fill(default: WgInk.panelFill(scheme)), border: WgInk.panelBorder(region.scheme ?? scheme)))
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
