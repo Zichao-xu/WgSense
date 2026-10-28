@@ -331,6 +331,12 @@ final class SpeedLabStore: ObservableObject {
         task = Task { await execute(runner: runner, target: target) }
     }
 
+    /// 测速页可见时预热到执行端的 SSH（每 50 秒续一次，ControlPersist 是 60 秒）。
+    func warmRunner() {
+        guard !running, let runner else { return }
+        SLShell(endpoint: runner).warm()
+    }
+
     func stop() {
         task?.cancel()
     }

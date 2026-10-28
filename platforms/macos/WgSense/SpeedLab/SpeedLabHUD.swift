@@ -259,6 +259,17 @@ private struct SLHUDPainter {
         guard f >= 0 else {
             stroke(blade, g4, 1, close: true)
             node(corner, 3.5, g3)
+            // 心跳：开测前（连执行端 / 测空载延迟 / 试测源）在还没开跑的通道上来回扫一道暗亮带，
+            // 表示正在准备、不是卡住。只用 g3 灰，不抢读数和 START 的白。
+            if waiting != nil, let st = d.startedAt {
+                let period = 1.6, t = now.timeIntervalSince(st).truncatingRemainder(dividingBy: period) / period
+                let p = CGFloat(t * t * (3 - 2 * t))
+                let x = tip.x + (corner.x - tip.x) * p
+                var band = ctx
+                band.clip(to: Path(CGRect(x: x - 36, y: 0, width: 72, height: 260)))
+                band.opacity = sin(Double.pi * t)
+                band.fill(poly(blade, close: true), with: .color(g3))
+            }
             return
         }
         // 3 帧从内端射向外角：轮廓沿 x 方向展开
@@ -403,6 +414,20 @@ private struct SLHUDPainter {
         }
     }
 
+    // MARK: 等待说明
+
+    /// 码表还没动的时候在做什么（nil = 不在等待）。给状态行和两翼心跳用，让等待看得见、不像卡死。
+    var waiting: String? {
+        guard d.running, d.error == nil else { return nil }
+        if d.phaseDates[.dl] != nil || d.phaseDates[.ul] != nil {
+            // 下行测完、上行开跑前要试测上行源（约 2 秒）
+            return d.phaseDates[.ul] == nil && d.info["stage"] == "probe_ul" ? "试测上行测速源" : nil
+        }
+        if d.phaseDates[.pick] != nil { return "试测下行测速源" }
+        if d.phaseDates[.idle] != nil { return "测空载延迟" }
+        return "连接执行端 \(d.runner)"
+    }
+
     // MARK: 模式块
 
     func modeBlock() {
@@ -442,7 +467,13 @@ private struct SLHUDPainter {
         else if let st = d.startedAt { stamp = String(format: "T+%05.2f s", now.timeIntervalSince(st)) }
         else { stamp = "—" }
         text(stamp, cx + 160, y + h / 2, 13, g1, a: sa)
-        let line = d.error ?? "[runner] \(d.runner)   [path] \(d.path)   [target] \(d.target)"
+        var line = d.error ?? "[runner] \(d.runner)   [path] \(d.path)   [target] \(d.target)"
+        if d.error == nil, let w = waiting {
+            // 当前步骤 + 本步已用时 + 跳动的点：每帧都在变，一眼看出没卡住
+            let since = [d.phaseDates[.prepare], d.phaseDates[.idle], d.phaseDates[.pick], d.infoDates["stage"]].compactMap { $0 }.max() ?? d.startedAt ?? now
+            let dots = String(repeating: "·", count: Int(now.timeIntervalSince(since) * 3) % 4)
+            line = String(format: "%@  %.1f s ", w, now.timeIntervalSince(since)) + dots
+        }
         text(line, cx, 474, 12, d.error != nil ? alert : g1, anchor: .center)
     }
 

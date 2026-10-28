@@ -34,6 +34,12 @@ struct SpeedLabView: View {
             .wgPadding(WgSpace.xl).frame(width: 640)
         }
         // 测完再刷 1 秒：让收尾的闪入（0 → ⅓ → ⅔ → 1）播完，之后彻底静止
+        .task(id: lab.runnerID) {
+            while !Task.isCancelled {
+                lab.warmRunner()
+                try? await Task.sleep(for: .seconds(50))
+            }
+        }
         .task(id: lab.finishedAt) {
             guard lab.finishedAt != nil else { return }
             tail = true

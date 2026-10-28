@@ -54,6 +54,18 @@ struct SLShell {
     }
 
     /// 跑一次脚本，事件逐条流出；任务取消即结束进程。
+    /// 预先建好 SSH 主连接（ControlPersist 60 秒）：点开始时省掉约 2 秒握手。失败无所谓，开测时照常重连。
+    func warm() {
+        guard endpoint.kind == .ssh else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = sshOptions + ["-p", "\(endpoint.sshPort)", "\(endpoint.sshUser)@\(endpoint.host)", "true"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
     func stream(_ vars: [String: String]) -> AsyncThrowingStream<SLEvent, Error> {
         AsyncThrowingStream { continuation in
             guard let script = Self.script else {

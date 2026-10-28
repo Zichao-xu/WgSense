@@ -171,7 +171,8 @@ final_url() {
 	u=$1; n=0
 	while [ $n -lt "$REDIR_MAX" ]; do
 		a=$(addr "$u") || return 1
-		out=$(curl -s -o /dev/null -m "$REDIR_TIMEOUT" -A "$UA" $a -r 0-0 -w '%{http_code} %{redirect_url}' "$u" 2>/dev/null)
+		# --max-filesize 1：有的 CDN 无视 -r 0-0 直接回 200 + 整个文件，不加这个会一直下到超时（实测百度 CDN 白等 8 秒）
+		out=$(curl -s -o /dev/null -m "$REDIR_TIMEOUT" -A "$UA" $a -r 0-0 --max-filesize 1 -w '%{http_code} %{redirect_url}' "$u" 2>/dev/null)
 		code=${out%% *}; red=${out#* }
 		case $code in
 		2*) echo "$u"; return 0 ;;
@@ -281,6 +282,14 @@ pick_ul() {
 	cat "$WORK"/ul.* 2>/dev/null | awk '$1 > 0' | sort -rn | awk -v r="$PICK_RATIO" 'NR == 1 { best = $1 } $1 * r >= best' | head -"$PICK_UL_KEEP"
 }
 
+# 每个候选源的试跑结果：入选 keep，其余 drop
+src_results() {
+	cat "$WORK"/$1.* 2>/dev/null | while read -r mb u; do
+		k=false; echo "$2" | awk -v u="$u" '$2 == u { f = 1 } END { exit !f }' && k=true
+		emit "{\"ev\":\"src\",\"ph\":\"$1\",\"v\":\"$(jstr "$u")\",\"rx\":$mb,\"keep\":$k}"
+	done
+}
+
 run_http() {
 	has curl || fail "执行端没有 curl"
 	IF=${IFACE:-$(defif)}; [ -n "$IF" ] || fail "找不到默认网卡"
@@ -301,20 +310,16 @@ run_http() {
 	ping_start "${PING_HOST:-$DNS}"
 	phase idle; sample idle "$IDLE"
 
+	# 选源分两段：下行源在这里选，选完立刻开测；上行源到上行测速前再选（不让码表多等上行试跑）
 	phase pick
-	dls=$(pick_dl); uls=$(pick_ul)
-	info dl_sources "$(echo "$dls" | awk 'NF { printf "%s%s %s", (n++ ? " | " : ""), $2, $1 }')"
-	info ul_sources "$(echo "$uls" | awk 'NF { printf "%s%s %s", (n++ ? " | " : ""), $2, $1 }')"
-	# 每个候选源的试跑结果：入选 keep，其余 drop
-	for d in dl ul; do
-		[ $d = dl ] && kept=$dls || kept=$uls
-		cat "$WORK"/$d.* 2>/dev/null | while read -r mb u; do
-			k=false; echo "$kept" | awk -v u="$u" '$2 == u { f = 1 } END { exit !f }' && k=true
-			emit "{\"ev\":\"src\",\"ph\":\"$d\",\"v\":\"$(jstr "$u")\",\"rx\":$mb,\"keep\":$k}"
-		done
-	done
-	first=$(echo "$dls" | awk 'NR == 1 { print $2 }')
-	[ -n "$first" ] && info src_ip "$(resolve "$(hostof "$first")")"
+	dls=""
+	case " $DIRS " in *" dl "*)
+		dls=$(pick_dl)
+		info dl_sources "$(echo "$dls" | awk 'NF { printf "%s%s %s", (n++ ? " | " : ""), $2, $1 }')"
+		src_results dl "$dls"
+		first=$(echo "$dls" | awk 'NR == 1 { print $2 }')
+		[ -n "$first" ] && info src_ip "$(resolve "$(hostof "$first")")" ;;
+	esac
 
 	ran=0
 	for d in $DIRS; do
@@ -331,6 +336,10 @@ run_http() {
 			done
 			phase dl; sample dl "$DUR" ;;
 		ul)
+			info stage probe_ul
+			uls=$(pick_ul)
+			info ul_sources "$(echo "$uls" | awk 'NF { printf "%s%s %s", (n++ ? " | " : ""), $2, $1 }')"
+			src_results ul "$uls"
 			[ -n "$uls" ] || { emit '{"ev":"skip","ph":"ul"}'; continue; }
 			ran=1
 			set -- $(echo "$uls" | awk '{ print $2 }')
