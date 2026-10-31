@@ -31,7 +31,7 @@ struct SpeedLabView: View {
                 SLEndpointsForm(lab: lab, listing: false)
                 HStack { Spacer(); Button("完成") { adding = false }.keyboardShortcut(.defaultAction) }
             }
-            .wgPadding(WgSpace.xl).frame(width: 640)
+            .wgPadding(.m).frame(width: 640)
         }
         // 测完再刷 1 秒：让收尾的闪入（0 → ⅓ → ⅔ → 1）播完，之后彻底静止
         .task(id: lab.runnerID) {
@@ -93,7 +93,7 @@ struct SpeedLabView: View {
         VStack(alignment: .leading, spacing: WgSpace.s) {
             route
             if let hint = lab.discoverNote ?? lab.blocker ?? pathHint ?? (lab.target?.kind == .peer ? "WG peer 不能远程登录：要求它自己开着 iperf3 服务端（端口 \(lab.params.iperfPort)）" : nil) {
-                Text(verbatim: hint).font(WgInk.mono(10))
+                Text(verbatim: hint).font(WgInk.mono(.caption))
                     .foregroundStyle(lab.discoverNote == nil && lab.blocker != nil ? WgInk.warn : WgInk.ink3)
             }
         }
@@ -187,9 +187,9 @@ struct SLChipStyle: ButtonStyle {
     var selected: Bool
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: WgType.caption, weight: selected ? .semibold : .regular))
+            .font(.system(size: WgType.body, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? WgInk.ink : WgInk.ink3)
-            .wgPadding(.horizontal, WgSpace.m).frame(height: 22)
+            .wgPadding(.horizontal, .m).frame(height: 22)
             .background {
                 if selected {
                     Color.clear.wgGlassAccent(ChamferShape(tr: 6))
@@ -217,10 +217,10 @@ struct SLSelector<Items: View>: View {
         } label: {
             HStack(spacing: WgSpace.s) {
                 VStack(alignment: .leading, spacing: WgSpace.xs) {
-                    Text(verbatim: "\(code) / \(title)").font(WgInk.mono(10, .medium)).tracking(1.2).foregroundStyle(WgInk.ink3)
+                    Text(verbatim: "\(code) / \(title)").font(WgInk.mono(.caption, .medium)).tracking(1.2).foregroundStyle(WgInk.ink3)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(verbatim: value).font(.system(size: WgType.footnote, weight: .medium)).foregroundStyle(WgInk.ink).lineLimit(1)
-                        Text(verbatim: detail.isEmpty ? " " : detail).font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3).lineLimit(1)
+                        Text(verbatim: value).font(.system(size: WgType.sub, weight: .medium)).foregroundStyle(WgInk.ink).lineLimit(1)
+                        Text(verbatim: detail.isEmpty ? " " : detail).font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 4)
@@ -228,7 +228,7 @@ struct SLSelector<Items: View>: View {
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: WgType.micro, weight: .semibold)).foregroundStyle(WgInk.ink3)
                 }
             }
-            .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+            .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
             .contentShape(Rectangle())
         }
         .menuStyle(.button)
@@ -249,7 +249,7 @@ private struct SLJoint: View {
             Rectangle().fill(Color.primary.opacity(0.14)).frame(width: 1)
         }
         .frame(width: 8)
-        .wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.vertical, .m)
     }
 }
 
@@ -278,7 +278,7 @@ struct SLDrawer<Content: View>: View {
                     Image(systemName: "chevron.right").font(.system(size: WgType.micro, weight: .bold))
                         .rotationEffect(.degrees(open ? 90 : 0)).foregroundStyle(WgInk.ink3)
                     WgTagBox(code: code, title: LocalizedStringKey(title))
-                    if !badge.isEmpty { Text(verbatim: badge).font(WgInk.mono(10)).foregroundStyle(WgInk.ink3) }
+                    if !badge.isEmpty { Text(verbatim: badge).font(WgInk.mono(.caption)).foregroundStyle(WgInk.ink3) }
                     SLRuler()
                 }
                 .contentShape(Rectangle())
@@ -286,7 +286,7 @@ struct SLDrawer<Content: View>: View {
             .buttonStyle(.plain)
             if open {
                 content()
-                    .wgPadding(WgSpace.l)
+                    .wgPadding(.l)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .wgRegionContrast()
                     .background(SLChamferPlate(cut: WgInk.cutTile, fill: region.fill(default: WgInk.panelFill(scheme)), border: WgInk.panelBorder(region.scheme ?? scheme)))
@@ -338,9 +338,9 @@ struct SLCurve: View {
             .frame(height: 130)
             // 拖动缩放时弹性快照把曲线整体横向拉伸（真排版也是这样），而不是把线拆开
             HStack {
-                Text(verbatim: "↓ 下行 ┄").font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3)
+                Text(verbatim: "↓ 下行 ┄").font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
                 Spacer()
-                Text(verbatim: "↑ 上行 ─").font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3)
+                Text(verbatim: "↑ 上行 ─").font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
             }
         }
     }
@@ -363,10 +363,10 @@ struct SLMethodForm: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: WgSpace.xl) {
+        LazyVStack(alignment: .leading, spacing: WgSpace.m) {
             HStack {
                 Text(verbatim: "每一项都会影响测出来的数。改过的项标 ●，可单项恢复；每次测速会把当时的测法存进历史。")
-                    .font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
+                    .font(.system(size: WgType.body)).foregroundStyle(WgInk.ink3)
                 Spacer()
                 Button("全部恢复出厂") { lab.params = SLParams() }.disabled(m == factory)
             }
@@ -464,13 +464,13 @@ struct SLMethodForm: View {
 
     private func section<C: View>(_ title: String, commands: [String], @ViewBuilder _ rows: () -> C) -> some View {
         VStack(alignment: .leading, spacing: WgSpace.s) {
-            Text(verbatim: title).font(.system(size: WgType.footnote, weight: .semibold))
+            Text(verbatim: title).font(.system(size: WgType.sub, weight: .semibold))
             rows()
             Text(verbatim: commands.joined(separator: "\n"))
-                .font(WgInk.mono(10)).foregroundStyle(WgInk.ink2)
+                .font(WgInk.mono(.caption)).foregroundStyle(WgInk.ink2)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .wgPadding(WgSpace.m)
+                .wgPadding(.m)
                 .background(SLChamferPlate(cut: WgInk.cutControl, bottomLeft: false, fill: WgInk.well))
         }
     }
@@ -480,18 +480,18 @@ struct SLMethodForm: View {
         let changed = m[keyPath: kp] != factory[keyPath: kp], open = editing == title
         return HStack(spacing: WgSpace.s) {
             Text(verbatim: changed ? "●" : " ").font(.system(size: WgType.micro)).foregroundStyle(WgInk.ink).frame(width: 8)
-            Text(verbatim: title).font(.system(size: WgType.footnote)).foregroundStyle(WgInk.ink2).frame(width: 130, alignment: .leading)
-            Text(verbatim: note).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3).lineLimit(1)
+            Text(verbatim: title).font(.system(size: WgType.sub)).foregroundStyle(WgInk.ink2).frame(width: 130, alignment: .leading)
+            Text(verbatim: note).font(.system(size: WgType.body)).foregroundStyle(WgInk.ink3).lineLimit(1)
             Spacer(minLength: 8)
             if open {
                 editor()
                 Image(systemName: "arrow.uturn.backward").foregroundStyle(WgInk.ink3).opacity(changed ? 1 : 0.3)
                     .onTapGesture { if changed && !lab.running { lab.params[keyPath: kp] = factory[keyPath: kp] } }
             } else {
-                Text(verbatim: value).font(.system(size: WgType.footnote, design: .monospaced)).foregroundStyle(WgInk.ink).lineLimit(1)
+                Text(verbatim: value).font(.system(size: WgType.sub, design: .monospaced)).foregroundStyle(WgInk.ink).lineLimit(1)
             }
         }
-        .wgPadding(.vertical, WgSpace.hair)
+        .wgPadding(.vertical, .zero)
         .contentShape(Rectangle())
         .onTapGesture { if !lab.running { editing = open ? nil : title } }
     }
@@ -530,7 +530,7 @@ struct SLMethodForm: View {
             HStack(spacing: WgSpace.m) {
                 ForEach(options) { o in
                     let on = o == m[keyPath: kp]
-                    Text(verbatim: o[keyPath: label]).font(.system(size: WgType.footnote, weight: on ? .semibold : .regular))
+                    Text(verbatim: o[keyPath: label]).font(.system(size: WgType.sub, weight: on ? .semibold : .regular))
                         .foregroundStyle(on ? WgInk.ink : WgInk.ink3)
                         .overlay(alignment: .bottom) { Rectangle().fill(on ? WgInk.ink : .clear).frame(height: 1).offset(y: 2) }
                         .contentShape(Rectangle())
@@ -549,26 +549,26 @@ struct SLHistoryList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if lab.history.isEmpty {
-                Text("还没有测速记录").font(.system(size: WgType.footnote)).foregroundStyle(WgInk.ink3)
+                Text("还没有测速记录").font(.system(size: WgType.sub)).foregroundStyle(WgInk.ink3)
             } else {
-                SLHistoryStrip(history: lab.history, unit: lab.params.unit).wgPadding(.bottom, WgSpace.m)
+                SLHistoryStrip(history: lab.history, unit: lab.params.unit).wgPadding(.bottom, .m)
                 ForEach(lab.history.prefix(30)) { r in
                     HStack(spacing: WgSpace.m) {
                         Text(verbatim: r.date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()))
-                            .font(WgInk.mono(10)).foregroundStyle(WgInk.ink3).frame(width: 92, alignment: .leading)
-                        Text(verbatim: SLHistoryList.routeText(r)).font(.system(size: WgType.footnote)).lineLimit(1)
+                            .font(WgInk.mono(.caption)).foregroundStyle(WgInk.ink3).frame(width: 92, alignment: .leading)
+                        Text(verbatim: SLHistoryList.routeText(r)).font(.system(size: WgType.sub)).lineLimit(1)
                         Spacer()
                         if let error = r.error {
-                            Text(verbatim: error).font(WgInk.mono(10)).foregroundStyle(WgInk.alert).lineLimit(1)
+                            Text(verbatim: error).font(WgInk.mono(.caption)).foregroundStyle(WgInk.alert).lineLimit(1)
                         } else {
                             Text(verbatim: "↓\(SLFormat.compact(r.down?.stable, unit: lab.params.unit))  ↑\(SLFormat.compact(r.up?.stable, unit: lab.params.unit))")
-                                .font(.system(size: WgType.footnote, design: .monospaced))
-                            Text(verbatim: SpeedLabView.linkText(r.linkText)).font(WgInk.mono(10))
+                                .font(.system(size: WgType.sub, design: .monospaced))
+                            Text(verbatim: SpeedLabView.linkText(r.linkText)).font(WgInk.mono(.caption))
                                 .foregroundStyle((r.linkMbps ?? 1000) <= 100 && !r.linkText.contains("Wi-Fi") ? WgInk.alert : WgInk.ink3)
                                 .frame(width: 84, alignment: .trailing)
                         }
                     }
-                    .wgPadding(.vertical, WgSpace.xs)
+                    .wgPadding(.vertical, .xs)
                     .overlay(alignment: .bottom) { Rectangle().fill(WgInk.rule).frame(height: 1) }
                     .contentShape(Rectangle())
                     .onTapGesture { lab.use(r) }
@@ -576,8 +576,8 @@ struct SLHistoryList: View {
                 HStack {
                     Spacer()
                     Button("清空历史", role: .destructive) { lab.clearHistory() }
-                        .buttonStyle(.plain).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
-                }.wgPadding(.top, WgSpace.s)
+                        .buttonStyle(.plain).font(.system(size: WgType.body)).foregroundStyle(WgInk.ink3)
+                }.wgPadding(.top, .s)
             }
         }
     }
@@ -597,16 +597,16 @@ struct SLRosterTable: View {
 
     var body: some View {
         if lab.roster.isEmpty {
-            Text(verbatim: "空。点「发现」扫描，或在下面添加。").font(.system(size: WgType.footnote)).foregroundStyle(WgInk.ink3)
+            Text(verbatim: "空。点「发现」扫描，或在下面添加。").font(.system(size: WgType.sub)).foregroundStyle(WgInk.ink3)
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: WgSpace.m) {
                     ForEach(cols, id: \.self) { c in
-                        Text(verbatim: c).font(.system(size: WgType.caption, weight: .medium)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(verbatim: c).font(.system(size: WgType.body, weight: .medium)).foregroundStyle(WgInk.ink3).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Color.clear.frame(width: 16, height: 1)
                 }
-                .wgPadding(.bottom, WgSpace.xs)
+                .wgPadding(.bottom, .xs)
                 ForEach(lab.roster) { ep in
                     HStack(spacing: WgSpace.m) {
                         SLInlineEdit(value: ep.label, placeholder: ep.hostname.isEmpty ? ep.address : ep.hostname,
@@ -620,7 +620,7 @@ struct SLRosterTable: View {
                         Button { lab.remove(ep) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(WgInk.ink3)
                             .frame(width: 16)
                     }
-                    .wgPadding(.vertical, WgSpace.xs)
+                    .wgPadding(.vertical, .xs)
                     .overlay(alignment: .bottom) { Rectangle().fill(WgInk.rule).frame(height: 1) }
                 }
             }
@@ -629,7 +629,7 @@ struct SLRosterTable: View {
     }
 
     private func cell(_ s: String, mono: Bool = false) -> some View {
-        Text(verbatim: s).font(mono ? .system(size: WgType.caption, design: .monospaced) : .system(size: WgType.footnote))
+        Text(verbatim: s).font(mono ? .system(size: WgType.body, design: .monospaced) : .system(size: WgType.sub))
             .foregroundStyle(WgInk.ink2).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -649,14 +649,14 @@ struct SLInlineEdit: View {
     var body: some View {
         if editing {
             TextField(placeholder, text: $draft)
-                .textFieldStyle(.plain).font(.system(size: WgType.footnote, weight: bold ? .semibold : .regular, design: bold ? .default : .monospaced))
+                .textFieldStyle(.plain).font(.system(size: WgType.sub, weight: bold ? .semibold : .regular, design: bold ? .default : .monospaced))
                 .focused($focused)
                 .onSubmit { finish() }
                 .onChange(of: focused) { _, f in if !f { finish() } }
                 .onAppear { focused = true }
         } else {
             Text(verbatim: value.isEmpty ? placeholder : value)
-                .font(.system(size: WgType.footnote, weight: bold ? .semibold : .regular, design: bold ? .default : .monospaced))
+                .font(.system(size: WgType.sub, weight: bold ? .semibold : .regular, design: bold ? .default : .monospaced))
                 .foregroundStyle(value.isEmpty ? WgInk.ink3 : WgInk.ink).lineLimit(1)
                 .contentShape(Rectangle())
                 .onTapGesture { guard enabled else { return }; draft = value; editing = true }
@@ -682,7 +682,7 @@ struct SLStepValue: View {
         HStack(spacing: WgSpace.s) {
             Text(verbatim: "−").foregroundStyle(WgInk.ink3).contentShape(Rectangle()).onTapGesture { if enabled { step(-1) } }
             SLInlineEdit(value: text, placeholder: text, enabled: enabled, commit: commit)
-            Text(verbatim: unit).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
+            Text(verbatim: unit).font(.system(size: WgType.body)).foregroundStyle(WgInk.ink3)
             Text(verbatim: "+").foregroundStyle(WgInk.ink3).contentShape(Rectangle()).onTapGesture { if enabled { step(1) } }
         }
         .font(.system(size: WgType.body, design: .monospaced))
@@ -828,15 +828,15 @@ struct SLSourcesForm: View {
         VStack(alignment: .leading, spacing: WgSpace.l) {
             // 远程源列表：节点失效时改远程文件，不用发版
             VStack(alignment: .leading, spacing: WgSpace.s) {
-                Text(verbatim: "源列表").font(.system(size: WgType.footnote, weight: .semibold))
+                Text(verbatim: "源列表").font(.system(size: WgType.sub, weight: .semibold))
                 HStack {
                     TextField("https://gist.githubusercontent.com/…/raw/sources.json", text: $catalog.url)
-                        .textFieldStyle(.roundedBorder).font(.system(size: WgType.caption, design: .monospaced))
+                        .textFieldStyle(.roundedBorder).font(.system(size: WgType.body, design: .monospaced))
                         .onSubmit { Task { await catalog.refresh() } }
                     Button(catalog.fetching ? "拉取中…" : "拉取") { Task { await catalog.refresh() } }
                         .disabled(catalog.fetching || catalog.url.isEmpty)
                 }
-                Text(verbatim: status).font(WgInk.mono(9.5)).foregroundStyle(catalog.fetchError == nil ? WgInk.ink3 : WgInk.warn)
+                Text(verbatim: status).font(WgInk.mono(.micro)).foregroundStyle(catalog.fetchError == nil ? WgInk.ink3 : WgInk.warn)
             }
             group("↓ 下行", remote: catalog.file?.download ?? [], manual: $lab.downloadSources, draft: $newDown)
             group("↑ 上行", remote: catalog.file?.upload ?? [], manual: $lab.uploadSources, draft: $newUp)
@@ -855,7 +855,7 @@ struct SLSourcesForm: View {
 
     private func group(_ title: String, remote: [SLCatalogFile.Entry], manual: Binding<[String]>, draft: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: WgSpace.xs) {
-            Text(verbatim: title).font(.system(size: WgType.footnote, weight: .semibold))
+            Text(verbatim: title).font(.system(size: WgType.sub, weight: .semibold))
             ForEach(remote, id: \.self) { e in sourceRow(e.url, note: e.note, removable: nil) }
             ForEach(manual.wrappedValue, id: \.self) { u in
                 sourceRow(u, note: "手动", removable: { manual.wrappedValue.removeAll { $0 == u } })
@@ -876,9 +876,9 @@ struct SLSourcesForm: View {
     private func sourceRow(_ url: String, note: String?, removable: (() -> Void)?) -> some View {
         let h = catalog.health[url], retired = catalog.isRetired(url, after: lab.params.retireAfter)
         return HStack(spacing: WgSpace.s) {
-            Text(verbatim: URL(string: url)?.host ?? url).font(.system(size: WgType.caption, design: .monospaced))
+            Text(verbatim: URL(string: url)?.host ?? url).font(.system(size: WgType.body, design: .monospaced))
                 .foregroundStyle(retired ? WgInk.ink4 : WgInk.ink2).lineLimit(1)
-            if let note { Text(verbatim: note).font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3).lineLimit(1) }
+            if let note { Text(verbatim: note).font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3).lineLimit(1) }
             Spacer()
             Group {
                 if retired {
@@ -891,7 +891,7 @@ struct SLSourcesForm: View {
                     Text(verbatim: "未测")
                 }
             }
-            .font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3)
+            .font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
             if let removable {
                 Button(action: removable) { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(WgInk.ink3)
             }
@@ -918,14 +918,14 @@ struct SLEndpointsForm: View {
                 HStack(spacing: WgSpace.m) {
                     Button(lab.discovering ? "发现中…" : "发现") { lab.discover() }.disabled(lab.discovering)
                     Text(verbatim: "将探测：" + lab.discoverScope.joined(separator: "、"))
-                        .font(WgInk.mono(10)).foregroundStyle(WgInk.ink3).lineLimit(1)
+                        .font(WgInk.mono(.caption)).foregroundStyle(WgInk.ink3).lineLimit(1)
                     Spacer()
-                    Text(verbatim: "\(lab.roster.count) 项").font(WgInk.mono(10)).foregroundStyle(WgInk.ink3)
+                    Text(verbatim: "\(lab.roster.count) 项").font(WgInk.mono(.caption)).foregroundStyle(WgInk.ink3)
                 }
                 SLRosterTable(lab: lab)
-                Rectangle().fill(WgInk.rule).frame(height: 1).wgPadding(.vertical, WgSpace.s)
+                Rectangle().fill(WgInk.rule).frame(height: 1).wgPadding(.vertical, .s)
             }
-            Text(verbatim: "SSH 主机：可当执行端，也可当目标（用这台 Mac 的 SSH 公钥登录，不保存密码）").font(.system(size: WgType.footnote, weight: .semibold))
+            Text(verbatim: "SSH 主机：可当执行端，也可当目标（用这台 Mac 的 SSH 公钥登录，不保存密码）").font(.system(size: WgType.sub, weight: .semibold))
             HStack {
                 TextField("名称", text: $name).frame(width: 110)
                 TextField("主机 / IP", text: $host)
@@ -940,7 +940,7 @@ struct SLEndpointsForm: View {
                     name = ""; host = ""; port = ""; user = ""
                 }
             }
-            Text(verbatim: "仅地址：只能当目标，要求它自己开着 iperf3 服务端").font(.system(size: WgType.footnote, weight: .semibold)).wgPadding(.top, WgSpace.s)
+            Text(verbatim: "仅地址：只能当目标，要求它自己开着 iperf3 服务端").font(.system(size: WgType.sub, weight: .semibold)).wgPadding(.top, .s)
             HStack {
                 TextField("名称", text: $peerName).frame(width: 110)
                 TextField("IP", text: $peerIP)

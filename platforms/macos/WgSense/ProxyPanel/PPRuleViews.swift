@@ -134,8 +134,8 @@ struct PPInlineMessage: View {
     var text: String
     var body: some View {
         VStack(spacing: WgSpace.s) {
-            Image(systemName: symbol).font(.system(size: WgType.section)).foregroundStyle(.tertiary)
-            Text(verbatim: text).font(.system(size: WgType.footnote)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Image(systemName: symbol).font(.system(size: WgType.readout)).foregroundStyle(.tertiary)
+            Text(verbatim: text).font(.system(size: WgType.sub)).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 220)
     }
@@ -150,16 +150,16 @@ struct PPCacheHintBar: View {
         HStack(alignment: .top, spacing: WgSpace.m) {
             Image(systemName: cache.isEmpty ? "externaldrive.badge.exclamationmark" : "info.circle")
                 .foregroundStyle(cache.isEmpty ? .orange : .secondary)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 if let hint = model.cacheHint {
-                    Text(verbatim: hint).font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                    Text(verbatim: hint).font(.system(size: WgType.body)).foregroundStyle(.secondary)
                 }
                 if let snap = cache.snapshot {
                     Text(verbatim: "规则源 \(snap.plugin) · 更新于 \(snap.syncedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: WgType.caption)).foregroundStyle(.tertiary)
+                        .font(.system(size: WgType.body)).foregroundStyle(.tertiary)
                 }
                 if let error = cache.lastError {
-                    Text(verbatim: error).font(.system(size: WgType.caption)).foregroundStyle(.red)
+                    Text(verbatim: error).font(.system(size: WgType.body)).foregroundStyle(.red)
                 }
             }
             Spacer()
@@ -176,10 +176,10 @@ struct PPCacheHintBar: View {
                 }
             }
             .buttonStyle(WgPillButtonStyle())
-            .font(.system(size: WgType.caption, weight: .medium))
+            .font(.system(size: WgType.body, weight: .medium))
             .disabled(cache.syncing)
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .background(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).fill(Color.primary.opacity(0.04)))
     }
 }
@@ -194,10 +194,10 @@ struct PPRulePenetrationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WgSpace.m) {
             HStack {
-                VStack(alignment: .leading, spacing: WgSpace.hair) {
-                    Text("域名穿透").font(.system(size: WgType.title, weight: .bold))
+                VStack(alignment: .leading, spacing: WgSpace.zero) {
+                    Text("域名穿透").font(.system(size: WgType.body, weight: .bold))
                     Text(verbatim: "\(group) · 规则 \(model.totalRules) 条，明细 \(model.items.count) 条")
-                        .font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
+                        .font(.system(size: WgType.sub)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("完成") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -211,7 +211,7 @@ struct PPRulePenetrationSheet: View {
             }
             PPRuleTable(model: model)
         }
-        .wgPadding(WgSpace.xl)
+        .wgPadding(.m)
         .frame(minWidth: 760, minHeight: 520)
         .task { await model.load(group: group, provider: nil) }
     }
@@ -223,14 +223,14 @@ struct PPSearchField: View {
 
     var body: some View {
         HStack(spacing: WgSpace.s) {
-            Image(systemName: "magnifyingglass").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
-            TextField(placeholder, text: $text).textFieldStyle(.plain).font(.system(size: WgType.footnote))
+            Image(systemName: "magnifyingglass").font(.system(size: WgType.body)).foregroundStyle(.secondary)
+            TextField(placeholder, text: $text).textFieldStyle(.plain).font(.system(size: WgType.sub))
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
                     .buttonStyle(.plain)
             }
         }
-        .wgPadding(.horizontal, WgSpace.m)
+        .wgPadding(.horizontal, .m)
         .frame(height: 28)
         .frame(minWidth: 140, maxWidth: 320)
         .wgInteractiveSurface(cornerRadius: WgRadius.s)
@@ -258,7 +258,7 @@ struct PPDomainGroupView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .wgPadding(.horizontal, WgSpace.m)
+                .wgPadding(.horizontal, .m)
                 .frame(height: 28)
                 .wgInteractiveSurface(cornerRadius: WgRadius.s)
 

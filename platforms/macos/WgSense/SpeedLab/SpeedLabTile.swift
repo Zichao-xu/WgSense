@@ -19,9 +19,9 @@ struct SLSpeedTile: View {
         VStack(alignment: .leading, spacing: WgSpace.s) {
             HStack(alignment: .center, spacing: WgSpace.m) {
                 VStack(alignment: .leading, spacing: WgSpace.xs) {
-                    Text(TileKind.speedtest.title).font(.system(size: WgType.sub, weight: .bold)).lineLimit(1)
+                    Text(TileKind.speedtest.title).font(.system(size: WgType.title, weight: .bold)).lineLimit(1)
                     Text(verbatim: status(last))
-                        .font(.system(size: WgType.caption, weight: .medium).monospacedDigit())
+                        .font(.system(size: WgType.body, weight: .medium).monospacedDigit())
                         .foregroundStyle(lab.error != nil && !lab.running ? WgInk.alert : WgInk.ink3)
                         .lineLimit(1)
                 }
@@ -36,13 +36,13 @@ struct SLSpeedTile: View {
                 quickButtons
             }
         }
-        .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.m).wgPadding(.vertical, size == .small ? WgSpace.m : WgSpace.m)
+        .wgPadding(.leading, .l).wgPadding(.trailing, .m).wgPadding(.vertical, .m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: size == .large ? .topLeading : .leading)
         .overlay(alignment: .topLeading) {
             Rectangle().fill(WgInk.ink.opacity(lab.running ? 0.9 : 0.45)).frame(width: 3, height: 20)
         }
         .overlay(alignment: .topTrailing) {
-            Text(verbatim: TileKind.speedtest.code).font(WgInk.mono(9.5)).tracking(1).foregroundStyle(WgInk.ink4).wgPadding(WgSpace.s)
+            Text(verbatim: TileKind.speedtest.code).font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink4).wgPadding(.s)
         }
         .wgInteractiveSurface(isSelected: isSelected, isEnabled: !isEditMode, action: open)
     }
@@ -77,7 +77,7 @@ struct SLSpeedTile: View {
 
     private func channel(_ arrow: String, _ value: Double?, _ scale: Double) -> some View {
         HStack(spacing: WgSpace.s) {
-            Text(verbatim: arrow).font(WgInk.mono(10, .bold)).foregroundStyle(WgInk.ink3)
+            Text(verbatim: arrow).font(WgInk.mono(.caption, .bold)).foregroundStyle(WgInk.ink3)
             GeometryReader { geo in
                 let f = CGFloat(min(1, (value ?? 0) / max(scale, 1)))
                 ZStack(alignment: .leading) {
@@ -87,7 +87,7 @@ struct SLSpeedTile: View {
             }
             .frame(height: 8)
             Text(verbatim: SLFormat.compact(value, unit: lab.params.unit))
-                .font(WgInk.mono(10.5, .medium)).foregroundStyle(value == nil ? WgInk.ink4 : WgInk.ink)
+                .font(WgInk.mono(.caption, .medium)).foregroundStyle(value == nil ? WgInk.ink4 : WgInk.ink)
                 .frame(width: 34, alignment: .trailing)
         }
     }

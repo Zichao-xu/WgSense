@@ -27,38 +27,37 @@ enum WgTokenGroup: String, CaseIterable, Identifiable {
         case .layout: return "版面"
         }
     }
-    var step: CGFloat { self == .type ? 0.5 : 1 }
+    var step: CGFloat { self == .space ? 4 : 1 }
     var specs: [WgTokenSpec] {
         switch self {
         case .space:
+            // 8pt 网格：滑块按 4 吸附，且不能越过相邻档位。
             return [
-                .init(key: "space.hair", label: "hair · 发丝", fallback: 2, range: 0...6),
-                .init(key: "space.xs", label: "xs", fallback: 4, range: 0...10),
-                .init(key: "space.s", label: "s", fallback: 8, range: 2...16),
-                .init(key: "space.m", label: "m", fallback: 12, range: 4...24),
-                .init(key: "space.l", label: "l", fallback: 16, range: 6...32),
-                .init(key: "space.xl", label: "xl", fallback: 20, range: 8...40),
-                .init(key: "space.xxl", label: "xxl", fallback: 24, range: 10...48),
-                .init(key: "space.xxxl", label: "xxxl", fallback: 32, range: 12...64),
+                .init(key: "space.xs", label: "xs", fallback: 4, range: 0...8),
+                .init(key: "space.s", label: "s", fallback: 8, range: 4...12),
+                .init(key: "space.m", label: "m", fallback: 12, range: 8...16),
+                .init(key: "space.l", label: "l", fallback: 16, range: 12...20),
+                .init(key: "space.xl", label: "xl", fallback: 20, range: 16...24),
+                .init(key: "space.xxl", label: "xxl", fallback: 24, range: 20...32),
+                .init(key: "space.xxxl", label: "xxxl", fallback: 32, range: 24...48),
             ]
         case .type:
+            // 13 / 15 / 17 = macOS 正文 / 标题 3 / 标题 2。
             return [
-                .init(key: "type.micro", label: "micro · 角标", fallback: 9, range: 7...12),
-                .init(key: "type.caption", label: "caption · 注释", fallback: 11, range: 8...14),
-                .init(key: "type.footnote", label: "footnote · 次要", fallback: 12, range: 9...15),
-                .init(key: "type.body", label: "body · 正文", fallback: 13, range: 10...17),
-                .init(key: "type.sub", label: "sub · 小标题", fallback: 15, range: 11...20),
-                .init(key: "type.title", label: "title · 标题", fallback: 17, range: 13...24),
-                .init(key: "type.section", label: "section · 区块", fallback: 20, range: 14...30),
-                .init(key: "type.large", label: "large · 大字", fallback: 24, range: 16...36),
-                .init(key: "type.readout", label: "readout · 读数", fallback: 30, range: 20...44),
-                .init(key: "type.page", label: "page · 页标题", fallback: 40, range: 24...60),
-                .init(key: "type.display", label: "display · 展示", fallback: 48, range: 28...72),
+                .init(key: "type.micro", label: "micro · 刻度", fallback: 9, range: 7...10),
+                .init(key: "type.caption", label: "caption · 注释", fallback: 10, range: 9...11),
+                .init(key: "type.footnote", label: "footnote · 次要", fallback: 11, range: 10...13),
+                .init(key: "type.body", label: "body · 正文", fallback: 13, range: 11...15),
+                .init(key: "type.sub", label: "sub · 小标题", fallback: 15, range: 13...17),
+                .init(key: "type.title", label: "title · 标题", fallback: 17, range: 15...22),
+                .init(key: "type.large", label: "large · 大字", fallback: 24, range: 18...30),
+                .init(key: "type.readout", label: "readout · 读数", fallback: 30, range: 24...40),
+                .init(key: "type.display", label: "display · 展示", fallback: 48, range: 32...64),
             ]
         case .radius:
             return [
-                .init(key: "radius.s", label: "s · 小件", fallback: 3, range: 0...12),
-                .init(key: "radius.m", label: "m · 卡片", fallback: 4, range: 0...16),
+                .init(key: "radius.s", label: "s · 小件", fallback: 6, range: 0...8),
+                .init(key: "radius.m", label: "m · 卡片", fallback: 8, range: 6...16),
             ]
         case .layout:
             // 不归档的具体版面尺寸，每个滑块只管一处。
@@ -109,7 +108,16 @@ final class WgTokens {
         return Self.allSpecs.first { $0.key == key }?.fallback ?? 0
     }
 
-    func set(_ key: String, _ value: CGFloat) { values[key] = value }
+    /// 档位值只能落在相邻两档之间，保证 s < m < l… 的顺序永远不反。
+    func set(_ key: String, _ value: CGFloat) {
+        var v = value
+        if let group = WgTokenGroup.allCases.first(where: { $0 != .layout && $0.specs.contains { $0.key == key } }),
+           let i = group.specs.firstIndex(where: { $0.key == key }) {
+            if i > 0 { v = max(v, self[group.specs[i - 1].key] + group.step) }
+            if i < group.specs.count - 1 { v = min(v, self[group.specs[i + 1].key] - group.step) }
+        }
+        values[key] = v
+    }
 
     var isDirty: Bool { Self.allSpecs.contains { self[$0.key] != (saved[$0.key] ?? $0.fallback) } }
 
@@ -153,7 +161,7 @@ final class WgTokens {
 // MARK: - 档位
 
 enum WgSpace {
-    static var hair: CGFloat { WgTokens.shared["space.hair"] }
+    static let zero: CGFloat = 0
     static var xs: CGFloat { WgTokens.shared["space.xs"] }
     static var s: CGFloat { WgTokens.shared["space.s"] }
     static var m: CGFloat { WgTokens.shared["space.m"] }
@@ -170,10 +178,8 @@ enum WgType {
     static var body: CGFloat { WgTokens.shared["type.body"] }
     static var sub: CGFloat { WgTokens.shared["type.sub"] }
     static var title: CGFloat { WgTokens.shared["type.title"] }
-    static var section: CGFloat { WgTokens.shared["type.section"] }
     static var large: CGFloat { WgTokens.shared["type.large"] }
     static var readout: CGFloat { WgTokens.shared["type.readout"] }
-    static var page: CGFloat { WgTokens.shared["type.page"] }
     static var display: CGFloat { WgTokens.shared["type.display"] }
 }
 
@@ -188,6 +194,45 @@ enum WgLayout {
     }
 }
 
+/// 间距档位。`wgPadding` 只收这个类型，写数字编译不过。
+enum WgGap: CaseIterable {
+    case zero, xs, s, m, l, xl, xxl, xxxl
+    var value: CGFloat {
+        switch self {
+        case .zero: return WgSpace.zero
+        case .xs: return WgSpace.xs
+        case .s: return WgSpace.s
+        case .m: return WgSpace.m
+        case .l: return WgSpace.l
+        case .xl: return WgSpace.xl
+        case .xxl: return WgSpace.xxl
+        case .xxxl: return WgSpace.xxxl
+        }
+    }
+}
+
+/// 字号档位。`WgInk.mono` / `WgInk.figure` 只收这个类型，写数字编译不过。
+enum WgTextSize: CaseIterable {
+    case micro, caption, footnote, body, sub, title, large, readout, display
+    /// 按比例推出来的字号（如读数的单位）落到最近的档位。
+    static func nearest(_ size: CGFloat) -> WgTextSize {
+        allCases.min { abs($0.value - size) < abs($1.value - size) } ?? .caption
+    }
+    var value: CGFloat {
+        switch self {
+        case .micro: return WgType.micro
+        case .caption: return WgType.caption
+        case .footnote: return WgType.footnote
+        case .body: return WgType.body
+        case .sub: return WgType.sub
+        case .title: return WgType.title
+        case .large: return WgType.large
+        case .readout: return WgType.readout
+        case .display: return WgType.display
+        }
+    }
+}
+
 enum WgRadius {
     static var s: CGFloat { WgTokens.shared["radius.s"] }
     static var m: CGFloat { WgTokens.shared["radius.m"] }
@@ -196,11 +241,18 @@ enum WgRadius {
 // MARK: - 带参考线的内边距
 
 extension View {
-    /// 等同 `.padding`；Debug 版打开参考线时会标出这块内边距属于哪一档。
-    func wgPadding(_ length: CGFloat) -> some View { modifier(WgPaddingGuide(edges: .all, length: length)) }
-    func wgPadding(_ edges: Edge.Set = .all, _ length: CGFloat) -> some View {
-        modifier(WgPaddingGuide(edges: edges, length: length))
+    /// 等同 `.padding`，但只收档位；Debug 版打开参考线时会标出这块内边距属于哪一档。
+    func wgPadding(_ gap: WgGap) -> some View { modifier(WgPaddingGuide(edges: .all, length: gap.value)) }
+    func wgPadding(_ edges: Edge.Set = .all, _ gap: WgGap) -> some View {
+        modifier(WgPaddingGuide(edges: edges, length: gap.value))
     }
+}
+
+extension View {
+    /// 不属于间距档位的版面尺寸：对齐某一列、由别的尺寸推算、负值微调等。
+    /// 只在它确实不是「间距」时用；每处都应该能说出它跟谁对齐。
+    func wgInset(_ length: CGFloat) -> some View { padding(length) }
+    func wgInset(_ edges: Edge.Set = .all, _ length: CGFloat) -> some View { padding(edges, length) }
 }
 
 struct WgPaddingGuide: ViewModifier {

@@ -16,8 +16,8 @@ struct PlaceholderView: View {
             Text(desc).foregroundStyle(.secondary)
             Text("即将推出")
                 .font(.caption)
-                .wgPadding(.horizontal, WgSpace.m)
-                .wgPadding(.vertical, WgSpace.xs)
+                .wgPadding(.horizontal, .m)
+                .wgPadding(.vertical, .xs)
                 .wgFloatingControlSurface(cornerRadius: WgRadius.s)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,8 +96,8 @@ struct LogsView: View {
                         }
                     }
                 }
-                .font(.system(size: WgType.footnote, design: .monospaced))
-                .wgPadding(WgSpace.l)
+                .font(.system(size: WgType.sub, design: .monospaced))
+                .wgPadding(.l)
             }
             .frame(maxWidth: .infinity, minHeight: 460)
             .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
@@ -130,8 +130,8 @@ struct LogsView: View {
             Text(tag).foregroundStyle(.secondary)
             Text(value).fontWeight(.medium)
         }
-        .font(.system(size: WgType.footnote))
-        .wgPadding(.horizontal, WgSpace.m)
+        .font(.system(size: WgType.sub))
+        .wgPadding(.horizontal, .m)
         .frame(height: 26)
         .wgInteractiveSurface(cornerRadius: WgRadius.s)
     }
@@ -164,7 +164,7 @@ struct SettingsView: View {
 
     var body: some View {
         WgPage(title: "设置", word: "SETTINGS") {
-            VStack(alignment: .leading, spacing: WgSpace.xxl) {
+            VStack(alignment: .leading, spacing: WgSpace.m) {
                 generalSection
                 appearanceSection
                 regionColorSection
@@ -312,7 +312,7 @@ struct SettingsView: View {
                 if let settingsMessage {
                     Label(LocalizedStringKey(settingsMessage),
                           systemImage: settingsMessage.contains("失败") ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: WgType.footnote))
+                        .font(.system(size: WgType.sub))
                         .foregroundStyle(settingsMessage.contains("失败") ? .orange : .green)
                         .transition(.opacity)
                 }
@@ -332,7 +332,7 @@ struct SettingsView: View {
                 .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .disabled(applyingConfig)
             }
-            .wgPadding(.horizontal, WgSpace.xs)
+            .wgPadding(.horizontal, .xs)
         }
     }
 
@@ -452,7 +452,7 @@ struct SettingsView: View {
                       subtitle: Text("需以 :: 结尾、在私有段 fc00::/7 内")) {
                     TextField("fd77:6773::", text: $ipv6Prefix)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: WgType.footnote, design: .monospaced))
+                        .font(.system(size: WgType.sub, design: .monospaced))
                         .frame(width: 200)
                         .onSubmit { saveIPv6Fields(settings) }
                 }
@@ -461,7 +461,7 @@ struct SettingsView: View {
                       subtitle: Text("[IPv6]:端口，逗号分隔，任一连通即算有 IPv6")) {
                     TextField("[2400:3200::1]:53", text: $ipv6Targets)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: WgType.footnote, design: .monospaced))
+                        .font(.system(size: WgType.sub, design: .monospaced))
                         .frame(width: 260)
                         .onSubmit { saveIPv6Fields(settings) }
                 }
@@ -475,8 +475,8 @@ struct SettingsView: View {
                             .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                             .disabled(ipv6Saving)
                     }
-                    .wgPadding(.horizontal, WgSpace.l)
-                    .wgPadding(.vertical, WgSpace.s)
+                    .wgPadding(.horizontal, .l)
+                    .wgPadding(.vertical, .s)
                 }
             } else {
                 WgRow(symbol: "6.circle", tint: .gray, title: "隧道 IPv6 设置不可用",
@@ -583,16 +583,16 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: WgSpace.xs) {
                     ForEach(diagnostics.routeLines.prefix(4), id: \.self) { line in
                         Text(verbatim: line)
-                            .font(.system(size: WgType.caption, design: .monospaced))
+                            .font(.system(size: WgType.body, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .wgPadding(.leading, 50)
-                .wgPadding(.trailing, WgSpace.l)
-                .wgPadding(.bottom, WgSpace.m)
+                .wgInset(.leading, 50)
+                .wgPadding(.trailing, .l)
+                .wgPadding(.bottom, .m)
             }
             WgRowDivider(inset: 14)
             VStack(alignment: .leading, spacing: WgSpace.m) {
@@ -616,12 +616,12 @@ struct SettingsView: View {
                 .disabled(maintenanceRunning || diagnosticsLoading)
                 if let maintenanceMessage {
                     Text(verbatim: maintenanceMessage)
-                        .font(.system(size: WgType.caption))
+                        .font(.system(size: WgType.body))
                         .foregroundStyle(maintenanceMessage.contains("失败") ? .orange : .green)
                 }
                 if client.status?.app_owned == true {
                     HStack {
-                        Text("旧版临时服务仍在运行").font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
+                        Text("旧版临时服务仍在运行").font(.system(size: WgType.sub)).foregroundStyle(.secondary)
                         Spacer()
                         maintenanceButton(shuttingDownDaemon ? "正在关闭…" : "关闭临时服务", icon: "power") {
                             Task {
@@ -636,7 +636,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .wgPadding(WgSpace.l)
+            .wgPadding(.l)
         }
     }
 
@@ -667,7 +667,7 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .frame(width: 160)
                 Text(String(format: "%.2f", value.wrappedValue))
-                    .font(.system(size: WgType.caption, design: .monospaced))
+                    .font(.system(size: WgType.body, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 32, alignment: .trailing)
             }
@@ -697,7 +697,7 @@ struct SettingsView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.system(size: WgType.footnote, weight: .medium))
+                .font(.system(size: WgType.sub, weight: .medium))
         }
         .buttonStyle(WgPillButtonStyle(tint: roleColor))
     }

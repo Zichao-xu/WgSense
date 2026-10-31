@@ -43,10 +43,10 @@ struct ProxyView: View {
         switch section {
         case .overview:
             PPOverviewPage()
-                .wgPadding(.horizontal, WgTheme.pagePadding)
+                .wgPadding(.horizontal, WgTheme.pageGap)
         case .proxies:
             PPProxiesPage()
-                .wgPadding(.horizontal, WgTheme.pagePadding)
+                .wgPadding(.horizontal, WgTheme.pageGap)
         case .connections:
             ProxyConnectionsPage()
         case .rules:
@@ -131,13 +131,13 @@ private struct ProxySectionTabs: View {
                     let on = selection == item
                     HStack(spacing: WgSpace.s) {
                         Text(verbatim: String(format: "%02d", index))
-                            .font(WgInk.mono(10, .medium))
+                            .font(WgInk.mono(.caption, .medium))
                             .foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
                         Text(item.title)
                             .font(.system(size: WgType.body, weight: on ? .bold : .semibold))
                             .foregroundStyle(on ? WgInk.ink : WgInk.ink2)
                     }
-                    .wgPadding(.leading, WgSpace.xl).wgPadding(.trailing, WgSpace.xxl)
+                    .wgPadding(.leading, .m).wgPadding(.trailing, .m)
                     .frame(height: 34)
                     .background {
                         if on {
@@ -156,8 +156,8 @@ private struct ProxySectionTabs: View {
         }
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .wgPadding(.horizontal, WgTheme.pagePadding)
-        .wgPadding(.bottom, WgSpace.l)
+        .wgPadding(.horizontal, WgTheme.pageGap)
+        .wgPadding(.bottom, .l)
         .focusEffectDisabled()
     }
 }
@@ -173,19 +173,19 @@ private struct ProxyPageHeader: View {
             // 节点信息块：左上斜切的黑色弱玻璃，等宽两列。
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
                 GridRow {
-                    Text(verbatim: "CORE").font(WgInk.mono(10)).tracking(1).foregroundStyle(WgInk.ink3)
-                    Text(verbatim: client.mihomoVersion?.version ?? "—").font(WgInk.mono(10.5, .medium)).foregroundStyle(WgInk.ink)
+                    Text(verbatim: "CORE").font(WgInk.mono(.caption)).tracking(1).foregroundStyle(WgInk.ink3)
+                    Text(verbatim: client.mihomoVersion?.version ?? "—").font(WgInk.mono(.caption, .medium)).foregroundStyle(WgInk.ink)
                 }
                 GridRow {
-                    Text(verbatim: "STATE").font(WgInk.mono(10)).tracking(1).foregroundStyle(WgInk.ink3)
+                    Text(verbatim: "STATE").font(WgInk.mono(.caption)).tracking(1).foregroundStyle(WgInk.ink3)
                     HStack(spacing: WgSpace.xs) {
                         Rectangle().fill(client.proxyRunning ? WgInk.ink : WgInk.ink4).frame(width: 6, height: 6)
-                        statusLabel.font(WgInk.mono(10.5, .medium)).foregroundStyle(WgInk.ink)
+                        statusLabel.font(WgInk.mono(.caption, .medium)).foregroundStyle(WgInk.ink)
                     }
                 }
             }
             .lineLimit(1)
-            .wgPadding(.leading, WgSpace.xl).wgPadding(.trailing, WgSpace.l).wgPadding(.vertical, WgSpace.s)
+            .wgPadding(.leading, .m).wgPadding(.trailing, .l).wgPadding(.vertical, .s)
             .wgGlassPanel(ChamferShape(tl: 12))
 
             Button {
@@ -197,8 +197,8 @@ private struct ProxyPageHeader: View {
             .accessibilityLabel("刷新代理状态")
             .help("刷新连接状态")
         }
-        .wgPadding(.horizontal, WgTheme.pagePadding)
-        .wgPadding(.bottom, WgSpace.l)
+        .wgPadding(.horizontal, WgTheme.pageGap)
+        .wgPadding(.bottom, .l)
     }
 
     @ViewBuilder
@@ -235,7 +235,7 @@ private struct ProxyFeedbackBar: View {
             .accessibilityLabel("关闭提示")
             .help("关闭")
         }
-        .wgPadding(.horizontal, WgTheme.pagePadding)
+        .wgPadding(.horizontal, WgTheme.pageGap)
         .frame(minHeight: 36)
         .background(color.opacity(0.07))
     }
@@ -371,11 +371,11 @@ private struct ProxyOverviewPage: View {
             )
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: WgSpace.xl) {
+                LazyVStack(alignment: .leading, spacing: WgSpace.m) {
                     ProxyOverviewMetricStrip(sample: current)
 
                     ProxyPanel {
-                        HStack(spacing: WgSpace.xl) {
+                        HStack(spacing: WgSpace.m) {
                             ProxyLineChart(
                                 title: "实时速度",
                                 series: [
@@ -421,14 +421,14 @@ private struct ProxyOverviewPage: View {
                     }
 
                     ProxyPanel(title: "规则命中统计") {
-                        HStack(spacing: WgSpace.xl) {
+                        HStack(spacing: WgSpace.m) {
                             ProxyBarChart(title: "命中统计", data: Array(ruleHitStats.prefix(18)), color: .indigo)
                             ProxyBarChart(title: "未命中统计", data: Array(ruleUnhitStats.prefix(18)), color: .cyan)
                         }
                         .frame(height: 300)
                     }
                 }
-                .wgPadding(WgTheme.pagePadding)
+                .wgPadding(WgTheme.pageGap)
             }
             .wgTimelineScroller()
             .task {
@@ -546,7 +546,7 @@ private struct ProxyPanel<Content: View>: View {
             }
             content
         }
-        .wgPadding(WgSpace.xl)
+        .wgPadding(.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
@@ -608,7 +608,7 @@ private struct ProxyLineChart: View {
                         Text(formatter(allValues.last ?? allValues.max() ?? 0))
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
-                            .wgPadding(WgSpace.s)
+                            .wgPadding(.s)
                             .contentTransition(.numericText())
                     }
                 }
@@ -835,7 +835,7 @@ private struct ProxyInfoBox: View {
             }
         }
         .font(.system(.callout, design: .monospaced))
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s))
     }
@@ -1014,7 +1014,7 @@ private struct ProxyNetworkInformationView: View {
     @State private var isRefreshing = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: WgSpace.xxl) {
+        HStack(alignment: .top, spacing: WgSpace.m) {
             identityColumn
                 .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
 
@@ -1023,7 +1023,7 @@ private struct ProxyNetworkInformationView: View {
             latencyColumn
                 .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
         }
-        .wgPadding(.vertical, WgSpace.xs)
+        .wgPadding(.vertical, .xs)
         .task {
             await refresh()
             while !Task.isCancelled {
@@ -1058,7 +1058,7 @@ private struct ProxyNetworkInformationView: View {
                 }
             }
             .font(.system(.callout, design: .rounded))
-            .wgPadding(.trailing, 82)
+            .wgInset(.trailing, 82)
 
             HStack(spacing: WgSpace.s) {
                 Button {
@@ -1612,8 +1612,8 @@ private struct ProxyTopologyNodeButton: View {
                     .foregroundStyle(isSelected || isHovered ? node.color.opacity(0.72) : Color.secondary.opacity(0.55))
             }
             .multilineTextAlignment(.center)
-            .wgPadding(.vertical, WgSpace.hair)
-            .wgPadding(.horizontal, WgSpace.s)
+            .wgPadding(.vertical, .zero)
+            .wgPadding(.horizontal, .s)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }
@@ -1635,8 +1635,8 @@ private struct ProxyTopologyTooltip: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
-        .wgPadding(.horizontal, WgSpace.m)
-        .wgPadding(.vertical, WgSpace.s)
+        .wgPadding(.horizontal, .m)
+        .wgPadding(.vertical, .s)
         .frame(maxWidth: 260, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
         .overlay(
@@ -1669,7 +1669,7 @@ private struct ProxyTopologySelectionBar: View {
                 Spacer()
                 Button(action: clearSelection) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: WgType.sub, weight: .semibold))
+                        .font(.system(size: WgType.title, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1687,7 +1687,7 @@ private struct ProxyTopologySelectionBar: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .wgPadding(.horizontal, WgSpace.m)
+        .wgPadding(.horizontal, .m)
         .frame(height: 34)
         .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
     }
@@ -1728,7 +1728,7 @@ private struct ProxySourceStatsTable: View {
                     .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
             }
         }
-        .wgPadding(.horizontal, WgSpace.m)
+        .wgPadding(.horizontal, .m)
         .frame(height: header ? 36 : 42)
         .background(header ? Color.black.opacity(0.14) : Color.white.opacity(0.025))
     }
@@ -1766,7 +1766,7 @@ private struct ProxyBarChart: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    .wgPadding(.leading, WgSpace.xxxl)
+                    .wgPadding(.leading, .xl)
                 }
             }
         }
@@ -1792,16 +1792,16 @@ private struct ProxyMetric: View {
     var body: some View {
         HStack(spacing: WgSpace.m) {
             Image(systemName: icon)
-                .font(.system(size: WgType.title, weight: .medium))
+                .font(.system(size: WgType.body, weight: .medium))
                 .foregroundStyle(color)
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(value).font(.title3.weight(.semibold)).monospacedDigit()
                 Text(title).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .frame(minHeight: 64)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius, tint: color)
     }
@@ -1831,7 +1831,7 @@ private struct ProviderUsageRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.vertical, .m)
     }
 }
 
@@ -1890,7 +1890,7 @@ private struct ProxyBrowserPage: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("搜索", text: $search).textFieldStyle(.plain)
                     }
-                    .wgPadding(.horizontal, WgSpace.s)
+                    .wgPadding(.horizontal, .s)
                     .frame(width: 230, height: 30)
                     .wgFloatingControlSurface(cornerRadius: WgRadius.s)
 
@@ -1914,7 +1914,7 @@ private struct ProxyBrowserPage: View {
                     .buttonStyle(.plain)
                     .help("刷新")
                 }
-                .wgPadding(.horizontal, WgSpace.xl)
+                .wgPadding(.horizontal, .m)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -1957,7 +1957,7 @@ private struct ProxyBrowserPage: View {
                     )
                 }
             }
-            .wgPadding(WgSpace.xl)
+            .wgPadding(.m)
         }
         .wgTimelineScroller()
         .overlay {
@@ -1974,7 +1974,7 @@ private struct ProxyBrowserPage: View {
                     ProxyProviderRow(provider: provider, emojiEnabled: emojiEnabled)
                 }
             }
-            .wgPadding(WgSpace.xl)
+            .wgPadding(.m)
         }
         .wgTimelineScroller()
         .overlay {
@@ -1997,7 +1997,7 @@ private struct ProxyBrowserPage: View {
                     }
                 }
             }
-            .wgPadding(WgSpace.xl)
+            .wgPadding(.m)
         }
         .wgTimelineScroller()
         .overlay {
@@ -2086,7 +2086,7 @@ private struct ProxyGroupRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .wgGlassSurface(cornerRadius: WgTheme.cardRadius)
     }
 }
@@ -2126,8 +2126,8 @@ private struct ProxyChoiceButton: View {
             .buttonStyle(.plain)
             .help("测试延迟")
         }
-        .wgPadding(.leading, WgSpace.s)
-        .wgPadding(.trailing, WgSpace.xs)
+        .wgPadding(.leading, .s)
+        .wgPadding(.trailing, .xs)
         .frame(height: nestedSelection == nil ? 34 : 42)
         .background(selected ? WgTheme.accent.opacity(0.12) : Color.white.opacity(0.025))
         .clipShape(RoundedRectangle(cornerRadius: WgRadius.s))
@@ -2146,7 +2146,7 @@ private struct ProxyNodeCell: View {
             Circle()
                 .fill(node.alive == false ? Color.red : Color.green)
                 .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(proxyDisplayName(node.name, emojiEnabled: emojiEnabled)).font(.subheadline.weight(.medium)).lineLimit(1)
                 Text(node.type + (node.sourceProvider.map { " · \($0)" } ?? ""))
                     .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -2161,7 +2161,7 @@ private struct ProxyNodeCell: View {
             .buttonStyle(.plain)
             .help("测试延迟")
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .frame(height: 58)
         .wgGlassSurface()
     }
@@ -2176,7 +2176,7 @@ private struct ProxyProviderRow: View {
     var body: some View {
         HStack(spacing: WgSpace.l) {
             Image(systemName: "shippingbox")
-                .font(.system(size: WgType.title))
+                .font(.system(size: WgType.body))
                 .foregroundStyle(.blue)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: WgSpace.xs) {
@@ -2214,7 +2214,7 @@ private struct ProxyProviderRow: View {
             .disabled(busyAction != nil)
             .help("更新订阅")
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .wgGlassSurface()
     }
 
@@ -2262,7 +2262,7 @@ private struct ProxyConnectionsPage: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("域名、IP、进程或规则", text: $search).textFieldStyle(.plain)
                     }
-                    .wgPadding(.horizontal, WgSpace.s)
+                    .wgPadding(.horizontal, .s)
                     .frame(width: 260, height: 30)
                     .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Button {
@@ -2274,7 +2274,7 @@ private struct ProxyConnectionsPage: View {
                     .disabled(filtered.isEmpty)
                     .help("关闭全部连接")
                 }
-                .wgPadding(.horizontal, WgSpace.xl)
+                .wgPadding(.horizontal, .m)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -2285,7 +2285,7 @@ private struct ProxyConnectionsPage: View {
                             Divider().opacity(0.1)
                         }
                     }
-                    .wgPadding(.horizontal, WgSpace.xl)
+                    .wgPadding(.horizontal, .m)
                 }
                 .wgTimelineScroller()
                 .overlay {
@@ -2331,7 +2331,7 @@ private struct ProxyConnectionRow: View {
                 .lineLimit(1)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: WgSpace.hair) {
+            VStack(alignment: .trailing, spacing: WgSpace.zero) {
                 Text("↓ \(proxyFormatBytes(connection.download))  ↑ \(proxyFormatBytes(connection.upload))")
                     .font(.caption.monospacedDigit())
                 Text((connection.chains ?? []).joined(separator: " › "))
@@ -2405,7 +2405,7 @@ private struct ProxyRulesPage: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("搜索规则", text: $search).textFieldStyle(.plain)
                     }
-                    .wgPadding(.horizontal, WgSpace.s)
+                    .wgPadding(.horizontal, .s)
                     .frame(width: 240, height: 30)
                     .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Button {
@@ -2416,7 +2416,7 @@ private struct ProxyRulesPage: View {
                     .buttonStyle(.plain)
                     .help("刷新规则")
                 }
-                .wgPadding(.horizontal, WgSpace.xl)
+                .wgPadding(.horizontal, .m)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -2428,7 +2428,7 @@ private struct ProxyRulesPage: View {
                                 Divider().opacity(0.1)
                             }
                         }
-                        .wgPadding(.horizontal, WgSpace.xl)
+                        .wgPadding(.horizontal, .m)
                     }
                     .wgTimelineScroller()
                 } else {
@@ -2438,7 +2438,7 @@ private struct ProxyRulesPage: View {
                                 ProxyRuleProviderRow(provider: provider)
                             }
                         }
-                        .wgPadding(WgSpace.xl)
+                        .wgPadding(.m)
                     }
                     .wgTimelineScroller()
                 }
@@ -2512,7 +2512,7 @@ private struct ProxyRuleProviderRow: View {
             .disabled(updating)
             .help("更新规则集")
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .wgGlassSurface()
     }
 }
@@ -2559,7 +2559,7 @@ private struct ProxyLogsPage: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                         TextField("筛选日志", text: $search).textFieldStyle(.plain)
                     }
-                    .wgPadding(.horizontal, WgSpace.s)
+                    .wgPadding(.horizontal, .s)
                     .frame(width: 220, height: 30)
                     .wgFloatingControlSurface(cornerRadius: WgRadius.s)
                     Toggle("自动刷新", isOn: $autoRefresh)
@@ -2573,7 +2573,7 @@ private struct ProxyLogsPage: View {
                     .buttonStyle(.plain)
                     .help("清空本地日志视图")
                 }
-                .wgPadding(.horizontal, WgSpace.xl)
+                .wgPadding(.horizontal, .m)
                 .frame(height: 52)
                 Divider().opacity(0.12)
 
@@ -2594,11 +2594,11 @@ private struct ProxyLogsPage: View {
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .wgPadding(.vertical, WgSpace.s)
+                            .wgPadding(.vertical, .s)
                             Divider().opacity(0.07)
                         }
                     }
-                    .wgPadding(.horizontal, WgSpace.xl)
+                    .wgPadding(.horizontal, .m)
                 }
                 .wgTimelineScroller()
                 .overlay {
@@ -2625,14 +2625,14 @@ private struct ProxySettingsPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: WgSpace.xxxl) {
+            VStack(alignment: .leading, spacing: WgSpace.xl) {
 				ProxyAppearanceSettings()
                 ProxyControllerSettingsEditor()
                 ProxyRuntimeSettingsEditor()
                 ProxyMaintenanceSettings()
                 ProxyDNSQuerySettings()
             }
-            .wgPadding(WgTheme.pagePadding)
+            .wgPadding(WgTheme.pageGap)
             .frame(maxWidth: 920, alignment: .leading)
         }
         .wgTimelineScroller()
@@ -2754,7 +2754,7 @@ private struct ProxyControllerSettingsEditor: View {
             Image(systemName: client.proxyServiceRunning ? (client.proxyRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill") : "powerplug")
                 .foregroundStyle(client.proxyServiceRunning ? (client.proxyRunning ? .green : .orange) : .orange)
                 .frame(width: 20)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(client.proxyServiceRunning ? (client.proxyRunning ? "控制器已连接" : "后台服务已启动，控制器未连接") : "后台服务未启动")
                     .font(.callout.weight(.medium))
                 Text(client.proxyServiceRunning ? "地址或密钥错误时会连接失败。" : "点击启动后台服务，系统会要求管理员授权。不会自动连接 VPN。")
@@ -2783,7 +2783,7 @@ private struct ProxyControllerSettingsEditor: View {
                 .buttonStyle(.bordered)
             }
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
     }
 
@@ -2873,7 +2873,7 @@ private struct ProxyRuntimeSettingsEditor: View {
                         .frame(width: 180)
                     }
                     ProxySettingRow(label: "网络") {
-                        HStack(spacing: WgSpace.xxl) {
+                        HStack(spacing: WgSpace.m) {
                             Toggle("TUN", isOn: $tun)
                             Toggle("允许局域网", isOn: $allowLAN)
                             Toggle("IPv6", isOn: $ipv6)
@@ -3030,7 +3030,7 @@ private struct ProxyActionButton: View {
                 Text(title).font(.subheadline)
                 Spacer()
             }
-            .wgPadding(.horizontal, WgSpace.m)
+            .wgPadding(.horizontal, .m)
             .frame(height: 38)
             .wgGlassSurface(cornerRadius: WgRadius.s, tint: roleColor.opacity(0.8), interactive: true)
         }

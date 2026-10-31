@@ -39,7 +39,8 @@ enum WgTheme {
     static var controlRadius: CGFloat { WgRadius.m }
     static var floatingRadius: CGFloat { WgRadius.m }
     static var spacing: CGFloat { WgSpace.m }
-    static var pagePadding: CGFloat { WgSpace.xxxl }
+    static let pageGap: WgGap = .xl
+    static var pagePadding: CGFloat { pageGap.value }
     /// 磁贴尺寸基准：小磁贴高=y, 宽=x; 中=高y宽2x; 大=2y×2x; 间距=y/10
     /// 设 y=80 → small: 80×(80/0.618)≈80×129, medium: 80×259, large: 160×259
     static let tileY: CGFloat = 80
@@ -278,7 +279,7 @@ struct MainView: View {
         .overlay(alignment: .bottom) {
             if let toast = client.actionToast {
                 ActionToastView(toast: toast)
-                    .wgPadding(.bottom, 78)
+                    .wgInset(.bottom, 78)
                     .transition(
                         .scale(scale: 0.92, anchor: .bottom)
                             .combined(with: .opacity)
@@ -352,17 +353,17 @@ private struct MainPageArea: View {
         Group {
         if selection == .proxy {
             ProxyView()
-                .wgPadding(.vertical, WgSpace.xxxl)
+                .wgPadding(.vertical, .xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else if selection == .speedtest {
             // Own the viewport: lazy drawers/sections stay lazy, including during live resize.
-            ScrollView { SpeedLabView().wgPadding(WgSpace.xxxl) }
+            ScrollView { SpeedLabView().wgPadding(.xl) }
                 .environmentObject(client)
                 .modifier(WgLocaleOverride(language: language))
                 .tint(WgInk.control)
         } else if selection == .logs {
             // 日志页内部自带滚动区（跟随最新一行），保留 SwiftUI 容器。
-            ScrollView { LogsView().wgPadding(WgSpace.xxxl) }
+            ScrollView { LogsView().wgPadding(.xl) }
         } else {
             // 普通页面统一用原生滚动容器（见 WgScrollView）：滚动时 SwiftUI 不再逐帧布局。
             // 内容是独立宿主根，环境需显式注入。
@@ -379,7 +380,7 @@ private struct MainPageArea: View {
                     case .proxy, .logs: EmptyView()
                     }
                 }
-                .wgPadding(WgSpace.xxxl)
+                .wgPadding(.xl)
                 .environmentObject(client)
                 .modifier(WgLocaleOverride(language: language))
                 .tint(WgInk.control)
@@ -684,10 +685,10 @@ struct SidebarView: View {
         HStack(spacing: WgSpace.m) {
             WgBrandIcon()
                 .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
-                Text(verbatim: "WgSense").font(.system(size: WgType.sub, weight: .heavy)).tracking(0.6)
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
+                Text(verbatim: "WgSense").font(.system(size: WgType.title, weight: .heavy)).tracking(0.6)
                 Text(verbatim: "V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") · WIREGUARD / MIHOMO")
-                    .font(WgInk.mono(8.5)).tracking(1).foregroundStyle(WgInk.ink3).lineLimit(1)
+                    .font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink3).lineLimit(1)
             }
             Spacer(minLength: 4)
 
@@ -709,10 +710,10 @@ struct SidebarView: View {
                 .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
                 .help("设置")
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.top, WgSpace.m)
-        .wgPadding(.bottom, WgSpace.l)
-        .overlay(alignment: .top) { Rectangle().fill(WgInk.rule).frame(height: 1).wgPadding(.horizontal, WgSpace.l) }
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.top, .m)
+        .wgPadding(.bottom, .l)
+        .overlay(alignment: .top) { Rectangle().fill(WgInk.rule).frame(height: 1).wgPadding(.horizontal, .l) }
         .focusEffectDisabled()
         .wgRegionBackground()
         .wgSurfaceRegion(.toolbar)
@@ -827,10 +828,10 @@ struct SidebarView: View {
         return VStack(alignment: .leading, spacing: WgSpace.m) {
             VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(tile.kind.title)
-                    .font(.system(size: WgType.sub, weight: .bold))
+                    .font(.system(size: WgType.title, weight: .bold))
                     .lineLimit(1)
                 info.status
-                    .font(.system(size: WgType.caption, weight: .medium))
+                    .font(.system(size: WgType.body, weight: .medium))
                     .foregroundStyle(info.highlight ? info.tint : WgInk.ink3)
                     .lineLimit(1)
             }
@@ -839,7 +840,7 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.m).wgPadding(.vertical, compact ? WgSpace.m : WgSpace.l)
+        .wgPadding(.leading, .l).wgPadding(.trailing, .m).wgPadding(.vertical, compact ? .m : .l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: compact ? .leading : .topLeading)
         .background(alignment: .bottomTrailing) {
             WgGhostSymbol(symbol: info.symbol, size: compact ? 58 : 72, opacity: info.isOn ? 0.2 : 0.12)
@@ -849,7 +850,7 @@ struct SidebarView: View {
             Rectangle().fill(WgInk.ink.opacity(info.isOn ? 0.9 : 0.45)).frame(width: 3, height: 20)
         }
         .overlay(alignment: .topTrailing) {
-            Text(verbatim: tile.kind.code).font(WgInk.mono(9.5)).tracking(1).foregroundStyle(WgInk.ink4).wgPadding(WgSpace.s)
+            Text(verbatim: tile.kind.code).font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink4).wgPadding(.s)
         }
         .wgInteractiveSurface(isSelected: isSelected(tile.kind), isEnabled: !isEditMode) {
             handleSmallTileTap(tile)
@@ -889,7 +890,7 @@ struct SidebarView: View {
             Spacer(minLength: 6)
             Text(verbatim: value).foregroundStyle(.tertiary).monospacedDigit()
         }
-        .font(.system(size: WgType.caption))
+        .font(.system(size: WgType.body))
         .lineLimit(1)
     }
 
@@ -915,16 +916,16 @@ struct SidebarView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("VPN")
-                        .font(.system(size: compact ? WgType.body : WgType.sub, weight: .semibold))
+                        .font(.system(size: compact ? WgType.body : WgType.title, weight: .semibold))
                     Text(vpn.title)
-                        .font(.system(size: compact ? WgType.caption : WgType.footnote, weight: vpn.isConnected ? .medium : .regular))
+                        .font(.system(size: compact ? WgType.body : WgType.sub, weight: vpn.isConnected ? .medium : .regular))
                         .foregroundStyle(vpn.isConnected ? vpn.tint : Color.secondary)
                         .contentTransition(.opacity)
                 }
                 Spacer(minLength: 0)
 
                 if tile.size == .medium {
-                    HStack(spacing: WgSpace.hair) {
+                    HStack(spacing: WgSpace.zero) {
                         Button { Task { await client.setGuardEnabled(!guardRunning) } } label: {
                             Image(systemName: guardRunning ? "shield.fill" : "shield.slash")
                         }
@@ -942,16 +943,16 @@ struct SidebarView: View {
 
             if tile.size == .large {
                 Text(vpn.detail)
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .wgPadding(.top, WgSpace.m)
+                    .wgPadding(.top, .m)
                 Spacer(minLength: 8)
                 vpnActions
             }
         }
-        .wgPadding(compact ? WgSpace.m : WgSpace.l)
+        .wgPadding(compact ? .m : .l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: compact ? .leading : .topLeading)
         .wgInteractiveSurface(isSelected: selection == .dashboard, isEnabled: !isEditMode) {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
@@ -1014,11 +1015,11 @@ struct SidebarView: View {
         Button(action: action) {
             VStack(spacing: WgSpace.xs) {
                 Image(systemName: symbol)
-                    .font(.system(size: WgType.footnote, weight: .semibold))
+                    .font(.system(size: WgType.sub, weight: .semibold))
                     .foregroundStyle(destructive ? AnyShapeStyle(Color.red.opacity(0.9)) : AnyShapeStyle(.foreground))
                     .contentTransition(.symbolEffect(.replace))
                 Text(title)
-                    .font(.system(size: WgType.caption, weight: .medium))
+                    .font(.system(size: WgType.body, weight: .medium))
             }
         }
         .buttonStyle(WgActionButtonStyle(isActive: isActive, tint: tint))
@@ -1037,7 +1038,7 @@ struct SidebarView: View {
                 WgCircleBadge(symbol: TileKind.connection.icon, tint: .cyan, isOn: up, size: compact ? 36 : 38)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(TileKind.connection.title)
-                        .font(.system(size: WgType.sub, weight: .semibold))
+                        .font(.system(size: WgType.title, weight: .semibold))
                     Group {
                         if compact && up {
                             Text(verbatim: "↓ \(WgFormat.speed(rx))")
@@ -1045,13 +1046,13 @@ struct SidebarView: View {
                             Text(up ? "经由隧道" : "未连接")
                         }
                     }
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 }
                 Spacer(minLength: 0)
                 if !compact {
-                    VStack(alignment: .trailing, spacing: WgSpace.hair) {
+                    VStack(alignment: .trailing, spacing: WgSpace.zero) {
                         speedLabel("arrow.down", up ? WgFormat.speed(rx) : "—")
                         speedLabel("arrow.up", up ? WgFormat.speed(tx) : "—")
                     }
@@ -1071,7 +1072,7 @@ struct SidebarView: View {
                 .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
-        .wgPadding(compact ? WgSpace.m : WgSpace.l)
+        .wgPadding(compact ? .m : .l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tile.size == .large ? .topLeading : .leading)
         .wgInteractiveSurface(isSelected: false, isEnabled: !isEditMode) {
             withAnimation(.easeInOut(duration: 0.15)) { selection = .dashboard }
@@ -1084,7 +1085,7 @@ struct SidebarView: View {
                 .font(.system(size: WgType.micro, weight: .bold))
                 .foregroundStyle(.tertiary)
             Text(verbatim: value)
-                .font(.system(size: WgType.footnote, weight: .medium).monospacedDigit())
+                .font(.system(size: WgType.sub, weight: .medium).monospacedDigit())
                 .foregroundStyle(.primary.opacity(0.85))
         }
     }
@@ -1103,15 +1104,15 @@ struct SidebarView: View {
                         .fontWeight(selection == tab ? .semibold : .regular)
                         .foregroundStyle(selection == tab ? .primary : .secondary)
                         .frame(maxWidth: .infinity)
-                        .wgPadding(.vertical, WgSpace.s)
+                        .wgPadding(.vertical, .s)
                         .background(RoundedRectangle(cornerRadius: WgRadius.s)
                             .fill(selection == tab ? WgTheme.accent : Color.clear))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .wgPadding(.horizontal, WgSpace.m)
-        .wgPadding(.bottom, WgSpace.m)
+        .wgPadding(.horizontal, .m)
+        .wgPadding(.bottom, .m)
     }
 
     // MARK: - 磁贴内容视图
@@ -1202,7 +1203,7 @@ struct SidebarView: View {
     }
 
     private func statItem(_ label: LocalizedStringKey, _ value: String, _ color: Color) -> some View {
-        VStack(spacing: WgSpace.hair) {
+        VStack(spacing: WgSpace.zero) {
             Text(label).font(.caption2).foregroundStyle(color)
             Text(value).font(.caption).fontWeight(.medium).monospacedDigit()
         }
@@ -1234,22 +1235,22 @@ struct SidebarView: View {
                     .font(.caption2).monospacedDigit()
                     .foregroundColor(Color(.tertiaryLabelColor))
             }
-            .wgPadding(.bottom, WgSpace.s)
+            .wgPadding(.bottom, .s)
 
             Divider().opacity(0.15)
 
             // 滚动日志区域
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: tile.size == .large) {
-                    VStack(alignment: .leading, spacing: tile.size == .large ? WgSpace.xs : WgSpace.hair) {
+                    VStack(alignment: .leading, spacing: tile.size == .large ? WgSpace.xs : WgSpace.zero) {
                         ForEach(client.logLines) { line in
                             HStack(spacing: WgSpace.s) {
                                 Circle()
                                     .fill(Color.gray.opacity(0.25))
                                     .frame(width: 4, height: 4)
-                                    .wgPadding(.top, WgSpace.xs)
+                                    .wgPadding(.top, .xs)
                                 Text(line.text)
-                                    .font(.system(size: tile.size == .medium ? WgType.caption : WgType.caption))
+                                    .font(.system(size: tile.size == .medium ? WgType.body : WgType.body))
                                     .foregroundColor(.white.opacity(0.55))
                                     .lineLimit(tile.size == .large ? 2 : 1)
                                     .id(line.id)
@@ -1257,8 +1258,8 @@ struct SidebarView: View {
                             }
                         }
                     }
-                    .wgPadding(.top, WgSpace.s)
-                    .wgPadding(.horizontal, WgSpace.xs)
+                    .wgPadding(.top, .s)
+                    .wgPadding(.horizontal, .xs)
                 }
                 .onChange(of: client.logLines.count) { _, _ in
                     if let last = client.logLines.last {
@@ -1308,7 +1309,7 @@ struct SidebarView: View {
                     }
                 }
                 if tile.size != .small { Divider().opacity(0.15) }
-                VStack(alignment: .leading, spacing: WgSpace.hair) {
+                VStack(alignment: .leading, spacing: WgSpace.zero) {
                     Text(tile.kind.title)
                         .font(tile.size == .small ? .subheadline : .body)
                         .fontWeight(.semibold)
@@ -1322,7 +1323,7 @@ struct SidebarView: View {
                             Circle().fill(isOn ? color : Color.gray.opacity(0.3))
                                 .frame(width: 6, height: 6)
                             Text(isOn ? "运行中" : "已停止")
-                                .font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                                .font(.system(size: WgType.body)).foregroundStyle(.secondary)
                             Spacer()
                         }
                     }
@@ -1357,13 +1358,13 @@ struct SidebarView: View {
                         Text(actionLabel)
                             .font(.caption2).fontWeight(.semibold)
                             .foregroundStyle(.white)
-                            .wgPadding(.horizontal, WgSpace.m).wgPadding(.vertical, WgSpace.xs)
+                            .wgPadding(.horizontal, .m).wgPadding(.vertical, .xs)
                             .background(color).clipShape(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
                     }.buttonStyle(.plain)
                 }
             }
             if tile.size != .small { Divider().opacity(0.15) }
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(tile.kind.title)
                     .font(tile.size == .small ? .subheadline : .body)
                     .fontWeight(.semibold)
@@ -1374,9 +1375,9 @@ struct SidebarView: View {
                 // 中尺寸：显示快捷操作
                 if tile.size == .medium {
                     HStack(spacing: WgSpace.s) {
-                        Image(systemName: "clock").font(.system(size: WgType.caption)).foregroundStyle(.tertiary)
+                        Image(systemName: "clock").font(.system(size: WgType.body)).foregroundStyle(.tertiary)
                         Text("\(client.pauseMinutes)分钟")
-                            .font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                            .font(.system(size: WgType.body)).foregroundStyle(.secondary)
                         Spacer()
                     }
                 }
@@ -1424,11 +1425,11 @@ struct SidebarView: View {
     }
 
     /// 内边距
-    private func tilePadding(_ size: TileSize) -> CGFloat {
+    private func tilePadding(_ size: TileSize) -> WgGap {
         switch size {
-        case .small: return 10
-        case .medium: return 14
-        case .large: return 16
+        case .small: return .m
+        case .medium: return .m
+        case .large: return .l
         }
     }
 
@@ -1479,7 +1480,7 @@ struct SidebarView: View {
                 }
             } label: {
                 Image(systemName: "minus.circle.fill")
-                    .font(.system(size: WgType.sub))
+                    .font(.system(size: WgType.title))
                     .foregroundStyle(.red.opacity(0.75))
                     .background(Circle().fill(Color.black.opacity(0.4)))
             }.buttonStyle(.plain)
@@ -1499,20 +1500,21 @@ struct SidebarView: View {
                 }
             } label: {
                 Image(systemName: tile.size == .large ? "arrow.down.left.and.arrow.up.right" : "arrow.up.right.and.arrow.down.left")
-                    .font(.system(size: WgType.footnote))
+                    .font(.system(size: WgType.sub))
                     .foregroundStyle(.white.opacity(0.7))
-                    .wgPadding(WgSpace.xs)
+                    .wgPadding(.xs)
                     .background(RoundedRectangle(cornerRadius: WgRadius.m).fill(.black.opacity(0.4)))
             }.buttonStyle(.plain)
         }
         .transition(.opacity.combined(with: .scale))
-        .wgPadding(WgSpace.s)
+        .wgPadding(.s)
     }
 
     // MARK: - 磁贴网格（稳定身份、按实际宽度实时排版）
 
     private func tileGridContent(availableWidth: CGFloat) -> some View {
-        let outerPadding: CGFloat = 12
+        let outerGap: WgGap = .m
+        let outerPadding = outerGap.value
         let usableWidth = max(1, availableWidth - outerPadding * 2)
         let columnCount = GridGeometry.columns(usableWidth)
         let specs = tiles.map {
@@ -1525,10 +1527,10 @@ struct SidebarView: View {
                 ForEach(tiles) { tile in tileCell(tile) }
             }
             editFooter
-                .wgPadding(.top, WgTheme.tileGap)
+                .wgInset(.top, WgTheme.tileGap)
         }
-        .wgPadding(.horizontal, outerPadding)
-        .wgPadding(.vertical, WgTheme.tileGap)
+        .wgPadding(.horizontal, outerGap)
+        .wgInset(.vertical, WgTheme.tileGap)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: tiles.map { $0.kind })
         .animation(.smooth(duration: 0.3), value: columnCount)
         // 空白处点击退出编辑
@@ -1561,7 +1563,7 @@ struct SidebarView: View {
                 }
                 .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
             }
-            .wgPadding(.top, WgSpace.xs)
+            .wgPadding(.top, .xs)
         }
     }
 
@@ -1681,7 +1683,7 @@ struct SidebarView: View {
             if tile.size != .large {
                 menuRow("大 (4 格)", icon: "rectangle.3.groupfill") { resizeTile(tile, to: .large); contextMenuTile = nil }
             }
-            Divider().wgPadding(.horizontal, WgSpace.m)
+            Divider().wgPadding(.horizontal, .m)
             menuRow("移除磁贴", icon: "trash", destructive: true) {
                 withAnimation(.spring(response: 0.3)) {
                     tiles.removeAll { $0.id == tile.id }
@@ -1689,7 +1691,7 @@ struct SidebarView: View {
                 contextMenuTile = nil
             }
         }
-        .wgPadding(.vertical, WgSpace.xs)
+        .wgPadding(.vertical, .xs)
         .frame(width: 170)
     }
 
@@ -1702,8 +1704,8 @@ struct SidebarView: View {
                     .foregroundStyle(destructive ? .red : .primary)
                 Spacer()
             }
-            .wgPadding(.horizontal, WgSpace.m)
-            .wgPadding(.vertical, WgSpace.s)
+            .wgPadding(.horizontal, .m)
+            .wgPadding(.vertical, .s)
             .background(destructive ? Color.red.opacity(0.08) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: WgRadius.s))
         }
@@ -1741,7 +1743,7 @@ struct ToggleSwitch: View {
                 .fill(.white)
                 .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
                 .frame(width: thumbSize, height: thumbSize)
-                .wgPadding(padding)
+                .wgInset(padding)
         }
         .animation(.easeInOut(duration: 0.22), value: isOn)
     }
@@ -1762,12 +1764,12 @@ struct ActionToastView: View {
     private var toastContent: some View {
         HStack(spacing: WgSpace.m) {
             Image(systemName: toast.symbol)
-                .font(.system(size: WgType.title, weight: .semibold))
+                .font(.system(size: WgType.body, weight: .semibold))
                 .foregroundStyle(toast.tint)
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(toast.tint.opacity(0.16)))
 
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(toast.title)
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -1781,8 +1783,8 @@ struct ActionToastView: View {
 
             Spacer(minLength: 0)
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.vertical, .m)
         .modifier(LiquidGlassToastSurface(tint: toast.tint))
     }
 }
@@ -1792,7 +1794,7 @@ private struct LiquidGlassToastSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: WgSpace.xxl) {
+            GlassEffectContainer(spacing: WgSpace.m) {
                 content
                     .glassEffect(.regular.tint(tint.opacity(0.16)).interactive(), in: .rect(cornerRadius: WgRadius.s))
                     .glassEffectTransition(.materialize)
@@ -2000,7 +2002,7 @@ struct AddTileSheet: View {
                                 Text(kind.title).font(.subheadline).fontWeight(.medium)
                             }
                             .frame(maxWidth: .infinity)
-                            .wgPadding(WgSpace.l)
+                            .wgPadding(.l)
                             .wgGlassSurface(cornerRadius: WgTheme.controlRadius, tint: kind.activeColor, interactive: true)
                         }
                         .buttonStyle(.plain)
@@ -2010,7 +2012,7 @@ struct AddTileSheet: View {
             }
         }
         .frame(width: 320, height: availableKinds.isEmpty ? 200 : nil)
-        .wgPadding(.bottom, WgSpace.s)
+        .wgPadding(.bottom, .s)
         .background {
             RoundedRectangle(cornerRadius: WgTheme.floatingRadius, style: .continuous)
                 .fill(.regularMaterial)
@@ -2041,17 +2043,17 @@ struct AboutView: View {
                 WgBrandIcon()
                     .frame(width: 88, height: 88)
                 Text("WgSense")
-                    .font(.system(size: WgType.section, weight: .bold))
+                    .font(.system(size: WgType.readout, weight: .bold))
                 Text(verbatim: "版本 \(version)（\(build)）")
-                    .font(.system(size: WgType.footnote))
+                    .font(.system(size: WgType.sub))
                     .foregroundStyle(.secondary)
                 Text("在家自动断开，出门自动连上的 WireGuard 客户端")
                     .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
-                    .wgPadding(.top, WgSpace.hair)
+                    .wgPadding(.top, .zero)
             }
             .frame(maxWidth: .infinity)
-            .wgPadding(.vertical, WgSpace.xxxl)
+            .wgPadding(.vertical, .xl)
             .wgInteractiveSurface(cornerRadius: WgDesign.heroRadius)
 
             WgSection(title: "运行") {
@@ -2108,9 +2110,9 @@ struct TileDragContainer<Content: View>: View {
                 .modifier(EditShakeModifier(isShaking: true))
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: "line.3.horizontal")
-                        .font(.system(size: WgType.caption, weight: .semibold))
+                        .font(.system(size: WgType.body, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                        .wgPadding(WgSpace.m)
+                        .wgPadding(.m)
                 }
         } else {
             // 正常模式：完整交互内容
@@ -2126,12 +2128,12 @@ struct TileDragContainer<Content: View>: View {
                 Text(tile.kind.title)
                     .font(.system(size: WgType.body, weight: .semibold))
                 Text(sizeLabel(tile.size))
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .wgPadding(WgSpace.m)
+        .wgPadding(.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tile.size == .large ? .topLeading : .leading)
         .wgInteractiveSurface()
     }
@@ -2162,7 +2164,7 @@ struct TransferReceiveView: View {
                 HStack(spacing: WgSpace.s) {
                     if togglingReceive { ProgressView().controlSize(.small) }
                     Text(state.running ? "接收已开启" : "接收已关闭")
-                        .font(.system(size: WgType.footnote))
+                        .font(.system(size: WgType.sub))
                         .foregroundStyle(.secondary)
                     Toggle("", isOn: Binding(
                         get: { client.transferState?.running ?? false },
@@ -2230,30 +2232,30 @@ struct TransferReceiveView: View {
             VStack(alignment: .leading, spacing: WgSpace.s) {
                 HStack(spacing: WgSpace.s) {
                     Text("待确认")
-                        .font(.system(size: WgType.footnote, weight: .semibold))
+                        .font(.system(size: WgType.sub, weight: .semibold))
                         .foregroundStyle(.secondary)
                     if let count = client.transferState?.pending.count, count > 0 {
                         Text("\(count)")
-                            .font(.system(size: WgType.caption, weight: .bold).monospacedDigit())
+                            .font(.system(size: WgType.body, weight: .bold).monospacedDigit())
                             .foregroundStyle(.white)
-                            .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, 1)
+                            .wgPadding(.horizontal, .s).wgInset(.vertical, 1)
                             .background(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).fill(Color.orange))
                     }
                 }
-                .wgPadding(.leading, WgSpace.xs)
+                .wgPadding(.leading, .xs)
                 if let pending = client.transferState?.pending, !pending.isEmpty {
                     ForEach(pending) { pendingRequestRow($0) }
                 } else {
                     HStack(spacing: WgSpace.m) {
                         Image(systemName: "tray")
-                            .font(.system(size: WgType.sub))
+                            .font(.system(size: WgType.title))
                             .foregroundStyle(.tertiary)
                         Text("暂无待确认的传输")
                             .font(.system(size: WgType.body))
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
-                    .wgPadding(.horizontal, WgSpace.l)
+                    .wgPadding(.horizontal, .l)
                     .frame(height: 52)
                     .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
                 }
@@ -2283,9 +2285,9 @@ struct TransferReceiveView: View {
 
     private func sectionLabel(_ title: LocalizedStringKey) -> some View {
         Text(title)
-            .font(.system(size: WgType.footnote, weight: .semibold))
+            .font(.system(size: WgType.sub, weight: .semibold))
             .foregroundStyle(.secondary)
-            .wgPadding(.leading, WgSpace.xs)
+            .wgPadding(.leading, .xs)
     }
 
     private func receiveInfoRow(_ label: LocalizedStringKey, value: String) -> some View {
@@ -2298,7 +2300,7 @@ struct TransferReceiveView: View {
     private func pendingRequestRow(_ request: DaemonClient.TransferPendingRequest) -> some View {
         HStack(spacing: WgSpace.l) {
             Image(systemName: "desktopcomputer.and.arrow.down")
-                .font(.system(size: WgType.section)).foregroundStyle(WgTheme.accent)
+                .font(.system(size: WgType.readout)).foregroundStyle(WgTheme.accent)
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(request.alias).font(.body.weight(.semibold))
@@ -2317,7 +2319,7 @@ struct TransferReceiveView: View {
                     .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
             }
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgGlassSurface(tint: WgTheme.accent, interactive: true)
     }
 
@@ -2335,7 +2337,7 @@ struct TransferReceiveView: View {
         return VStack(alignment: .leading, spacing: WgSpace.s) {
             HStack {
                 Image(systemName: "arrow.down.doc.fill").foregroundStyle(WgTheme.accent)
-                VStack(alignment: .leading, spacing: WgSpace.hair) {
+                VStack(alignment: .leading, spacing: WgSpace.zero) {
                     Text(progress.fileName).font(.body.weight(.medium)).lineLimit(1)
                     Text("来自 \(progress.sender) · \(progress.senderIP)").font(.caption).foregroundStyle(.secondary)
                 }
@@ -2347,7 +2349,7 @@ struct TransferReceiveView: View {
             HStack { Text(formattedBytes(progress.doneBytes)); Spacer(); Text(formattedBytes(progress.totalBytes)) }
                 .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgGlassSurface(tint: WgTheme.accent)
     }
 
@@ -2355,7 +2357,7 @@ struct TransferReceiveView: View {
         HStack(spacing: WgSpace.m) {
             Image(systemName: progress.status == "completed" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(progress.status == "completed" ? .green : .orange)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(progress.fileName).font(.callout.weight(.medium)).lineLimit(1)
                 Text(progress.status == "completed"
                      ? "\(progress.sender) · \(formattedBytes(progress.doneBytes))"
@@ -2366,7 +2368,7 @@ struct TransferReceiveView: View {
             Text(progress.status == "completed" ? "已完成" : "失败")
                 .font(.caption.weight(.medium)).foregroundStyle(progress.status == "completed" ? .green : .orange)
         }
-        .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
         .wgGlassSurface()
     }
 
@@ -2403,8 +2405,8 @@ struct TransferSendView: View {
 
     var body: some View {
         WgPage(title: "发送", subtitle: "把文件发给隧道内运行 LocalSend 或 WgSense 的设备", word: "SEND") {
-            HStack(spacing: WgSpace.hair) {
-                if isScanning { ProgressView().controlSize(.small).wgPadding(.trailing, WgSpace.s) }
+            HStack(spacing: WgSpace.zero) {
+                if isScanning { ProgressView().controlSize(.small).wgPadding(.trailing, .s) }
                 Button { Task { await refreshDevices() } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(WgToolbarIconButtonStyle()).disabled(isScanning).help("刷新设备")
                 Button { Task { await scanSubnetDevices() } } label: { Image(systemName: "magnifyingglass") }
@@ -2432,9 +2434,9 @@ struct TransferSendView: View {
             if let result = lastSendResult {
                 Label(LocalizedStringKey(result),
                       systemImage: result.contains("失败") || result.contains("未") ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                    .font(.system(size: WgType.footnote))
+                    .font(.system(size: WgType.sub))
                     .foregroundStyle(result.contains("失败") || result.contains("未") ? .orange : .green)
-                    .wgPadding(.leading, WgSpace.xs)
+                    .wgPadding(.leading, .xs)
                     .transition(.opacity)
             }
 
@@ -2465,18 +2467,18 @@ struct TransferSendView: View {
 
     private func sendSectionLabel(_ title: LocalizedStringKey) -> some View {
         Text(title)
-            .font(.system(size: WgType.footnote, weight: .semibold))
+            .font(.system(size: WgType.sub, weight: .semibold))
             .foregroundStyle(.secondary)
-            .wgPadding(.leading, WgSpace.xs)
+            .wgPadding(.leading, .xs)
     }
 
     private var deviceEmptyCard: some View {
         VStack(spacing: WgSpace.m) {
             WgSquareBadge(symbol: "antenna.radiowaves.left.and.right", tint: .indigo, size: 44, dimmed: true)
             Text(LocalizedStringKey(client.transferError ?? "还没有发现设备"))
-                .font(.system(size: WgType.sub, weight: .semibold))
+                .font(.system(size: WgType.title, weight: .semibold))
             Text(LocalizedStringKey(client.transferError == nil ? "点右上角的放大镜扫描，或用 + 手动添加隧道内设备的 IP" : "传输功能需要后台服务"))
-                .font(.system(size: WgType.footnote))
+                .font(.system(size: WgType.sub))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: WgSpace.s) {
@@ -2498,10 +2500,10 @@ struct TransferSendView: View {
                         .buttonStyle(WgPillButtonStyle())
                 }
             }
-            .wgPadding(.top, WgSpace.s)
+            .wgPadding(.top, .s)
         }
         .frame(maxWidth: .infinity)
-        .wgPadding(WgSpace.xxxl)
+        .wgPadding(.xl)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 
@@ -2513,7 +2515,7 @@ struct TransferSendView: View {
                 Text("发送到 \(device.alias)")
                     .font(.system(size: WgType.body, weight: .semibold))
                 if let ip = device.ip {
-                    Text(verbatim: ip).font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                    Text(verbatim: ip).font(.system(size: WgType.body)).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -2530,14 +2532,14 @@ struct TransferSendView: View {
                 .buttonStyle(WgCapsuleButtonStyle(tint: WgInk.signal))
                 .disabled(isStartingSend)
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius, isSelected: true)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - 添加设备 Sheet
     private var addDeviceSheet: some View {
-        VStack(spacing: WgSpace.xl) {
+        VStack(spacing: WgSpace.m) {
             Text("添加设备").font(.headline.weight(.bold))
             Text("输入设备的 IP 地址（或 IP:端口）").font(.subheadline).foregroundStyle(.secondary)
             TextField("例如：192.168.200.5 或 192.168.200.5:53317", text: $addDeviceAddr).textFieldStyle(.roundedBorder).font(.body.monospaced()).autocorrectionDisabled()
@@ -2554,7 +2556,7 @@ struct TransferSendView: View {
             }
             Text("提示：确保目标设备已运行 LocalSend 或 WgSense").font(.caption2).foregroundStyle(.tertiary)
             Spacer()
-        }.wgPadding(WgSpace.xxxl).frame(width: 420, height: 280)
+        }.wgPadding(.xl).frame(width: 420, height: 280)
     }
 
     // MARK: - Actions
@@ -2605,8 +2607,8 @@ struct TransferSendView: View {
         return VStack(alignment: .leading, spacing: WgSpace.m) {
             HStack(spacing: WgSpace.m) {
                 Image(systemName: task.status == "waiting" ? "person.crop.circle.badge.clock" : "paperplane.fill")
-                    .font(.system(size: WgType.section)).foregroundStyle(WgTheme.accent).frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: WgSpace.hair) {
+                    .font(.system(size: WgType.readout)).foregroundStyle(WgTheme.accent).frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: WgSpace.zero) {
                     Text(task.deviceAlias).font(.body.weight(.semibold))
                     Text(sendStatusLabel(task.status)).font(.caption).foregroundStyle(.secondary)
                 }
@@ -2627,7 +2629,7 @@ struct TransferSendView: View {
             }
             .font(.caption2).foregroundStyle(.tertiary)
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgGlassSurface(tint: WgTheme.accent, interactive: true)
     }
 
@@ -2635,7 +2637,7 @@ struct TransferSendView: View {
         HStack(spacing: WgSpace.m) {
             Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(task.status == "completed" ? .green : .orange)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 Text(task.deviceAlias).font(.callout.weight(.medium)).lineLimit(1)
                 Text(task.status == "completed"
                      ? "\(task.completedFiles) 个文件 · \(formattedSendBytes(task.doneBytes))"
@@ -2646,7 +2648,7 @@ struct TransferSendView: View {
             Text(sendStatusLabel(task.status)).font(.caption.weight(.medium))
                 .foregroundStyle(task.status == "completed" ? .green : .orange)
         }
-        .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
         .wgGlassSurface()
     }
 
@@ -2676,13 +2678,13 @@ struct TransferSendView: View {
                 HStack(spacing: WgSpace.s) {
                     Text(verbatim: device.alias).font(.system(size: WgType.body, weight: .medium))
                     Text(sourceBadgeLabel(device.source ?? "multicast"))
-                        .font(.system(size: WgType.caption, weight: .medium))
+                        .font(.system(size: WgType.body, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .wgPadding(.horizontal, WgSpace.xs).wgPadding(.vertical, 1)
+                        .wgPadding(.horizontal, .xs).wgInset(.vertical, 1)
                         .background(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).fill(Color.secondary.opacity(0.14)))
                 }
                 if let ip = device.ip {
-                    Text(verbatim: ip).font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                    Text(verbatim: ip).font(.system(size: WgType.body)).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -2698,11 +2700,11 @@ struct TransferSendView: View {
                     .help("移除此手动设备")
             }
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: WgType.sub))
+                .font(.system(size: WgType.title))
                 .foregroundStyle(selected ? WgInk.signal : Color.secondary.opacity(0.4))
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.vertical, WgSpace.s)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.vertical, .s)
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(WgDesign.spring) { selectedDevice = device } }
     }
@@ -2726,9 +2728,9 @@ private struct SettingsToggleRow: View {
                 .labelsHidden()
                 .tint(WgTheme.accent)
         }
-        .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, WgSpace.l)
+            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, .l)
         }
     }
 }
@@ -2743,9 +2745,9 @@ private struct SettingsButtonRow: View {
             Spacer()
             Text(value).font(.body).foregroundStyle(.secondary)
         }
-        .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, WgSpace.l)
+            Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, .l)
         }
     }
 }
@@ -2761,9 +2763,9 @@ private struct SettingsNavRow: View {
                 Spacer()
                 Text("打开").font(.body).foregroundStyle(.secondary)
             }
-            .wgPadding(.horizontal, WgSpace.l).wgPadding(.vertical, WgSpace.m)
+            .wgPadding(.horizontal, .l).wgPadding(.vertical, .m)
             .overlay(alignment: .bottom) {
-                Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, WgSpace.l)
+                Rectangle().fill(WgTheme.cardBorder.opacity(0.3)).frame(height: 0.5).wgPadding(.leading, .l)
             }
         }
         .buttonStyle(.plain)

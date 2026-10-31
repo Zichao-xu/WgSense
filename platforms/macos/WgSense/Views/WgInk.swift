@@ -25,11 +25,11 @@ enum WgInk {
 
     // MARK: 字号层级（全局唯一来源）
     //   数值由 WgTokens（WgType）统一管理，这里只是语义别名。
-    static var sizePage: CGFloat { WgType.page }
-    static var sizeSection: CGFloat { WgType.section }
-    static var sizeSubsection: CGFloat { WgType.sub }
+    static var sizePage: CGFloat { WgType.display }
+    static var sizeSection: CGFloat { WgType.readout }
+    static var sizeSubsection: CGFloat { WgType.title }
     static var sizeBody: CGFloat { WgType.body }
-    static var sizeCaption: CGFloat { WgType.caption }
+    static var sizeCaption: CGFloat { WgType.body }
     static var sizeReadout: CGFloat { WgType.readout }
 
     // MARK: 斜切尺寸
@@ -61,13 +61,13 @@ enum WgInk {
     // MARK: 字体
 
     /// 注释体：等宽小字，用于代号、坐标轴、英文注记。
-    static func mono(_ size: CGFloat = 10, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+    static func mono(_ size: WgTextSize, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size.value, weight: weight, design: .monospaced)
     }
 
     /// 读数：等宽数字。
-    static func figure(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight).monospacedDigit()
+    static func figure(_ size: WgTextSize, _ weight: Font.Weight = .medium) -> Font {
+        .system(size: size.value, weight: weight).monospacedDigit()
     }
 
     /// 把 "2.0 KB/s" 拆成 ("2.0", "KB/s")，读数与单位分开排版。
@@ -260,7 +260,7 @@ extension View {
 /// 读数 + 单位：数值用正文色大字，单位淡墨小一号。
 struct WgReadout: View {
     var text: String
-    var size: CGFloat = 20
+    var size: WgTextSize = .title
     var weight: Font.Weight = .regular
     var tint: Color = WgInk.ink
 
@@ -272,7 +272,7 @@ struct WgReadout: View {
                 .foregroundStyle(tint)
             if !parts.unit.isEmpty {
                 Text(verbatim: parts.unit.uppercased())
-                    .font(WgInk.mono(max(9, size * 0.36)))
+                    .font(WgInk.mono(.nearest(size.value * 0.36)))
                     .foregroundStyle(WgInk.ink3)
             }
         }
@@ -357,19 +357,19 @@ struct WgSectionMark<Accessory: View>: View {
                     .tracking(0.8)
                     .foregroundStyle(WgInk.ink)
             }
-            .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.xxl)
+            .wgPadding(.leading, .l).wgPadding(.trailing, .m)
             .frame(height: 38)
             .wgGlassAccent(ChamferShape(tr: 12))
             WgRuler(opacity: 0.45)
             if !caption.isEmpty {
                 Text(verbatim: caption.uppercased())
-                    .font(WgInk.mono(10, .medium))
+                    .font(WgInk.mono(.caption, .medium))
                     .tracking(1.8)
                     .foregroundStyle(WgInk.ink3)
                     .fixedSize()
-                    .wgPadding(.leading, WgSpace.m)
+                    .wgPadding(.leading, .m)
             }
-            HStack(spacing: WgSpace.hair) { accessory() }.wgPadding(.leading, WgSpace.s)
+            HStack(spacing: WgSpace.zero) { accessory() }.wgPadding(.leading, .s)
         }
     }
 }
@@ -388,11 +388,11 @@ struct WgTagBox: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: WgSpace.s) {
             if !code.isEmpty {
-                Text(verbatim: code).font(WgInk.mono(10, .medium)).tracking(1.2).foregroundStyle(WgInk.ink2)
+                Text(verbatim: code).font(WgInk.mono(.caption, .medium)).tracking(1.2).foregroundStyle(WgInk.ink2)
             }
             Text(title).font(.system(size: WgInk.sizeSubsection, weight: .bold)).foregroundStyle(WgInk.ink)
         }
-        .wgPadding(.leading, WgSpace.s).wgPadding(.trailing, WgSpace.l).wgPadding(.vertical, WgSpace.xs)
+        .wgPadding(.leading, .s).wgPadding(.trailing, .l).wgPadding(.vertical, .xs)
         .overlay(WgShapePlate(shape: ChamferShape(tr: WgInk.cutControl), fill: .clear, border: Color.primary.opacity(0.55), highlight: .clear))
     }
 }

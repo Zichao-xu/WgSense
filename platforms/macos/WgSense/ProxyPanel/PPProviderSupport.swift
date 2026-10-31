@@ -19,7 +19,7 @@ struct PPProviderSectionsView: View {
                     if !section.title.isEmpty {
                         HStack(spacing: WgSpace.s) {
                             Text(verbatim: section.title)
-                                .font(.system(size: WgType.caption, weight: .semibold))
+                                .font(.system(size: WgType.body, weight: .semibold))
                                 .foregroundStyle(.secondary)
                             Spacer()
                             if !previewOnly {
@@ -55,7 +55,7 @@ struct PPCategoryTestButton: View {
             if store.isTesting("nodes:\(keyName)") {
                 ProgressView().controlSize(.mini)
             } else {
-                Image(systemName: "bolt.fill").font(.system(size: WgType.caption))
+                Image(systemName: "bolt.fill").font(.system(size: WgType.body))
             }
         }
         .buttonStyle(WgToolbarIconButtonStyle())
@@ -75,7 +75,7 @@ struct PPCategoryControls: View {
         HStack(spacing: WgSpace.s) {
             TextField("通配符", text: $draft)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: WgType.caption))
+                .font(.system(size: WgType.body))
                 .frame(width: 90)
                 .onSubmit { commit() }
                 .help("输入通配符，节点会依据通配符前面的字符来分类。")
@@ -84,7 +84,7 @@ struct PPCategoryControls: View {
                 store.categoryEnabledMap[provider] = !enabled
             }
             .buttonStyle(WgPillButtonStyle())
-            .font(.system(size: WgType.caption, weight: .medium))
+            .font(.system(size: WgType.body, weight: .medium))
             if active {
                 let names = store.providers.first { $0.name == provider }?.proxies.map(\.name) ?? []
                 let keys = store.categoryGroups(provider: provider, proxies: names).map { "\(provider)::\($0.name)" }
@@ -124,7 +124,7 @@ struct PPCategorySections: View {
                     if index > 0 { Divider() }
                     HStack(spacing: WgSpace.s) {
                         Image(systemName: "line.3.horizontal")
-                            .font(.system(size: WgType.caption))
+                            .font(.system(size: WgType.body))
                             .foregroundStyle(.tertiary)
                             .frame(width: 22, height: 22)
                             .contentShape(Rectangle())
@@ -134,15 +134,15 @@ struct PPCategorySections: View {
                             }
                             .help("拖拽排序")
                         Text(verbatim: category.name)
-                            .font(.system(size: WgType.footnote, weight: .semibold))
+                            .font(.system(size: WgType.sub, weight: .semibold))
                         Text(verbatim: "(\(category.available)/\(category.total))")
-                            .font(.system(size: WgType.caption))
+                            .font(.system(size: WgType.body))
                             .foregroundStyle(.secondary)
                         Spacer()
                         PPCategoryTestButton(scope: provider, nodes: category.proxies,
                                              displayName: "\(provider) / \(category.name)", keyName: key)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: WgType.caption, weight: .semibold))
+                            .font(.system(size: WgType.body, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(collapsed ? -90 : 0))
                     }
@@ -154,7 +154,7 @@ struct PPCategorySections: View {
                         PPNodeGrid(group: provider, names: category.proxies)
                     }
                 }
-                .wgPadding(.vertical, WgSpace.s)
+                .wgPadding(.vertical, .s)
                 .onDrop(of: [.text], delegate: CategoryDropDelegate(target: category.name, provider: provider,
                                                                     dragging: $dragging, store: store))
             }
