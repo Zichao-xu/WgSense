@@ -230,15 +230,24 @@ struct MainView: View {
         rawValue: UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["WgSenseInitialTab"] as? String ?? ""
     ) ?? .dashboard
     @State private var sidebarWidth: CGFloat = 300
+    /// 侧栏收成一列图标（只留页面入口），磁贴整块不渲染。
+    @AppStorage("sidebar.collapsed") private var sidebarCollapsed = false
+    /// 收起后的图标栏宽度。
+    static let sidebarRailWidth: CGFloat = 64
+    private var sidebarShownWidth: CGFloat { sidebarCollapsed ? Self.sidebarRailWidth : sidebarWidth }
 
     private let sidebarMinWidth: CGFloat = 176
     private let sidebarMaxWidth: CGFloat = 620
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selection: $selection)
-                .frame(width: sidebarWidth, alignment: .leading)
+            SidebarView(selection: $selection, collapsed: sidebarCollapsed) {
+                withAnimation(WgDesign.spring) { sidebarCollapsed.toggle() }
+            }
+                .frame(width: sidebarShownWidth, alignment: .leading)
                 .clipped()
+                // 全息模式：侧栏底下加一层模糊，越靠右缘越清晰
+                .background { if selection == .trace { TraceSidebarBlur() } }
                 .wgSidebarSurface()
                 .wgSurfaceRegion(.sidebar)
 
@@ -248,6 +257,8 @@ struct MainView: View {
                 maximumWidth: sidebarMaxWidth
             )
             .frame(width: 7)
+            // 收起时宽度固定，拖拽条不接手势
+            .allowsHitTesting(!sidebarCollapsed)
 
             // 页面区单独成一个子视图，输入只有当前页与语言：拖侧栏时 MainView 每帧重算（sidebarWidth 在变），
             // 子视图输入不变就整体跳过，不再每帧把整页内容重新塞进原生滚动容器（测速页曾因此拖动掉帧 70%+）。
@@ -268,11 +279,18 @@ struct MainView: View {
         }
         // 整窗一块玻璃：侧栏与内容区都坐在它上面，不再各自铺底色。
         .background {
-            WgBackdrop(
-                mode: WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular,
-                tintStrength: glassTintStrength
-            )
-                .ignoresSafeArea()
+            ZStack {
+                WgBackdrop(
+                    mode: WgBackdropMode(rawValue: backdropModeRaw) ?? .liquidRegular,
+                    tintStrength: glassTintStrength
+                )
+                    .ignoresSafeArea()
+                // 路由追踪页是全息模式：地球铺满整个窗口当背景，侧栏与页面浮在上面，地球中心对准内容区
+                if selection == .trace {
+                    TraceGlobeStage(leading: sidebarShownWidth + 7)
+                        .environmentObject(client)
+                }
+            }
         }
         .background(WgTransparentWindow())
         .frame(minWidth: 780, minHeight: 500)
@@ -351,7 +369,14 @@ private struct MainPageArea: View {
         // 代理页自己管理滚动（内部是懒加载列表）；套在外层 ScrollView 里会让懒加载失效、
         // 屏幕外的卡片和图表也每次重绘。
         Group {
-        if selection == .proxy {
+        if selection == .trace {
+            // 全息模式：不套滚动容器，浮层铺满页面区，空白处让拖动 / 捏合穿透到背后的地球
+            TraceView()
+                .wgPadding(.xl)
+                .environmentObject(client)
+                .modifier(WgLocaleOverride(language: language))
+                .tint(WgInk.control)
+        } else if selection == .proxy {
             ProxyView()
                 .wgPadding(.vertical, .xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -377,6 +402,7 @@ private struct MainPageArea: View {
                     case .settings: SettingsView()
                     case .about: AboutView()
                     case .speedtest: SpeedLabView()
+                    case .trace: TraceView()
                     case .proxy, .logs: EmptyView()
                     }
                 }
@@ -443,7 +469,7 @@ private final class SidebarResizeHandleView: NSView {
 // MARK: - Tab 枚举
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about, speedtest
+    case dashboard, wireguard, proxy, profile, transferReceive, transferSend, settings, logs, about, speedtest, trace
     var id: String { rawValue }
 
     var label: LocalizedStringKey {
@@ -458,6 +484,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
         case .logs: return "日志"
         case .about: return "关于"
         case .speedtest: return "测速"
+        case .trace: return "路由追踪"
         }
     }
 }
@@ -465,7 +492,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
 // MARK: - 磁贴数据模型
 
 enum TileKind: String, CaseIterable, Identifiable, Codable {
-    case vpn, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection, speedtest
+    case vpn, pause, stop, transferReceive, transferSend, proxy, profile, logs, about, connection, speedtest, trace
     var id: String { rawValue }
 
     var isAddable: Bool {
@@ -485,6 +512,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .about: return "关于"
         case .connection: return "流量"
         case .speedtest: return "测速"
+        case .trace: return "路由追踪"
         }
     }
 
@@ -501,6 +529,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .about: return "info"
         case .connection: return "arrow.up.arrow.down"
         case .speedtest: return "gauge.with.dots.needle.67percent"
+        case .trace: return "point.3.connected.trianglepath.dotted"
         }
     }
 
@@ -518,6 +547,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .about: return "AB"
         case .connection: return "NET"
         case .speedtest: return "SPD"
+        case .trace: return "TRC"
         }
     }
 
@@ -527,7 +557,7 @@ enum TileKind: String, CaseIterable, Identifiable, Codable {
         case .pause: return .orange
         case .stop: return .red
         case .logs, .about: return .gray
-        case .vpn, .transferReceive, .transferSend, .proxy, .profile, .connection, .speedtest: return WgInk.signal
+        case .vpn, .transferReceive, .transferSend, .proxy, .profile, .connection, .speedtest, .trace: return WgInk.signal
         }
     }
 
@@ -571,7 +601,13 @@ struct TileData: Identifiable, Codable, Equatable {
 
 struct SidebarView: View {
     @Binding var selection: SidebarTab
+    /// 收成一列图标：磁贴不渲染，只留页面入口、设置与展开按钮。
+    var collapsed = false
+    var toggleCollapsed: () -> Void = {}
     @EnvironmentObject var client: DaemonClient
+    /// 路由追踪磁贴的状态行跟着追踪进度走。只订阅这一行字：订阅整个追踪状态的话，每来一跳（定位、代理查询……）
+    /// 整个侧栏都要重算，压测里是追踪中地图每秒一次 60–80ms 的卡顿。
+    @ObservedObject private var traceTile = TraceTileSummary.shared
     @State private var tiles: [TileData] = []
     @State private var isEditMode = false
     @State private var draggedItem: TileData?
@@ -588,9 +624,17 @@ struct SidebarView: View {
     /// 服务离线时不沿用本地缓存的守护意图，否则会显示“运行中”而实际没人在守护。
     private var guardRunning: Bool { client.status != nil && client.isGuardOn }
 
-    init(selection: Binding<SidebarTab>) {
+    init(selection: Binding<SidebarTab>, collapsed: Bool = false, toggleCollapsed: @escaping () -> Void = {}) {
         self._selection = selection
-        _tiles = State(initialValue: Self.loadTiles() ?? Self.defaultTiles())
+        self.collapsed = collapsed
+        self.toggleCollapsed = toggleCollapsed
+        var tiles = Self.loadTiles() ?? Self.defaultTiles()
+        // 新磁贴给已有布局补一次；用户之后删掉就不再加回来
+        if !UserDefaults.standard.bool(forKey: "tileLayout.seeded.trace") {
+            if !tiles.contains(where: { $0.kind == .trace }) { tiles.append(TileData(kind: .trace)) }
+            UserDefaults.standard.set(true, forKey: "tileLayout.seeded.trace")
+        }
+        _tiles = State(initialValue: tiles)
     }
 
     // MARK: 磁贴布局持久化
@@ -637,22 +681,29 @@ struct SidebarView: View {
             TileData(kind: .about),
             TileData(kind: .connection),
             TileData(kind: .speedtest),
+            TileData(kind: .trace),
         ]
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
-            Color.clear.frame(height: WgLayout.sidebarTop)
+        Group {
+            if collapsed {
+                rail
+            } else {
+                VStack(spacing: 0) {
+                    // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
+                    Color.clear.frame(height: WgLayout.sidebarTop)
 
-            // 磁贴网格区域
-            GeometryReader { geometry in
-                ScrollView {
-                    tileGridContent(availableWidth: geometry.size.width)
+                    // 磁贴网格区域
+                    GeometryReader { geometry in
+                        ScrollView {
+                            tileGridContent(availableWidth: geometry.size.width)
+                        }
+                    }
+
+                    brandFoot
                 }
             }
-
-            brandFoot
         }
         // 排序、增删、改大小都会走到这里，落盘一次。
         .onChange(of: tiles) { _, _ in saveTiles() }
@@ -692,6 +743,10 @@ struct SidebarView: View {
             }
             Spacer(minLength: 4)
 
+            Button(action: toggleCollapsed) { Image(systemName: "chevron.left") }
+                .buttonStyle(WgToolbarIconButtonStyle())
+                .help("收起侧栏")
+
             Button { showAddSheet = true } label: { Image(systemName: "plus") }
                 .buttonStyle(WgToolbarIconButtonStyle())
                 .help("添加磁贴")
@@ -717,6 +772,71 @@ struct SidebarView: View {
         .focusEffectDisabled()
         .wgRegionBackground()
         .wgSurfaceRegion(.toolbar)
+    }
+
+    // MARK: - 收起：一列图标
+
+    /// 收起后的图标栏：顶上品牌标，中间按磁贴顺序排页面入口（同一页面只出一次；暂停 / 停止这类动作磁贴不出），
+    /// 底下设置与展开。选中页给一块底板，开着的模块右上角一个小点。
+    private var rail: some View {
+        var seen = Set<SidebarTab>()
+        let items = tiles.compactMap { t -> (TileKind, SidebarTab)? in
+            guard let tab = tab(for: t.kind), seen.insert(tab).inserted else { return nil }
+            return (t.kind, tab)
+        }
+        return VStack(spacing: WgSpace.s) {
+            Color.clear.frame(height: WgLayout.sidebarTop)
+            WgBrandIcon().frame(width: 28, height: 28)
+                .wgPadding(.bottom, .s)
+            Rectangle().fill(WgInk.rule).frame(width: 28, height: 1)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: WgSpace.s) {
+                    ForEach(items, id: \.1) { kind, tab in railButton(kind, tab) }
+                }
+                .wgPadding(.vertical, .s)
+            }
+            Rectangle().fill(WgInk.rule).frame(width: 28, height: 1)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
+            } label: { Image(systemName: "gearshape") }
+                .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
+                .help("设置")
+            Button(action: toggleCollapsed) { Image(systemName: "chevron.right") }
+                .buttonStyle(WgToolbarIconButtonStyle())
+                .help("展开侧栏")
+                .wgPadding(.bottom, .l)
+        }
+        .frame(maxWidth: .infinity)
+        .focusEffectDisabled()
+    }
+
+    private func railButton(_ kind: TileKind, _ tab: SidebarTab) -> some View {
+        let selected = selection == tab
+        let on: Bool = switch kind {
+        case .vpn: isConnected
+        case .connection: isTunnelUp
+        case .speedtest: false
+        default: moduleInfo(kind).isOn
+        }
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selection = tab }
+        } label: {
+            Image(systemName: kind.icon)
+                .font(.system(size: WgType.title, weight: .medium))
+                .foregroundStyle(selected ? WgInk.ink : WgInk.ink3)
+                .frame(width: 40, height: 40)
+                .background {
+                    if selected {
+                        SLPlate(shape: ChamferShape(tr: 8), fill: Color.primary.opacity(0.1), stroke: Color.primary.opacity(0.3))
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if on { Circle().fill(WgInk.ink).frame(width: 5, height: 5).offset(x: -5, y: 5) }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(Text(kind.title))
     }
 
     // MARK: - 磁贴内容
@@ -759,6 +879,7 @@ struct SidebarView: View {
         case .logs: return .logs
         case .about: return .about
         case .speedtest: return .speedtest
+        case .trace: return .trace
         case .pause, .stop: return nil
         }
     }
@@ -816,6 +937,10 @@ struct SidebarView: View {
                               status: client.isPauseOn ? Text("已暂停") : Text("\(client.pauseMinutes) 分钟"))
         case .stop:
             return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text("全部停止"))
+        case .trace:
+            let tile = traceTile
+            return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: tile.running,
+                              status: tile.text.map { Text(verbatim: $0) } ?? Text("世界航线"))
         case .vpn, .connection, .speedtest:
             return ModuleInfo(symbol: kind.icon, tint: kind.activeColor, isOn: false, status: Text(""))
         }
@@ -1129,6 +1254,7 @@ struct SidebarView: View {
             case .logs: selection = .logs
             case .about: selection = .about
             case .speedtest: selection = .speedtest
+            case .trace: selection = .trace
             case .stop: stopAllServices()
             case .pause: break
             }
