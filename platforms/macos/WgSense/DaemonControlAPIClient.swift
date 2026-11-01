@@ -31,7 +31,8 @@ struct DaemonControlAPIClient {
         let body: [String: Any] = [
             "auto_block": settings.auto_block,
             "force_domestic": settings.force_domestic,
-            "allow_bypass": settings.allow_bypass ?? false
+            "allow_bypass": settings.allow_bypass ?? false,
+            "block_probes": settings.block_probes ?? false
         ]
         let data = try await api.request("api/firewall", method: "POST", body: body)
         return try JSONDecoder().decode(FirewallResponse.self, from: data)

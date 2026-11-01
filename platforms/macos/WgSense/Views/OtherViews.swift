@@ -361,11 +361,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var firewallSection: some View {
         WgSection(title: "出站拦截",
-                  footer: "作用于整台电脑。拦截境外直连：物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器，WG 断开时境外直连一律拒绝，在家时境外流量经网关代理照常。隧道锁定：全局隧道连着时物理网卡只放行局域网和 WG 服务器，绑定物理网卡的程序也绕不开隧道；隧道一断开立即恢复上面的规则。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
+                  footer: "作用于整台电脑。拦截境外直连：物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器，WG 断开时境外直连一律拒绝，在家时境外流量经网关代理照常。放行诊断探测：只放 ICMP 回显请求（traceroute / ping），隧道锁定与国内模式下不放。隧道锁定：全局隧道连着时物理网卡只放行局域网和 WG 服务器，绑定物理网卡的程序也绕不开隧道；隧道一断开立即恢复上面的规则。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
             if let response = client.firewall,
                let block = firewallBinding(\.auto_block),
                let forceDomestic = firewallBinding(\.force_domestic),
-               let allowBypass = firewallBinding(\.allow_bypass) {
+               let allowBypass = firewallBinding(\.allow_bypass),
+               let blockProbes = firewallBinding(\.block_probes) {
                 let status = response.status
                 WgRow(symbol: status.active ? "hand.raised.fill" : "hand.raised",
                       tint: status.active ? .red : .gray,
@@ -385,6 +386,22 @@ struct SettingsView: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .controlSize(.small)
+                }
+                WgRowDivider()
+                // 新版服务总会返回 block_probes；没有这个字段 = 运行中的服务还不支持，开关不能装作生效
+                let probesSupported = blockProbes.wrappedValue != nil
+                WgRow(symbol: "point.3.connected.trianglepath.dotted", tint: .blue, title: "放行诊断探测",
+                      subtitle: Text(probesSupported
+                          ? "拦截境外直连时仍让 traceroute / ping 的 ICMP 回显出去，路由追踪能看到真实路径；其他协议照拦"
+                          : "需要新版网络服务：当前服务不支持，诊断探测仍被拦截")) {
+                    Toggle("", isOn: Binding(
+                        get: { probesSupported && blockProbes.wrappedValue != true },
+                        set: { blockProbes.wrappedValue = !$0 }
+                    ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .disabled(!block.wrappedValue || !probesSupported)
                 }
                 WgRowDivider()
                 WgRow(symbol: "lock.shield", tint: .green, title: "隧道锁定",
