@@ -57,6 +57,8 @@ struct FirewallSettings: Codable, Equatable {
     var force_domestic: Bool
     /// 关闭隧道锁定（默认 nil/false = 锁定）。
     var allow_bypass: Bool?
+    /// 连诊断探测（ICMP 回显，traceroute / ping）也拦（默认 nil/false = 普通拦截模式下放行探测）。
+    var block_probes: Bool?
 }
 
 /// 隧道覆盖范围（daemon /api/status 的 coverage）。

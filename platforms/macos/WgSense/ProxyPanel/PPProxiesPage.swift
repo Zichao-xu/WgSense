@@ -9,7 +9,7 @@ struct PPProxiesPage: View {
     var body: some View {
         VStack(spacing: 0) {
             PPToolbar()
-                .wgPadding(.bottom, WgSpace.l)
+                .wgPadding(.bottom, .l)
             content
         }
         .environmentObject(store)
@@ -34,7 +34,7 @@ struct PPProxiesPage: View {
             case .node: PPGroupList(groups: store.nodeGroups)
             case .provider: PPProviderList()
             case .domain:
-                PPDomainGroupView().wgPadding(.bottom, WgSpace.xl)
+                PPDomainGroupView().wgPadding(.bottom, .m)
             }
         }
     }
@@ -107,10 +107,10 @@ private struct PPToolbar: View {
                         Text(tab.title).font(.system(size: WgType.body, weight: on ? .bold : .semibold))
                             .foregroundStyle(on ? WgInk.ink : WgInk.ink2)
                         if tab != .domain {
-                            Text("\(store.count(for: tab))").font(WgInk.mono(10.5)).foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
+                            Text("\(store.count(for: tab))").font(WgInk.mono(.caption)).foregroundStyle(on ? WgInk.ink2 : WgInk.ink4)
                         }
                     }
-                    .wgPadding(.leading, WgSpace.l).wgPadding(.trailing, WgSpace.xl)
+                    .wgPadding(.leading, .l).wgPadding(.trailing, .m)
                     .frame(height: 30)
                     .background {
                         if on {
@@ -131,11 +131,11 @@ private struct PPToolbar: View {
     private var searchField: some View {
         HStack(spacing: WgSpace.s) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: WgType.caption))
+                .font(.system(size: WgType.body))
                 .foregroundStyle(.secondary)
             TextField("搜索 · 多个关键词用空格分隔", text: $store.filter)
                 .textFieldStyle(.plain)
-                .font(.system(size: WgType.footnote))
+                .font(.system(size: WgType.sub))
             if !store.filter.isEmpty {
                 Button { store.filter = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
@@ -143,7 +143,7 @@ private struct PPToolbar: View {
                 .buttonStyle(.plain)
             }
         }
-        .wgPadding(.horizontal, WgSpace.m)
+        .wgPadding(.horizontal, .m)
         .frame(height: 28)
         .frame(minWidth: 120, maxWidth: 280)
         .wgInteractiveSurface(cornerRadius: WgRadius.s)
@@ -202,15 +202,15 @@ private struct PPGroupList: View {
             }, makeRow: { item in
                 AnyView(
                     row(item, twoColumns: twoColumns)
-                        .wgPadding(.top, item.topInset)
-                        .wgPadding(.bottom, item.bottomInset)
+                        .wgInset(.top, item.topInset)
+                        .wgInset(.bottom, item.bottomInset)
                         .environmentObject(store)
                         .tint(WgInk.control)
                 )
             })
             // 刻度条放在左侧页边距里（列表本身左侧留有页面内边距）。
             .overlay(alignment: .leading) {
-                WgScrollRail(model: rail).offset(x: -26).wgPadding(.vertical, WgSpace.m)
+                WgScrollRail(model: rail).offset(x: -26).wgPadding(.vertical, .m)
             }
         }
     }
@@ -293,14 +293,14 @@ struct PPGroupCard: View {
             case .whole: whole(group)
             case .header:
                 header(group)
-                    .wgPadding(.horizontal, WgSpace.l).wgPadding(.top, WgSpace.l).wgPadding(.bottom, WgSpace.m)
+                    .wgPadding(.horizontal, .l).wgPadding(.top, .l).wgPadding(.bottom, .m)
                     .wgRegionContrast()
                     .background(PPSegmentChrome(top: true, bottom: false))
                     .contentShape(Rectangle())
                     .onRightClick { Task { await store.testGroup(name) } }
             case .footer:
                 PPPenetrationSection(root: name)
-                    .wgPadding(.horizontal, WgSpace.l).wgPadding(.top, WgSpace.hair).wgPadding(.bottom, WgSpace.l)
+                    .wgPadding(.horizontal, .l).wgPadding(.top, .zero).wgPadding(.bottom, .l)
                     .wgRegionContrast()
                     .background(PPSegmentChrome(top: false, bottom: true))
             }
@@ -327,8 +327,8 @@ struct PPGroupCard: View {
                     PPPreview(nodes: rendered, now: group.now, group: name) { node in select(node) }
                 }
             }
-            .wgPadding(embedded ? 0 : WgSpace.l)
-            .wgPadding(.vertical, embedded ? WgSpace.m : 0)
+            .wgPadding(embedded ? .zero : .l)
+            .wgPadding(.vertical, embedded ? .m : .zero)
             .modifier(CardChrome(enabled: !embedded && !chromeless))
             .contentShape(Rectangle())
             .onRightClick { Task { await store.testGroup(name) } }
@@ -345,19 +345,19 @@ struct PPGroupCard: View {
                 HStack(spacing: WgSpace.s) {
                     if !large, group.icon != nil {
                         PPGroupIcon(icon: group.icon, size: store.proxyGroupIconSize)
-                            .wgPadding(.trailing, store.proxyGroupIconMargin - 6)
+                            .wgInset(.trailing, store.proxyGroupIconMargin - 6)
                     }
                     Text(verbatim: name)
-                        .font(.system(size: embedded ? WgType.sub : WgType.title, weight: .semibold))
+                        .font(.system(size: embedded ? WgType.title : WgType.body, weight: .semibold))
                         .lineLimit(1)
                     if !embedded {
                         Button("域名穿透") { showPenetration = true }
                             .buttonStyle(WgPillButtonStyle())
-                            .font(.system(size: WgType.caption, weight: .medium))
+                            .font(.system(size: WgType.body, weight: .medium))
                             .sheet(isPresented: $showPenetration) { PPRulePenetrationSheet(group: name) }
                     }
                     Text(verbatim: embedded ? "\(group.type) (\(store.availabilityText(of: name)))" : group.type)
-                        .font(.system(size: WgType.caption))
+                        .font(.system(size: WgType.body))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if store.manageHiddenGroup {
@@ -365,7 +365,7 @@ struct PPGroupCard: View {
                             store.hiddenGroupMap[name] = !store.isHidden(name)
                         } label: {
                             Image(systemName: store.isHidden(name) ? "eye.slash" : "eye")
-                                .font(.system(size: WgType.caption))
+                                .font(.system(size: WgType.body))
                         }
                         .buttonStyle(WgToolbarIconButtonStyle())
                         .help(store.isHidden(name) ? "显示此组" : "隐藏此组")
@@ -456,8 +456,8 @@ struct PPNodeRow: View {
             }
             ForEach(0..<max(0, columns - names.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.bottom, WgSpace.s)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.bottom, .s)
         .wgRegionContrast()
         .background(PPSegmentChrome(top: false, bottom: false))
     }
@@ -529,7 +529,7 @@ private struct PPPenetrationSection: View {
                         Image(systemName: "chevron.down")
                             .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     }
-                    .font(.system(size: WgType.footnote, weight: .medium))
+                    .font(.system(size: WgType.sub, weight: .medium))
                 }
                 .buttonStyle(WgPillButtonStyle())
                 .disabled(!canPenetrate)
@@ -552,11 +552,11 @@ private struct PPPenetrationSection: View {
                         }
                     }
                 }
-                .wgPadding(.top, WgSpace.s)
+                .wgPadding(.top, .s)
                 .transition(.opacity)
             }
         }
-        .wgPadding(.top, WgSpace.xs)
+        .wgPadding(.top, .xs)
         .onChange(of: canPenetrate) { _, value in
             if !value {
                 isExpanded = false
@@ -603,7 +603,7 @@ private struct PPProviderList: View {
                 LazyVStack(spacing: WgSpace.m) {
                     ForEach(store.providers) { PPProviderCard(provider: $0) }
                 }
-                .wgPadding(.bottom, WgSpace.xl)
+                .wgPadding(.bottom, .m)
             }
         }
     }
@@ -621,8 +621,8 @@ private struct PPProviderCard: View {
         let alive = names.filter { store.latency($0, group: provider.name) != mihomoNotConnected }.count
         VStack(alignment: .leading, spacing: WgSpace.m) {
             HStack(spacing: WgSpace.s) {
-                Text(verbatim: provider.name).font(.system(size: WgType.sub, weight: .semibold))
-                Text(verbatim: "(\(alive)/\(names.count))").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                Text(verbatim: provider.name).font(.system(size: WgType.title, weight: .semibold))
+                Text(verbatim: "(\(alive)/\(names.count))").font(.system(size: WgType.body)).foregroundStyle(.secondary)
                 Spacer()
                 Button { Task { await store.healthCheckProvider(provider.name) } } label: {
                     if store.isTesting("health:\(provider.name)") { ProgressView().controlSize(.small) }
@@ -654,7 +654,7 @@ private struct PPProviderCard: View {
                     PPCategoryControls(provider: provider.name)
                 }
             }
-            .font(.system(size: WgType.caption))
+            .font(.system(size: WgType.body))
             .foregroundStyle(.secondary)
             if expanded {
                 if store.categoryActive(provider: provider.name) {
@@ -666,7 +666,7 @@ private struct PPProviderCard: View {
                 PPPreview(nodes: names, now: nil, group: provider.name) { _ in }
             }
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius) {
             withAnimation(WgDesign.spring) { store.collapseMap[key] = !expanded }
         }
@@ -697,8 +697,8 @@ private struct PPSettingsPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("代理设置")
                 .font(.system(size: WgType.body, weight: .semibold))
-                .wgPadding(.horizontal, WgSpace.l)
-                .wgPadding(.vertical, WgSpace.m)
+                .wgPadding(.horizontal, .l)
+                .wgPadding(.vertical, .m)
             Divider()
             VStack(spacing: 0) {
                 row("排序方式") {
@@ -725,7 +725,7 @@ private struct PPSettingsPopover: View {
                     }
                 }
             }
-            .wgPadding(.vertical, WgSpace.xs)
+            .wgPadding(.vertical, .xs)
         }
         .frame(width: 320)
         .focusEffectDisabled()
@@ -739,11 +739,11 @@ private struct PPSettingsPopover: View {
 
     private func row<A: View>(_ title: LocalizedStringKey, @ViewBuilder _ accessory: () -> A) -> some View {
         HStack {
-            Text(title).font(.system(size: WgType.footnote))
+            Text(title).font(.system(size: WgType.sub))
             Spacer()
             accessory()
         }
-        .wgPadding(.horizontal, WgSpace.l)
+        .wgPadding(.horizontal, .l)
         .frame(minHeight: 34)
     }
 }
@@ -759,13 +759,13 @@ private struct PPNoticeStack: View {
                 HStack(alignment: .top, spacing: WgSpace.m) {
                     Image(systemName: symbol(notice.kind))
                         .foregroundStyle(tint(notice.kind))
-                        .font(.system(size: WgType.sub))
-                    VStack(alignment: .leading, spacing: WgSpace.hair) {
+                        .font(.system(size: WgType.title))
+                    VStack(alignment: .leading, spacing: WgSpace.zero) {
                         Text(verbatim: notice.title)
-                            .font(.system(size: WgType.footnote, weight: .semibold))
+                            .font(.system(size: WgType.sub, weight: .semibold))
                             .lineLimit(2)
                         Text(verbatim: notice.detail)
-                            .font(.system(size: WgType.caption).monospacedDigit())
+                            .font(.system(size: WgType.body).monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                     Button { store.dismiss(notice.id) } label: {
@@ -774,14 +774,14 @@ private struct PPNoticeStack: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tertiary)
                 }
-                .wgPadding(WgSpace.m)
+                .wgPadding(.m)
                 .frame(width: 260, alignment: .leading)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .animation(WgDesign.spring, value: store.notices)
     }
 
@@ -812,14 +812,14 @@ private struct PPEmptyState: View {
     var body: some View {
         VStack(spacing: WgSpace.m) {
             WgSquareBadge(symbol: symbol, tint: .gray, size: 40, dimmed: true)
-            Text(title).font(.system(size: WgType.sub, weight: .semibold))
+            Text(title).font(.system(size: WgType.title, weight: .semibold))
             Text(verbatim: detail)
-                .font(.system(size: WgType.footnote))
+                .font(.system(size: WgType.sub))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .wgPadding(40)
+        .wgInset(40)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
 }
@@ -836,16 +836,16 @@ struct PPSegmented<Value: Hashable>: View {
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                 let selected = option.1 == selection
                 Text(LocalizedStringKey(option.0))
-                    .font(.system(size: WgType.footnote, weight: selected ? .semibold : .regular))
+                    .font(.system(size: WgType.sub, weight: selected ? .semibold : .regular))
                     .foregroundStyle(selected ? Color.white : WgInk.ink2)
-                    .wgPadding(.horizontal, WgSpace.m)
+                    .wgPadding(.horizontal, .m)
                     .frame(height: 24)
                     .background(selected ? WgInk.signal : Color.clear)
                     .contentShape(Rectangle())
                     .onTapGesture { if !selected { onChange(option.1) } }
             }
         }
-        .wgPadding(1)
+        .wgInset(1)
         .overlay(Rectangle().strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
         .opacity(isEnabled ? 1 : 0.4)
     }

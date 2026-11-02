@@ -207,7 +207,7 @@ struct PPSankeyView: View, Equatable {
     }
 
     static func textWidth(_ text: String) -> CGFloat {
-        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: WgType.caption)]).width
+        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: WgType.body)]).width
     }
 
     private func truncate(_ name: String, limit: Int) -> String {
@@ -246,8 +246,8 @@ struct PPSankeyView: View, Equatable {
             .overlay(alignment: .topLeading) {
                 if let tip, let hover {
                     Text(verbatim: tip)
-                        .font(.system(size: WgType.caption, weight: .medium))
-                        .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, WgSpace.xs)
+                        .font(.system(size: WgType.body, weight: .medium))
+                        .wgPadding(.horizontal, .s).wgPadding(.vertical, .xs)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).strokeBorder(WgInk.rule))
                         .offset(x: min(hover.x + 12, geo.size.width - 260), y: max(0, hover.y - 38))
@@ -291,7 +291,7 @@ struct PPSankeyView: View, Equatable {
         for i in 0..<4 {
             let x = dx + CGFloat(i) * usable / 3 + PPSankeyLayout.nodeWidth / 2
             let label = Text(verbatim: "\(Self.layerMarks[i]) · \(PPSankeyModel.layerTitles[i])")
-                .font(WgInk.mono(10, .medium)).foregroundStyle(Color.primary.opacity(0.45))
+                .font(WgInk.mono(.caption, .medium)).foregroundStyle(Color.primary.opacity(0.45))
             context.draw(label, at: CGPoint(x: i == 0 ? x + 4 : x - 4, y: baseY), anchor: i == 0 ? .trailing : .leading)
         }
     }
@@ -347,11 +347,11 @@ struct PPSankeyView: View, Equatable {
             }
             switch box.node.layer {
             case 0:
-                context.draw(Text(verbatim: name).font(WgInk.mono(10.5)).foregroundStyle(Color.primary.opacity(active ? 0.8 : 0.25)),
+                context.draw(Text(verbatim: name).font(WgInk.mono(.caption)).foregroundStyle(Color.primary.opacity(active ? 0.8 : 0.25)),
                              at: CGPoint(x: cx - 10, y: rect.midY), anchor: .trailing)
             case 3:
                 // 出口：细框标签块；被追踪时为白色弱玻璃。
-                let resolved = context.resolve(Text(verbatim: name).font(.system(size: WgType.footnote, weight: hot ? .bold : .medium))
+                let resolved = context.resolve(Text(verbatim: name).font(.system(size: WgType.sub, weight: hot ? .bold : .medium))
                     .foregroundStyle(Color.primary.opacity(active ? 0.95 : 0.3)))
                 let size = resolved.measure(in: CGSize(width: 400, height: 40))
                 let chip = CGRect(x: cx + 10, y: rect.midY - 10, width: size.width + 16, height: 20)
@@ -361,7 +361,7 @@ struct PPSankeyView: View, Equatable {
                 if hot { context.stroke(Path(chip.offsetBy(dx: 3, dy: 3)), with: .color(Color.primary.opacity(0.3)), lineWidth: 1) }
                 context.draw(resolved, at: CGPoint(x: chip.minX + 8, y: chip.midY), anchor: .leading)
             default:
-                context.draw(Text(verbatim: name).font(WgInk.mono(10)).foregroundStyle(Color.primary.opacity(hot ? 0.95 : (active ? 0.55 : 0.2))),
+                context.draw(Text(verbatim: name).font(WgInk.mono(.caption)).foregroundStyle(Color.primary.opacity(hot ? 0.95 : (active ? 0.55 : 0.2))),
                              at: CGPoint(x: cx + 8, y: rect.midY - 9), anchor: .leading)
             }
         }

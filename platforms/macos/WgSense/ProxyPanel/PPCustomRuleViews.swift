@@ -20,10 +20,10 @@ struct PPCustomRuleList: View {
         let rows = model.visible
         VStack(alignment: .leading, spacing: WgSpace.s) {
             if !canReorder {
-                Text("切换到全部并清除搜索和排序后可拖拽").font(.system(size: WgType.caption)).foregroundStyle(.secondary)
+                Text("切换到全部并清除搜索和排序后可拖拽").font(.system(size: WgType.body)).foregroundStyle(.secondary)
             }
             if let errorText {
-                Text(verbatim: errorText).font(.system(size: WgType.caption)).foregroundStyle(.red)
+                Text(verbatim: errorText).font(.system(size: WgType.body)).foregroundStyle(.red)
             }
             if model.loading && rows.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 200)
@@ -43,7 +43,7 @@ struct PPCustomRuleList: View {
                                 .buttonStyle(WgToolbarIconButtonStyle())
                                 .help("删除自定义规则")
                         }
-                        .font(.system(size: WgType.footnote))
+                        .font(.system(size: WgType.sub))
                         .contentShape(Rectangle())
                         .onTapGesture { editing = entry }
                         .help("点击修改这条自定义规则")
@@ -96,7 +96,7 @@ struct PPCustomRuleActions: View {
     @State private var restarting = false
 
     var body: some View {
-        HStack(spacing: WgSpace.hair) {
+        HStack(spacing: WgSpace.zero) {
             Button { adding = true } label: { Image(systemName: "plus") }
                 .buttonStyle(WgToolbarIconButtonStyle(isActive: enabled))
                 .disabled(!enabled)
@@ -145,8 +145,8 @@ struct PPCustomRuleSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WgSpace.l) {
-            Text(original == nil ? "新增域名规则" : "修改自定义规则").font(.system(size: WgType.title, weight: .bold))
-            Text("规则名称：\(mode == "pre" ? "前置自定义" : "后置自定义")").font(.system(size: WgType.footnote)).foregroundStyle(.secondary)
+            Text(original == nil ? "新增域名规则" : "修改自定义规则").font(.system(size: WgType.body, weight: .bold))
+            Text("规则名称：\(mode == "pre" ? "前置自定义" : "后置自定义")").font(.system(size: WgType.sub)).foregroundStyle(.secondary)
 
             Picker("规则类型", selection: $type) {
                 ForEach(CustomRuleInput.allTypes, id: \.self) { Text(CustomRuleInput.typeTitles[$0] ?? $0).tag($0) }
@@ -156,7 +156,7 @@ struct PPCustomRuleSheet: View {
 
             VStack(alignment: .leading, spacing: WgSpace.s) {
                 HStack {
-                    Text("节点").font(.system(size: WgType.footnote, weight: .medium))
+                    Text("节点").font(.system(size: WgType.sub, weight: .medium))
                     Spacer()
                     Picker("", selection: $targetTab) {
                         Text("节点组").tag(0)
@@ -193,8 +193,8 @@ struct PPCustomRuleSheet: View {
             }
 
             Text(original == nil ? "新增只会写入配置文件，点击右上角重启后生效" : "修改只会写入配置文件，点击右上角重启后生效")
-                .font(.system(size: WgType.caption)).foregroundStyle(.secondary)
-            if let errorText { Text(verbatim: errorText).font(.system(size: WgType.caption)).foregroundStyle(.red) }
+                .font(.system(size: WgType.body)).foregroundStyle(.secondary)
+            if let errorText { Text(verbatim: errorText).font(.system(size: WgType.body)).foregroundStyle(.red) }
 
             HStack {
                 Spacer()
@@ -204,7 +204,7 @@ struct PPCustomRuleSheet: View {
                     .disabled(saving)
             }
         }
-        .wgPadding(WgSpace.xl)
+        .wgPadding(.m)
         .frame(width: 480)
         .onAppear(perform: prefill)
     }

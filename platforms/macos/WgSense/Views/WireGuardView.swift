@@ -13,7 +13,7 @@ struct WireGuardDetailView: View {
                     .fontWeight(.semibold)
                 Spacer()
                 Image(systemName: "pin")
-                    .font(.system(size: WgType.sub))
+                    .font(.system(size: WgType.title))
                     .foregroundStyle(.secondary)
             }
 
@@ -70,7 +70,7 @@ struct WireGuardDetailView: View {
                 .help(client.isGuardBlockingVPN ? "在家由守护保持断开；关闭守护后可手动连接" : "")
             }
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .wgGlassSurface(tint: statusColor, interactive: true)
     }
 
@@ -108,7 +108,7 @@ struct WireGuardDetailView: View {
                     ForEach(client.profiles, id: \.self) { p in
                         profileDetailRow(p)
                         if p != client.profiles.last {
-                            Divider().opacity(0.2).wgPadding(.leading, 56)
+                            Divider().opacity(0.2).wgInset(.leading, 56)
                         }
                     }
                 }
@@ -138,7 +138,7 @@ struct WireGuardDetailView: View {
         let isActive = client.status?.service == name
         return HStack(spacing: WgSpace.m) {
             Image(systemName: isActive ? "checkmark.shield.fill" : "shield")
-                .font(.system(size: WgType.title))
+                .font(.system(size: WgType.body))
                 .foregroundStyle(isActive ? .green : .secondary.opacity(0.5))
 
             VStack(alignment: .leading, spacing: WgSpace.xs) {
@@ -166,27 +166,27 @@ struct WireGuardDetailView: View {
                 }
 
                 Button { editProfile = PName(name: name) } label: {
-                    Image(systemName: "pencil").font(.system(size: WgType.caption))
+                    Image(systemName: "pencil").font(.system(size: WgType.body))
                 }.buttonStyle(.plain).help("编辑")
 
                 Button {
                     exportProfile = name
                     showExport = true
                 } label: {
-                    Image(systemName: "square.and.arrow.up").font(.system(size: WgType.caption))
+                    Image(systemName: "square.and.arrow.up").font(.system(size: WgType.body))
                 }.buttonStyle(.plain).help("导出")
 
                 Button {
                     deleteProfileName = name
                     showDeleteConfirm = true
                 } label: {
-                    Image(systemName: "trash").font(.system(size: WgType.caption))
+                    Image(systemName: "trash").font(.system(size: WgType.body))
                         .foregroundStyle(.red.opacity(0.6))
                 }.buttonStyle(.plain).help("删除")
             }
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.vertical, .m)
         .contentShape(Rectangle())
         .confirmationDialog("确认删除「\(name)」？", isPresented: $showDeleteConfirm) {
             Button("删除", role: .destructive) {
@@ -243,7 +243,7 @@ struct WireGuardDetailView: View {
     private var emptyState: some View {
         VStack(spacing: WgSpace.l) {
             Image(systemName: "doc.badge.plus")
-                .font(.system(size: WgType.page))
+                .font(.system(size: WgType.display))
                 .foregroundStyle(.secondary.opacity(0.5))
             Text("还没有 Profile")
                 .font(.subheadline)
@@ -253,7 +253,7 @@ struct WireGuardDetailView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
-        .wgPadding(.vertical, WgSpace.xxxl)
+        .wgPadding(.vertical, .xl)
         .wgGlassSurface()
     }
 

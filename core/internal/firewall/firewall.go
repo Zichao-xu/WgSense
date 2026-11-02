@@ -41,6 +41,9 @@ type Settings struct {
 	// AllowBypass 关闭隧道锁定：隧道连着时仍按上面的规则放行物理网卡直连。
 	// 默认 false（锁定），旧版设置文件没有这个字段，升级后即锁定。
 	AllowBypass bool `json:"allow_bypass"`
+	// BlockProbes 连诊断探测（出站 ICMP 回显请求，traceroute / ping）也拦。
+	// 默认 false：普通拦截模式下放行探测，路由追踪能看到真实路径；国内模式与隧道锁定始终不放行。
+	BlockProbes bool `json:"block_probes"`
 }
 
 // Status 是当前实际生效情况，供 UI 展示。
@@ -138,7 +141,7 @@ func (c *Controller) Update(s Settings) error {
 		return err
 	}
 	c.settings = s
-	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t 隧道锁定=%t", s.Block, s.ForceDomestic, !s.AllowBypass)
+	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t 隧道锁定=%t 放行探测=%t", s.Block, s.ForceDomestic, !s.AllowBypass, !s.BlockProbes)
 	return c.syncLocked()
 }
 
@@ -188,10 +191,13 @@ func (c *Controller) syncLocked() error {
 	case s.Block:
 		ifaces := c.PhysicalInterfaces()
 		status.Active, status.Reason = true, "物理网卡只放行国内、局域网与 WG 服务器"
+		if !s.BlockProbes {
+			status.Reason += "；诊断探测（ICMP 回显）放行"
+		}
 		if len(ifaces) == 0 {
 			status.Reason += "（当前无物理网卡）"
 		} else {
-			rules = RenderPF(RuleInput{Interfaces: ifaces, AllowFakeIP: true, Endpoints: c.TunnelEndpoints(), CNFile: CNTablePath()})
+			rules = RenderPF(RuleInput{Interfaces: ifaces, AllowFakeIP: true, Endpoints: c.TunnelEndpoints(), CNFile: CNTablePath(), AllowProbes: !s.BlockProbes})
 		}
 	default:
 		status.Reason = "未开启拦截"

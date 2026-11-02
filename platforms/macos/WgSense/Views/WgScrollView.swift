@@ -9,7 +9,7 @@ struct WgScrollView: View {
     var body: some View {
         WgNativeScrollView(content: content, rail: rail)
             .overlay(alignment: .leading) {
-                WgScrollRail(model: rail).wgPadding(.leading, WgSpace.hair).wgPadding(.vertical, WgSpace.xl)
+                WgScrollRail(model: rail).wgPadding(.leading, .zero).wgPadding(.vertical, .m)
             }
     }
 }

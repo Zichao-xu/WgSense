@@ -35,6 +35,8 @@ type RuleInput struct {
 	LockTunnel  bool     // 隧道锁定：不放行国内段，只放行局域网与 WG 服务器
 	Endpoints   []string // WG 服务器 IP
 	CNFile      string   // 国内 IP 段表文件(几千条，不适合内联)
+	// AllowProbes 放行诊断探测：出站 ICMP 回显请求（traceroute -I / ping），其余协议照拦。
+	AllowProbes bool
 }
 
 // RenderPF 生成加载进 WgSense 锚点的完整规则文本。
@@ -58,6 +60,11 @@ func RenderPF(in RuleInput) string {
 	if !in.LockTunnel {
 		fmt.Fprintf(&b, "table <wgsense_cn> const persist file %q\n", in.CNFile)
 		fmt.Fprintf(&b, "pass out quick%s to <wgsense_cn> no state\n", on)
+	}
+	if in.AllowProbes {
+		// 只放回显请求本身；路由器回的超时 / 回显应答是入站，不经这个锚点。keep state 让应答与之关联。
+		fmt.Fprintf(&b, "pass out quick%s inet proto icmp icmp-type echoreq keep state\n", on)
+		fmt.Fprintf(&b, "pass out quick%s inet6 proto icmp6 icmp6-type echoreq keep state\n", on)
 	}
 	// block return：立即拒绝，程序马上回退(比如 IPv6 退回 IPv4)，不会卡到超时。
 	// label 用于读取被拒绝的包数，展示给用户。

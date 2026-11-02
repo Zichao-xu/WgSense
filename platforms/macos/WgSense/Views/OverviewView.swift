@@ -9,7 +9,7 @@ struct OverviewView: View {
     @EnvironmentObject var client: DaemonClient
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WgSpace.xl) {
+        VStack(alignment: .leading, spacing: WgSpace.m) {
             WgPageHeader(title: "概览", subtitleText: "WGSENSE · STATUS", word: "OVERVIEW") { EmptyView() }
 
             hero
@@ -47,7 +47,7 @@ struct OverviewView: View {
 
     private var hero: some View {
         let vpn = client.vpnPresentation
-        return HStack(spacing: WgSpace.xl) {
+        return HStack(spacing: WgSpace.m) {
             StatusOrb(symbol: vpn.symbol, tint: vpn.tint, isActive: vpn.phase == .connected || vpn.phase == .home, isBusy: vpn.isBusy)
 
             VStack(alignment: .leading, spacing: WgSpace.xs) {
@@ -65,7 +65,7 @@ struct OverviewView: View {
 
             primaryAction(vpn)
         }
-        .wgPadding(WgSpace.xxl)
+        .wgPadding(.m)
         .wgInteractiveSurface(cornerRadius: WgDesign.heroRadius)
     }
 
@@ -202,9 +202,9 @@ struct OverviewView: View {
     private var coverage: some View {
         VStack(alignment: .leading, spacing: WgSpace.s) {
             Text("隧道覆盖")
-                .font(.system(size: WgType.footnote, weight: .semibold))
+                .font(.system(size: WgType.sub, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .wgPadding(.leading, WgSpace.xs)
+                .wgPadding(.leading, .xs)
 
             VStack(spacing: 0) {
                 let rows = coverageRows
@@ -303,9 +303,9 @@ struct OverviewView: View {
     private var modules: some View {
         VStack(alignment: .leading, spacing: WgSpace.s) {
             Text("模块")
-                .font(.system(size: WgType.footnote, weight: .semibold))
+                .font(.system(size: WgType.sub, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .wgPadding(.leading, WgSpace.xs)
+                .wgPadding(.leading, .xs)
 
             VStack(spacing: 0) {
                 ModuleRow(
@@ -356,7 +356,7 @@ private struct StatusOrb: View {
                 .fill(isActive ? fill : Color.clear)
                 .frame(width: 48, height: 48)
             Image(systemName: symbol)
-                .font(.system(size: WgType.section, weight: .semibold))
+                .font(.system(size: WgType.readout, weight: .semibold))
                 .foregroundStyle(isActive ? Color(nsColor: .windowBackgroundColor) : Color.primary.opacity(0.6))
                 .contentTransition(.symbolEffect(.replace))
             if isBusy {
@@ -388,7 +388,7 @@ private struct InfoCard<Accessory: View>: View {
             HStack(spacing: WgSpace.s) {
                 WgSquareBadge(symbol: symbol, tint: tint, size: 22)
                 Text(title)
-                    .font(.system(size: WgType.footnote, weight: .medium))
+                    .font(.system(size: WgType.sub, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 accessory()
@@ -396,18 +396,18 @@ private struct InfoCard<Accessory: View>: View {
             .frame(height: 22)
             VStack(alignment: .leading, spacing: WgSpace.xs) {
                 value
-                    .font(.system(size: WgType.title, weight: .semibold))
+                    .font(.system(size: WgType.body, weight: .semibold))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 detail
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
-        .wgPadding(WgSpace.l)
+        .wgPadding(.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .wgInteractiveSurface(cornerRadius: WgDesign.cardRadius)
     }
@@ -433,12 +433,12 @@ private struct ModuleRow: View {
                 .font(.system(size: WgType.body, weight: .medium))
             Spacer()
             status
-                .font(.system(size: WgType.footnote))
+                .font(.system(size: WgType.sub))
                 .foregroundStyle(.secondary)
             WgStatusDot(color: .green, isOn: isOn)
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.vertical, WgSpace.m)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.vertical, .m)
     }
 }
 
@@ -456,27 +456,27 @@ private struct CoverageRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: WgSpace.m) {
             WgSquareBadge(symbol: row.symbol, tint: row.tint, size: 24)
-            VStack(alignment: .leading, spacing: WgSpace.hair) {
+            VStack(alignment: .leading, spacing: WgSpace.zero) {
                 HStack(spacing: WgSpace.s) {
                     Text(row.name)
                         .font(.system(size: WgType.body, weight: .medium))
                     Spacer(minLength: 8)
                     row.value
-                        .font(.system(size: WgType.footnote, design: .monospaced))
+                        .font(.system(size: WgType.sub, design: .monospaced))
                         .foregroundStyle(.primary.opacity(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
                 row.detail
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         }
-        .wgPadding(.horizontal, WgSpace.l)
-        .wgPadding(.vertical, WgSpace.s)
+        .wgPadding(.horizontal, .l)
+        .wgPadding(.vertical, .s)
     }
 }
 
@@ -497,6 +497,6 @@ enum WgCoverageFormat {
 
 private struct RowDivider: View {
     var body: some View {
-        Divider().opacity(0.5).wgPadding(.leading, 50)
+        Divider().opacity(0.5).wgInset(.leading, 50)
     }
 }

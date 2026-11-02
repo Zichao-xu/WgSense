@@ -64,6 +64,25 @@ func TestBlockScopesPhysicalInterfaces(t *testing.T) {
 	}
 }
 
+func TestProbesAllowedOnlyInBlockMode(t *testing.T) {
+	const echo = "pass out quick on { en0 en7 } inet proto icmp icmp-type echoreq keep state"
+	_, b := newTest(t, Settings{Block: true})
+	if !strings.Contains(b.pf, echo) || !strings.Contains(b.pf, "icmp6-type echoreq") {
+		t.Fatalf("block mode should let traceroute probes out by default:\n%s", b.pf)
+	}
+	if strings.Index(b.pf, echo) > strings.Index(b.pf, "block return") {
+		t.Fatal("probe pass must come before the block rule")
+	}
+	_, b = newTest(t, Settings{Block: true, BlockProbes: true})
+	if strings.Contains(b.pf, "echoreq") {
+		t.Fatal("BlockProbes must close the probe hole")
+	}
+	_, b = newTest(t, Settings{Block: true, ForceDomestic: true})
+	if strings.Contains(b.pf, "echoreq") {
+		t.Fatal("domestic mode never lets probes out")
+	}
+}
+
 func TestForceDomesticCoversTunnelAndProxy(t *testing.T) {
 	c, b := newTest(t, Settings{Block: true, ForceDomestic: true})
 	if !c.Status().Forced {

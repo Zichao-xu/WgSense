@@ -117,7 +117,7 @@ struct PPLatencyTag: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Text("\(latency)")
-                        .font(.system(size: WgType.caption, weight: .semibold).monospacedDigit())
+                        .font(.system(size: WgType.body, weight: .semibold).monospacedDigit())
                         .foregroundStyle(level.color)
                         .contentTransition(.numericText(value: Double(latency)))
                 }
@@ -229,7 +229,7 @@ private struct PPDot: View, Equatable {
         Rectangle()
             .fill(isCurrent ? WgInk.signal : color)
             .frame(width: 9, height: 9)
-            .wgPadding(WgSpace.hair)
+            .wgPadding(.zero)
             .overlay {
                 if isCurrent { Rectangle().strokeBorder(WgInk.signal, lineWidth: 1) }
             }
@@ -248,7 +248,7 @@ struct PPGroupSpeed: View {
     var group: String
     var body: some View {
         Text(verbatim: WgFormat.speed(Double(live.groupDownloadSpeed[group] ?? 0)))
-            .font(.system(size: WgType.caption).monospacedDigit())
+            .font(.system(size: WgType.body).monospacedDigit())
             .foregroundStyle(.secondary)
             .fixedSize()
     }
@@ -304,7 +304,7 @@ struct PPRouteView: View {
             if let proxy, proxy.now != nil {
                 if store.isFixed(group) {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: WgType.caption))
+                        .font(.system(size: WgType.body))
                         .foregroundStyle(.secondary)
                         .help("当前策略组被固定在了当前节点，点击测速来恢复 \(proxy.type) 行为")
                 }
@@ -316,16 +316,16 @@ struct PPRouteView: View {
                             .foregroundStyle(.tertiary)
                     }
                     Text(verbatim: name)
-                        .font(.system(size: WgType.footnote))
+                        .font(.system(size: WgType.sub))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             } else if proxy?.type.lowercased() == "loadbalance" {
                 Image(systemName: "checkmark.circle")
-                    .font(.system(size: WgType.caption))
+                    .font(.system(size: WgType.body))
                     .foregroundStyle(.secondary)
                 Text("负载均衡")
-                    .font(.system(size: WgType.footnote))
+                    .font(.system(size: WgType.sub))
                     .foregroundStyle(.secondary)
             }
         }
@@ -378,7 +378,7 @@ struct PPNodeCard: View {
         let latency = store.latency(name, group: group)
         let loading = store.isTesting("node:\(group)/\(name)")
         let type = typeDescription(node)
-        let nameFont = NSFont.systemFont(ofSize: small ? WgType.footnote : WgType.body, weight: active ? .semibold : .regular)
+        let nameFont = NSFont.systemFont(ofSize: small ? WgType.sub : WgType.body, weight: active ? .semibold : .regular)
         let lines = Self.lines(name, store: store)
         let lineHeight: CGFloat = small ? 15 : 17
         let height = Self.height(for: name, store: store)
@@ -404,8 +404,8 @@ struct PPNodeCard: View {
             ctx.draw(title, in: CGRect(x: nameX, y: pad - 1, width: nameWidth, height: lineHeight * CGFloat(lines) + 2))
             // 协议 / udp
             let baseline = size.height - pad - tagSize.height / 2
-            let typeText = Text(verbatim: Self.truncate(type, font: .systemFont(ofSize: WgType.caption), width: size.width - pad * 2 - tagSize.width - 6))
-                .font(.system(size: WgType.caption))
+            let typeText = Text(verbatim: Self.truncate(type, font: .systemFont(ofSize: WgType.body), width: size.width - pad * 2 - tagSize.width - 6))
+                .font(.system(size: WgType.body))
                 .foregroundColor(active ? Color.white.opacity(0.8) : Color.secondary)
             ctx.draw(typeText, at: CGPoint(x: pad, y: baseline), anchor: .leading)
             // 延迟标签
@@ -414,18 +414,18 @@ struct PPNodeCard: View {
             if active { ctx.fill(Path(roundedRect: tag, cornerRadius: WgRadius.s), with: .color(Color.white.opacity(0.14))) }
             let center = CGPoint(x: tag.midX, y: tag.midY)
             if loading {
-                ctx.draw(Text(verbatim: "···").font(.system(size: WgType.caption, weight: .bold)).foregroundColor(levelColor), at: center)
+                ctx.draw(Text(verbatim: "···").font(.system(size: WgType.body, weight: .bold)).foregroundColor(levelColor), at: center)
             } else if latency == mihomoNotConnected {
                 ctx.draw(Text(Image(systemName: "bolt.fill")).font(.system(size: WgType.micro, weight: .semibold))
                     .foregroundColor(active ? Color.white.opacity(0.8) : Color.secondary), at: center)
             } else {
-                ctx.draw(Text(verbatim: "\(latency)").font(.system(size: WgType.caption, weight: .semibold).monospacedDigit()).foregroundColor(levelColor), at: center)
+                ctx.draw(Text(verbatim: "\(latency)").font(.system(size: WgType.body, weight: .semibold).monospacedDigit()).foregroundColor(levelColor), at: center)
             }
         }
         .frame(height: height)
         .frame(minWidth: store.minProxyCardWidth, maxWidth: .infinity)
         .overlay(alignment: .topLeading) {
-            if hasIcon { PPGroupIcon(icon: node?.icon, size: 14).wgPadding(.leading, pad).wgPadding(.top, pad + 1).allowsHitTesting(false) }
+            if hasIcon { PPGroupIcon(icon: node?.icon, size: 14).wgInset(.leading, pad).wgInset(.top, pad + 1).allowsHitTesting(false) }
         }
         // 延迟标签的点击区（测速）。
         .overlay(alignment: .bottomTrailing) {
@@ -433,7 +433,7 @@ struct PPNodeCard: View {
                 .frame(width: tagSize.width, height: tagSize.height)
                 .contentShape(Rectangle())
                 .onTapGesture { test() }
-                .wgPadding(pad)
+                .wgInset(pad)
         }
         .contentShape(Rectangle())
         // 唯一的悬停监听：同时负责高亮、提示与右键测速的路由。
@@ -484,7 +484,7 @@ struct PPNodeCard: View {
     static func lines(_ name: String, store: ProxyPanelStore) -> Int {
         guard !store.truncateProxyName else { return 1 }
         let small = store.smallCard
-        let font = NSFont.systemFont(ofSize: small ? WgType.footnote : WgType.body, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: small ? WgType.sub : WgType.body, weight: .semibold)
         return lineCount(name, font: font, width: store.minProxyCardWidth - (small ? 14 : 20) - 18)
     }
 

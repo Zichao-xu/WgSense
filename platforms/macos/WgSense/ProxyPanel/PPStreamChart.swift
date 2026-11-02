@@ -221,9 +221,9 @@ struct PPStreamChart: View {
                         .frame(width: 12, height: 2)
                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] + 3 }
                     if series.count > 1 {
-                        Text(s.name).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink3)
+                        Text(s.name).font(.system(size: WgType.body)).foregroundStyle(WgInk.ink3)
                     }
-                    WgReadout(text: values[safe: index].map(format) ?? "—", size: WgInk.sizeSubsection, weight: .regular)
+                    WgReadout(text: values[safe: index].map(format) ?? "—", size: .title, weight: .regular)
                 }
             }
             Spacer()
@@ -255,17 +255,17 @@ struct PPStreamChart: View {
             }
             VStack(alignment: .leading, spacing: WgSpace.xs) {
                 Text(verbatim: Date(timeIntervalSince1970: t).formatted(date: .omitted, time: .standard))
-                    .font(WgInk.mono(9.5)).foregroundStyle(WgInk.ink3)
+                    .font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
                 ForEach(values, id: \.0) { i, v in
                     HStack(spacing: WgSpace.s) {
                         Rectangle().fill(series[i].color).frame(width: 8, height: 2)
-                        Text(series[i].name).font(.system(size: WgType.caption)).foregroundStyle(WgInk.ink2)
+                        Text(series[i].name).font(.system(size: WgType.body)).foregroundStyle(WgInk.ink2)
                         Spacer(minLength: 8)
-                        Text(verbatim: format(v)).font(WgInk.figure(10.5))
+                        Text(verbatim: format(v)).font(WgInk.figure(.caption))
                     }
                 }
             }
-            .wgPadding(.horizontal, WgSpace.s).wgPadding(.vertical, WgSpace.s)
+            .wgPadding(.horizontal, .s).wgPadding(.vertical, .s)
             .frame(width: 168)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: WgRadius.s, style: .continuous).strokeBorder(WgInk.rule))
@@ -316,7 +316,7 @@ private struct PPChartAxis: View, Equatable {
                 mark.move(to: CGPoint(x: plot.minX - 4, y: y))
                 mark.addLine(to: CGPoint(x: plot.minX, y: y))
                 context.stroke(mark, with: .color(Color.primary.opacity(0.28)), lineWidth: 1)
-                context.draw(Text(verbatim: format(tick.value)).font(WgInk.mono(9)).foregroundStyle(Color.primary.opacity(0.42)),
+                context.draw(Text(verbatim: format(tick.value)).font(WgInk.mono(.micro)).foregroundStyle(Color.primary.opacity(0.42)),
                              at: CGPoint(x: plot.minX - 8, y: y), anchor: .trailing)
             }
             // 时间尺：每 5s 一个细刻痕，每 15s 一个长刻痕 + 读数（相对“现在”）。
@@ -330,7 +330,7 @@ private struct PPChartAxis: View, Equatable {
                 context.stroke(tick, with: .color(Color.primary.opacity(major ? 0.32 : 0.18)), lineWidth: 1)
                 if major {
                     let label = s == 0 ? "NOW" : "−\(s)s"
-                    context.draw(Text(verbatim: label).font(WgInk.mono(8.5)).foregroundStyle(Color.primary.opacity(0.4)),
+                    context.draw(Text(verbatim: label).font(WgInk.mono(.micro)).foregroundStyle(Color.primary.opacity(0.4)),
                                  at: CGPoint(x: x, y: base + 7), anchor: s == 0 ? .topTrailing : .top)
                 }
             }
