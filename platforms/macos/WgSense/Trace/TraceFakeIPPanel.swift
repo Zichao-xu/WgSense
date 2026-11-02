@@ -18,7 +18,7 @@ struct TraceFakeIPPanel: View {
                 .font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink4)
                 .help("代理后端对同一域名的真实解析与系统解析不一致 = 被接管；后端答不上时，只在系统地址落进兜底网段时提示疑似")
 
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: WgSpace.xs) {
                 ForEach(fip.steps) { step in stepRow(step) }
             }
 

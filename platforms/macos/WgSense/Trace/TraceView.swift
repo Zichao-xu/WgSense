@@ -247,7 +247,7 @@ struct TraceView: View {
         }
         return Text(verbatim: text).font(WgInk.mono(.caption)).foregroundStyle(tint).lineLimit(2)
             .wgPadding(.horizontal, .m)
-            .padding(.vertical, 6)
+            .wgPadding(.vertical, .xs)
             .traceHolo()
     }
 
@@ -630,7 +630,7 @@ private struct TraceMapLegend: View {
     }
 
     private func legend(_ mark: String, _ name: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: WgSpace.xs) {
             Text(verbatim: mark).font(WgInk.mono(.micro, .bold)).foregroundStyle(WgInk.ink2)
             Text(verbatim: name).font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
         }
