@@ -229,22 +229,92 @@ struct MainView: View {
     @State private var selection: SidebarTab = SidebarTab(
         rawValue: UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["WgSenseInitialTab"] as? String ?? ""
     ) ?? .dashboard
-    @State private var sidebarWidth: CGFloat = 300
-    /// 侧栏收成一列图标（只留页面入口），磁贴整块不渲染。
+    /// 侧栏宽度：一路拖到最窄（64）就是只剩图标的收起形态，中间无极过渡（见 SidebarView.compactness）。
+    /// 调试用：`--args -WgSenseSidebarWidth 120` 指定启动宽度（看中间形态，仅命令行参数域）。
+    @State private var sidebarWidth: CGFloat = (UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["WgSenseSidebarWidth"] as? String)
+        .flatMap { Double($0) }.map { CGFloat($0) }
+        ?? (UserDefaults.standard.bool(forKey: "sidebar.collapsed")
+            ? SidebarView.railWidth : max(SidebarView.fullWidth, UserDefaults.standard.double(forKey: "sidebar.expandedWidth").nonZero ?? 300))
+    /// 收起与否只用来记住状态、决定按钮箭头；收起 = 宽度在最窄处。
     @AppStorage("sidebar.collapsed") private var sidebarCollapsed = false
-    /// 收起后的图标栏宽度。
-    static let sidebarRailWidth: CGFloat = 64
-    private var sidebarShownWidth: CGFloat { sidebarCollapsed ? Self.sidebarRailWidth : sidebarWidth }
+    /// 收起前的宽度：展开时回到这里。
+    @AppStorage("sidebar.expandedWidth") private var expandedWidth = 300.0
 
-    private let sidebarMinWidth: CGFloat = 176
     private let sidebarMaxWidth: CGFloat = 620
+
+    /// 收起 / 展开：把宽度一帧帧推到最窄或拉回原宽，等于替你把分隔线拖过去——每一帧都按当时的宽度真实排版，
+    /// 磁贴怎么变全交给宽窄逻辑。不用 withAnimation：那只在两端各排一次版、中间硬插值，磁贴会按终点宽度先跳过去（跳屏）。
+    private func toggleSidebar() {
+        if sidebarWidth > SidebarView.railWidth + 0.5 {
+            expandedWidth = max(SidebarView.fullWidth, sidebarWidth)
+            slideSidebar(to: SidebarView.railWidth)
+        } else {
+            slideSidebar(to: max(SidebarView.fullWidth, expandedWidth))
+        }
+    }
+
+    /// 松手吸附：拖动时无极，松手滑到最近的「整列」宽度（或收起），磁贴不停在半截形态、网格右边不留零头。
+    /// 带着松手的手速当初速度，用阻尼弹簧一帧帧收到吸附点：先顺着惯性走，再减速落位，不是从静止重新起步。
+    private func snapSidebar(velocity: CGFloat) {
+        // 按惯性预判落点再挑最近的吸附点：轻甩一下能跳到下一档
+        let projected = sidebarWidth + velocity * 0.12
+        let targets = SidebarView.snapWidths(upTo: sidebarMaxWidth)
+        guard let target = targets.min(by: { abs($0 - projected) < abs($1 - projected) }) else { return }
+        if target > SidebarView.railWidth { expandedWidth = target }
+        guard abs(target - sidebarWidth) > 0.5 || abs(velocity) > 1 else { return }
+        springSidebar(to: target, velocity: velocity)
+    }
+
+    /// 阻尼弹簧（响应约 0.48 秒、阻尼比 0.68：冲过头约 5% 再弹回，软而有弹性），按真实帧间隔积分，每帧普通赋值、真实排版。
+    private func springSidebar(to target: CGFloat, velocity v0: CGFloat) {
+        sidebarSlide?.cancel()
+        let omega = 2 * Double.pi / (0.48 * Self.slowFactor)
+        let zeta = 0.68
+        sidebarSlide = Task { @MainActor in
+            var x = Double(sidebarWidth), v = Double(v0)
+            var last = CACurrentMediaTime()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(8))
+                let now = CACurrentMediaTime()
+                var dt = min(1.0 / 30, now - last); last = now
+                // 小步积分，防大帧间隔发散
+                while dt > 0 {
+                    let h = min(dt, 1.0 / 240)
+                    let a = -omega * omega * (x - Double(target)) - 2 * zeta * omega * v
+                    v += a * h; x += v * h; dt -= h
+                }
+                if abs(x - Double(target)) < 0.3 && abs(v) < 5 { sidebarWidth = target; break }
+                sidebarWidth = min(sidebarMaxWidth, max(SidebarView.railWidth, CGFloat(x)))
+            }
+        }
+    }
+
+    @State private var sidebarSlide: Task<Void, Never>?
+    /// 调试用：`--args -WgSenseSlow 8` 让侧栏收放慢 8 倍，逐帧截图核对过渡（仅命令行参数域）。
+    private static let slowFactor = max(1, UserDefaults.standard.double(forKey: "WgSenseSlow"))
+
+    private func slideSidebar(to target: CGFloat, duration base: Double = 0.42) {
+        sidebarSlide?.cancel()
+        let from = sidebarWidth
+        let duration = base * Self.slowFactor
+        sidebarSlide = Task { @MainActor in
+            let start = CACurrentMediaTime()
+            while !Task.isCancelled {
+                let t = min(1, (CACurrentMediaTime() - start) / duration)
+                // 先快后慢再收住（ease-in-out 三次）
+                let e = t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2
+                // 普通赋值（不包动画）：和拖动一样每帧真实排版；列数变化时网格自带的重排动画照常生效，两列 → 一列不跳
+                sidebarWidth = from + (target - from) * e
+                if t >= 1 { break }
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selection: $selection, collapsed: sidebarCollapsed) {
-                withAnimation(WgDesign.spring) { sidebarCollapsed.toggle() }
-            }
-                .frame(width: sidebarShownWidth, alignment: .leading)
+            SidebarView(selection: $selection)
+                .frame(width: sidebarWidth, alignment: .leading)
                 .clipped()
                 // 全息模式：侧栏底下加一层模糊，越靠右缘越清晰
                 .background { if selection == .trace { TraceSidebarBlur() } }
@@ -253,18 +323,52 @@ struct MainView: View {
 
             SidebarResizeHandle(
                 width: $sidebarWidth,
-                minimumWidth: sidebarMinWidth,
-                maximumWidth: sidebarMaxWidth
+                minimumWidth: SidebarView.railWidth,
+                maximumWidth: sidebarMaxWidth,
+                onBegin: { sidebarSlide?.cancel() },
+                onEnd: { snapSidebar(velocity: $0) }
             )
             .frame(width: 7)
-            // 收起时宽度固定，拖拽条不接手势
-            .allowsHitTesting(!sidebarCollapsed)
+            // 收起 / 展开按钮骑在分隔线正中：两种状态都在同一个位置，不占侧栏底部的地方
+            .overlay {
+                SidebarCollapseButton(collapsed: sidebarWidth <= SidebarView.railWidth + 0.5, action: toggleSidebar)
+            }
+            .zIndex(1)
 
             // 页面区单独成一个子视图，输入只有当前页与语言：拖侧栏时 MainView 每帧重算（sidebarWidth 在变），
             // 子视图输入不变就整体跳过，不再每帧把整页内容重新塞进原生滚动容器（测速页曾因此拖动掉帧 70%+）。
             MainPageArea(selection: selection, language: selectedLanguage, client: client)
             .wgPageSurface()
             .wgSurfaceRegion(.content)
+        }
+        // 调试用：`--args -WgSenseSidebarSweep 6` 侧栏宽度在 64 ↔ 180 之间线性来回扫，单程 6 秒（模拟慢慢来回拖，逐帧截图核对）
+        .task {
+            let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            guard let leg = (args["WgSenseSidebarSweep"] as? String).flatMap(Double.init) else { return }
+            try? await Task.sleep(for: .seconds(2))
+            let start = CACurrentMediaTime()
+            while !Task.isCancelled {
+                let t = (CACurrentMediaTime() - start) / leg
+                let phase = t.truncatingRemainder(dividingBy: 2)
+                let k = phase < 1 ? phase : 2 - phase
+                // 区间可用 -WgSenseSweepMin / -WgSenseSweepMax 改（默认 64 ↔ 180）
+                let lo = UserDefaults.standard.double(forKey: "WgSenseSweepMin").nonZero ?? Double(SidebarView.railWidth)
+                let hi = UserDefaults.standard.double(forKey: "WgSenseSweepMax").nonZero ?? 180
+                sidebarWidth = CGFloat(hi - (hi - lo) * k)
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
+        // 调试用：`--args -WgSenseSidebarToggleAt 3` 启动 3 秒后自动点一次收起 / 展开（配合 -WgSenseSlow 逐帧截图）
+        .task {
+            let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            guard let at = (args["WgSenseSidebarToggleAt"] as? String).flatMap(Double.init) else { return }
+            try? await Task.sleep(for: .seconds(at))
+            toggleSidebar()
+        }
+        // 收起状态跟着宽度走（拖到最窄也算收起），重启后照样
+        .onChange(of: sidebarWidth) { _, w in
+            let collapsed = w <= SidebarView.railWidth + 0.5
+            if sidebarCollapsed != collapsed { sidebarCollapsed = collapsed }
         }
         // 图表缓存：主窗口可见期间采样速度/内存，打开代理概览时曲线已有历史；窗口收起即停。
         .task { PPOverviewStore.shared.startSamplingWhileVisible() }
@@ -287,7 +391,7 @@ struct MainView: View {
                     .ignoresSafeArea()
                 // 路由追踪页是全息模式：地球铺满整个窗口当背景，侧栏与页面浮在上面，地球中心对准内容区
                 if selection == .trace {
-                    TraceGlobeStage(leading: sidebarShownWidth + 7)
+                    TraceGlobeStage(leading: sidebarWidth + 7)
                         .environmentObject(client)
                 }
             }
@@ -418,12 +522,36 @@ private struct MainPageArea: View {
 }
 
 #if canImport(AppKit)
+/// 侧栏收起 / 展开按钮：竖条形，骑在侧栏与页面的分隔线正中，箭头指向点了以后侧栏去的方向。
+private struct SidebarCollapseButton: View {
+    var collapsed: Bool
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: WgType.micro, weight: .bold))
+                .rotationEffect(.degrees(collapsed ? 180 : 0))
+                .foregroundStyle(hovering ? WgInk.ink : WgInk.ink3)
+                .frame(width: 18, height: 44)
+                .background(SLPlate(shape: ChamferShape(tr: 5, bl: 5), fill: WgInk.field,
+                                    stroke: Color.primary.opacity(hovering ? 0.35 : 0.18)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(collapsed ? "展开侧栏" : "收起侧栏")
+    }
+}
+
 private struct SidebarResizeHandle: NSViewRepresentable {
     @Binding var width: CGFloat
     let minimumWidth: CGFloat
     let maximumWidth: CGFloat
     var onBegin: () -> Void = {}
-    var onEnd: () -> Void = {}
+    /// 松手时的手速（点/秒），交给吸附当初速度
+    var onEnd: (CGFloat) -> Void = { _ in }
 
     func makeNSView(context: Context) -> SidebarResizeHandleView {
         let view = SidebarResizeHandleView()
@@ -446,7 +574,7 @@ private struct SidebarResizeHandle: NSViewRepresentable {
 private final class SidebarResizeHandleView: NSView {
     var onDrag: ((CGFloat) -> Void)?
     var onBegin: (() -> Void)?
-    var onEnd: (() -> Void)?
+    var onEnd: ((CGFloat) -> Void)?
     var currentWidth: (() -> CGFloat)?
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
@@ -454,14 +582,23 @@ private final class SidebarResizeHandleView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         onBegin?()
-        defer { onEnd?() }
         var last = event.locationInWindow.x
+        var lastTime = event.timestamp
+        var velocity: CGFloat = 0
         window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: NSEvent.foreverDuration, mode: .eventTracking) { e, stop in
-            guard let e, e.type != .leftMouseUp else { stop.pointee = true; return }
+            guard let e else { stop.pointee = true; return }
+            if e.type == .leftMouseUp {
+                // 停住超过 80ms 再松手 = 没有甩的意图
+                if e.timestamp - lastTime > 0.08 { velocity = 0 }
+                stop.pointee = true; return
+            }
             let x = e.locationInWindow.x
+            let dt = e.timestamp - lastTime
+            if dt > 0 { velocity = velocity * 0.4 + (x - last) / CGFloat(dt) * 0.6 }
             onDrag?(x - last)
-            last = x
+            last = x; lastTime = e.timestamp
         }
+        onEnd?(velocity)
     }
 }
 #endif
@@ -601,9 +738,28 @@ struct TileData: Identifiable, Codable, Equatable {
 
 struct SidebarView: View {
     @Binding var selection: SidebarTab
-    /// 收成一列图标：磁贴不渲染，只留页面入口、设置与展开按钮。
-    var collapsed = false
-    var toggleCollapsed: () -> Void = {}
+    /// 侧栏宽窄的两端：fullWidth 以上磁贴是完整形态，railWidth 是只剩图标的收起形态；中间按宽度无极过渡。
+    static let fullWidth: CGFloat = 176
+    static let railWidth: CGFloat = 64
+
+    /// 收缩程度：0 = 完整磁贴，1 = 只剩图标。拖动分隔线、点收起按钮都只是改宽度，磁贴形态全由它决定。
+    static func compactness(_ width: CGFloat) -> CGFloat {
+        min(1, max(0, (fullWidth - width) / (fullWidth - railWidth)))
+    }
+
+    /// 吸附点：收起，以及网格恰好排满 n 列（每列最小宽、无零头）的侧栏宽度；一列时不低于完整磁贴的宽度。
+    static func snapWidths(upTo maxWidth: CGFloat) -> [CGFloat] {
+        let padding = WgGap.m.value * 2
+        var result = [railWidth]
+        var n = 1
+        while true {
+            let width = CGFloat(n) * GridGeometry.minimum + CGFloat(n - 1) * GridGeometry.gap + padding
+            guard width <= maxWidth else { break }
+            result.append(max(fullWidth, width))
+            n += 1
+        }
+        return result
+    }
     @EnvironmentObject var client: DaemonClient
     /// 路由追踪磁贴的状态行跟着追踪进度走。只订阅这一行字：订阅整个追踪状态的话，每来一跳（定位、代理查询……）
     /// 整个侧栏都要重算，压测里是追踪中地图每秒一次 60–80ms 的卡顿。
@@ -624,10 +780,8 @@ struct SidebarView: View {
     /// 服务离线时不沿用本地缓存的守护意图，否则会显示“运行中”而实际没人在守护。
     private var guardRunning: Bool { client.status != nil && client.isGuardOn }
 
-    init(selection: Binding<SidebarTab>, collapsed: Bool = false, toggleCollapsed: @escaping () -> Void = {}) {
+    init(selection: Binding<SidebarTab>) {
         self._selection = selection
-        self.collapsed = collapsed
-        self.toggleCollapsed = toggleCollapsed
         var tiles = Self.loadTiles() ?? Self.defaultTiles()
         // 新磁贴给已有布局补一次；用户之后删掉就不再加回来
         if !UserDefaults.standard.bool(forKey: "tileLayout.seeded.trace") {
@@ -686,24 +840,21 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        Group {
-            if collapsed {
-                rail
-            } else {
-                VStack(spacing: 0) {
-                    // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
-                    Color.clear.frame(height: WgLayout.sidebarTop)
+        GeometryReader { geometry in
+            let c = Self.compactness(geometry.size.width)
+            VStack(spacing: 0) {
+                // 顶部只留出红绿灯的位置；品牌与工具按钮移到底部。
+                Color.clear.frame(height: WgLayout.sidebarTop)
 
-                    // 磁贴网格区域
-                    GeometryReader { geometry in
-                        ScrollView {
-                            tileGridContent(availableWidth: geometry.size.width)
-                        }
-                    }
-
-                    brandFoot
+                // 磁贴网格区域
+                ScrollView(showsIndicators: c == 0) {
+                    tileGridContent(availableWidth: geometry.size.width, compact: c)
                 }
+
+                foot(c)
             }
+            // 底栏、编辑栏有固定的最小宽度：不卡住的话会把整列撑宽并居中，窄的时候图标被挤到侧栏外面
+            .frame(width: geometry.size.width, alignment: .leading)
         }
         // 排序、增删、改大小都会走到这里，落盘一次。
         .onChange(of: tiles) { _, _ in saveTiles() }
@@ -731,39 +882,40 @@ struct SidebarView: View {
 
     // MARK: - 底部品牌栏
 
+    /// 底栏随侧栏收缩：完整品牌栏淡出，只剩品牌标与设置的窄版淡入。
+    private func foot(_ c: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            if c < 0.5 {
+                // minWidth 0 + 裁切：品牌栏自身约 208 宽，不卡住会把整列撑宽，网格在里面居中、右移被切
+                brandFoot
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .clipped()
+                    .opacity(Double(1 - c * 2))
+            }
+            VStack(spacing: WgSpace.s) {
+                WgBrandIcon().frame(width: 28, height: 28)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
+                } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
+                    .help("设置")
+            }
+            .frame(maxWidth: .infinity)
+            .wgPadding(.bottom, .l)
+            .opacity(Double(max(0, (c - 0.4) / 0.6)))
+            .allowsHitTesting(c >= 0.5)
+        }
+        .transaction { $0.animation = nil }
+    }
+
     /// 品牌栏：细分隔线 + 几何标 + 名称 / 版本，右侧是添加、编辑、设置。
     private var brandFoot: some View {
-        HStack(spacing: WgSpace.m) {
-            WgBrandIcon()
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: WgSpace.zero) {
-                Text(verbatim: "WgSense").font(.system(size: WgType.title, weight: .heavy)).tracking(0.6)
-                Text(verbatim: "V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") · WIREGUARD / MIHOMO")
-                    .font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink3).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-
-            Button(action: toggleCollapsed) { Image(systemName: "chevron.left") }
-                .buttonStyle(WgToolbarIconButtonStyle())
-                .help("收起侧栏")
-
-            Button { showAddSheet = true } label: { Image(systemName: "plus") }
-                .buttonStyle(WgToolbarIconButtonStyle())
-                .help("添加磁贴")
-
-            Button {
-                withAnimation(WgDesign.spring) { isEditMode.toggle() }
-            } label: {
-                Image(systemName: isEditMode ? "checkmark" : "square.grid.2x2")
-            }
-            .buttonStyle(WgToolbarIconButtonStyle(isActive: isEditMode))
-            .help(isEditMode ? "完成编辑" : "编辑磁贴")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
-            } label: { Image(systemName: "gearshape") }
-                .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
-                .help("设置")
+        // 按宽度降级，永不撑出侧栏：完整 → 去掉名字 → 只留标志和设置
+        ViewThatFits(in: .horizontal) {
+            brandFootRow(name: true, tools: true)
+            brandFootRow(name: false, tools: true)
+            brandFootRow(name: false, tools: false)
         }
         .wgPadding(.horizontal, .l)
         .wgPadding(.top, .m)
@@ -774,44 +926,50 @@ struct SidebarView: View {
         .wgSurfaceRegion(.toolbar)
     }
 
-    // MARK: - 收起：一列图标
-
-    /// 收起后的图标栏：顶上品牌标，中间按磁贴顺序排页面入口（同一页面只出一次；暂停 / 停止这类动作磁贴不出），
-    /// 底下设置与展开。选中页给一块底板，开着的模块右上角一个小点。
-    private var rail: some View {
-        var seen = Set<SidebarTab>()
-        let items = tiles.compactMap { t -> (TileKind, SidebarTab)? in
-            guard let tab = tab(for: t.kind), seen.insert(tab).inserted else { return nil }
-            return (t.kind, tab)
-        }
-        return VStack(spacing: WgSpace.s) {
-            Color.clear.frame(height: WgLayout.sidebarTop)
-            WgBrandIcon().frame(width: 28, height: 28)
-                .wgPadding(.bottom, .s)
-            Rectangle().fill(WgInk.rule).frame(width: 28, height: 1)
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: WgSpace.s) {
-                    ForEach(items, id: \.1) { kind, tab in railButton(kind, tab) }
+    private func brandFootRow(name: Bool, tools: Bool) -> some View {
+        HStack(spacing: WgSpace.m) {
+            WgBrandIcon()
+                .frame(width: 28, height: 28)
+            if name {
+                VStack(alignment: .leading, spacing: WgSpace.zero) {
+                    Text(verbatim: "WgSense").font(.system(size: WgType.title, weight: .heavy)).tracking(0.6).fixedSize()
+                    // 版本行不计入理想宽度：名字放得下就显示这一档，版本行放不下就截断
+                    Text(verbatim: "V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") · WIREGUARD / MIHOMO")
+                        .font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink3).lineLimit(1)
+                        .frame(idealWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
-                .wgPadding(.vertical, .s)
             }
-            Rectangle().fill(WgInk.rule).frame(width: 28, height: 1)
+            Spacer(minLength: 4)
+
+            if tools {
+                Button { showAddSheet = true } label: { Image(systemName: "plus") }
+                    .buttonStyle(WgToolbarIconButtonStyle())
+                    .help("添加磁贴")
+
+                Button {
+                    withAnimation(WgDesign.spring) { isEditMode.toggle() }
+                } label: {
+                    Image(systemName: isEditMode ? "checkmark" : "square.grid.2x2")
+                }
+                .buttonStyle(WgToolbarIconButtonStyle(isActive: isEditMode))
+                .help(isEditMode ? "完成编辑" : "编辑磁贴")
+            }
+
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { selection = .settings }
             } label: { Image(systemName: "gearshape") }
                 .buttonStyle(WgToolbarIconButtonStyle(isActive: selection == .settings))
                 .help("设置")
-            Button(action: toggleCollapsed) { Image(systemName: "chevron.right") }
-                .buttonStyle(WgToolbarIconButtonStyle())
-                .help("展开侧栏")
-                .wgPadding(.bottom, .l)
         }
-        .frame(maxWidth: .infinity)
-        .focusEffectDisabled()
     }
 
-    private func railButton(_ kind: TileKind, _ tab: SidebarTab) -> some View {
-        let selected = selection == tab
+    // MARK: - 收缩形态的图标
+
+    /// 磁贴缩到最窄时的样子：40 × 40 的图标方块。页面磁贴点了切页，暂停 / 停止点了直接执行；
+    /// 选中的页面垫一块底板，开着的模块右上角一个小点。
+    private func compactIcon(_ tile: TileData) -> some View {
+        let kind = tile.kind
+        let selected = isSelected(kind)
         let on: Bool = switch kind {
         case .vpn: isConnected
         case .connection: isTunnelUp
@@ -819,7 +977,10 @@ struct SidebarView: View {
         default: moduleInfo(kind).isOn
         }
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selection = tab }
+            switch kind {
+            case .pause: if !client.isPauseOn { toggleVPNPause() }
+            default: handleSmallTileTap(tile)
+            }
         } label: {
             Image(systemName: kind.icon)
                 .font(.system(size: WgType.title, weight: .medium))
@@ -1638,22 +1799,25 @@ struct SidebarView: View {
 
     // MARK: - 磁贴网格（稳定身份、按实际宽度实时排版）
 
-    private func tileGridContent(availableWidth: CGFloat) -> some View {
+    private func tileGridContent(availableWidth: CGFloat, compact c: CGFloat) -> some View {
         let outerGap: WgGap = .m
         let outerPadding = outerGap.value
         let usableWidth = max(1, availableWidth - outerPadding * 2)
         let columnCount = GridGeometry.columns(usableWidth)
         let specs = tiles.map {
-            GridItemSpec(span: $0.size == .small ? 1 : 2,
-                         height: $0.size == .large ? WgTheme.tileY * 2 + WgTheme.tileGap : WgTheme.tileY)
+            GridItemSpec(span: $0.size == .small ? 1 : 2, height: Self.tileHeight($0.size, compact: c))
         }
         return VStack(spacing: 0) {
             RetainedGrid(specs: specs) {
                 // One stable parent: moving to a different row preserves controls and tasks.
-                ForEach(tiles) { tile in tileCell(tile) }
+                ForEach(tiles) { tile in tileCell(tile, compact: c) }
             }
-            editFooter
-                .wgInset(.top, WgTheme.tileGap)
+            .overlay { if UserDefaults.standard.bool(forKey: "WgSenseDebugBorders") { Rectangle().stroke(Color.green, lineWidth: 1) } }
+            // 编辑栏只在完整形态出现（收缩时没有编辑这回事，也免得它的最小宽度把整列撑宽）
+            if c == 0 {
+                editFooter
+                    .wgInset(.top, WgTheme.tileGap)
+            }
         }
         .wgPadding(.horizontal, outerGap)
         .wgInset(.vertical, WgTheme.tileGap)
@@ -1695,19 +1859,29 @@ struct SidebarView: View {
 
     /// 单个磁贴单元格（三种尺寸模式各自固定物理尺寸）
     @ViewBuilder
-    private func tileCell(_ tile: TileData) -> some View {
-        Group {
-            if tile.size == .small {
+    /// 磁贴高度：完整形态按尺寸，收缩时连续降到图标方块的 40。
+    static func tileHeight(_ size: TileSize, compact c: CGFloat) -> CGFloat {
+        let full = size == .large ? WgTheme.tileY * 2 + WgTheme.tileGap : WgTheme.tileY
+        return full + (40 - full) * c
+    }
+
+    /// 一块磁贴：完整内容随收缩程度淡出（大约收到一半就看不见，窄到装不下之前已经淡掉），
+    /// 图标方块从中浮现，最窄时只剩它。两层同在一格里，所以拖动分隔线时是连续变化。
+    private func tileCell(_ tile: TileData, compact c: CGFloat) -> some View {
+        ZStack {
+            if c < 0.5 {
                 cellBody(tile)
-                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY)
-            } else if tile.size == .medium {
-                cellBody(tile)
-                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY)
-            } else {
-                cellBody(tile)
-                    .frame(maxWidth: .infinity).frame(height: WgTheme.tileY * 2 + WgTheme.tileGap)
+                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .opacity(Double(1 - c * 2))
+            }
+            if c > 0.3 {
+                compactIcon(tile)
+                    .opacity(Double(min(1, (c - 0.3) / 0.4)))
             }
         }
+        // minWidth 0：磁贴内容比列宽还宽时不许撑开格子，否则图标跟着居中右移、被分隔线切掉
+        .frame(minWidth: 0, maxWidth: .infinity).frame(height: Self.tileHeight(tile.size, compact: c))
+        .overlay { if UserDefaults.standard.bool(forKey: "WgSenseDebugBorders") { Rectangle().stroke(Color.red, lineWidth: 1) } }
         .clipShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: WgTheme.cardRadius, style: .continuous))
         .contextMenu { tileContextMenu(tile) }
@@ -2914,4 +3088,9 @@ extension EnvironmentValues {
 // MARK: - Xcode Preview
 #Preview("概览页") {
     MainView()
+}
+
+private extension Double {
+    /// 0（从未存过的 UserDefaults 读回来的默认值）当作没有。
+    var nonZero: Double? { self == 0 ? nil : self }
 }
