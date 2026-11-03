@@ -91,6 +91,20 @@ enum TraceBench {
 
     static func runIfRequested() async {
         let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        // `-WgSenseTraceCam 经度,纬度,缩放`：打开后镜头直接停在这里（截图核对底图用）。
+        // 西经是负数，以 - 开头会被当成参数名，前面加个空格：`-WgSenseTraceCam " -118.3,34.3,12"`
+        if let s = args["WgSenseTraceCam"] as? String {
+            let v = s.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if v.count == 3 {
+                try? await Task.sleep(for: .seconds(4))      // 等开场动画走完，免得被它盖掉
+                TraceMapModel.shared.takeOver(TraceCam(lon: v[0], lat: v[1], zoom: v[2]), animated: false)
+            }
+        }
+        // `-WgSenseTraceRun 目标`：打开后自动追踪一次（截图核对航线与边界辐射用）
+        if let host = args["WgSenseTraceRun"] as? String {
+            try? await Task.sleep(for: .seconds(args["WgSenseTraceCam"] == nil ? 2 : 0.5))
+            TraceStore.shared.start(host, tunnelInterface: nil)
+        }
         guard let path = args["WgSenseTraceBench"] as? String else { return }
         FileManager.default.createFile(atPath: path, contents: nil)
         log = FileHandle(forWritingAtPath: path)
@@ -127,8 +141,8 @@ enum TraceBench {
         try? await Task.sleep(for: .seconds(3))
 
         phase = "fly"             // 按钮缩放的飞行（地球 → 平面 → 地球）
-        m.zoom(by: 5); try? await Task.sleep(for: .seconds(1.6))
-        m.zoom(by: 1 / 5); try? await Task.sleep(for: .seconds(1.6))
+        m.zoom(by: 15); try? await Task.sleep(for: .seconds(1.6))
+        m.zoom(by: 1 / 15); try? await Task.sleep(for: .seconds(1.6))
 
         phase = "drag-globe"      // 地球形态下拖动
         await feed(seconds: 3) { m.nudge(dx: 6, dy: 1) }
@@ -137,15 +151,15 @@ enum TraceBench {
         let t0 = Date()
         await feed(seconds: 3) {
             let k = min(1, Date().timeIntervalSince(t0) / 3)
-            m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 0.9 * pow(8 / 0.9, k)), animated: false)
+            m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 0.9 * pow(20 / 0.9, k)), animated: false)
         }
 
-        phase = "drag-morph"      // 展平过渡中（缩放 3）拖动
-        m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 3), animated: false)
+        phase = "drag-morph"      // 展平过渡中（缩放 10）拖动
+        m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 10), animated: false)
         await feed(seconds: 3) { m.nudge(dx: 6, dy: 1) }
 
-        phase = "drag-flat"       // 完全展平（缩放 8）拖动
-        m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 8), animated: false)
+        phase = "drag-flat"       // 完全展平（缩放 20）拖动
+        m.takeOver(TraceCam(lon: 114, lat: 25, zoom: 20), animated: false)
         await feed(seconds: 3) { m.nudge(dx: 6, dy: 1) }
 
         phase = "scroll-pan"      // 双指按下拖：挪视图

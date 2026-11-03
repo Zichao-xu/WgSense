@@ -26,6 +26,8 @@ private struct TraceMapUniforms {
     var starU: Float = 0, starV: Float = 0
     /// 侧栏模糊：开始减弱处、减弱到 0 处、最大半径（像素）。
     var blurStart: Float = 0, blurEnd: Float = 0, blurRadius: Float = 0
+    /// 市 / 县界、区县界的淡入系数（0…1），同省界。
+    var city: Float = 0, district: Float = 0
 }
 
 /// 一层的样式（与 Metal 里的 Style 对齐）。灰度是 sRGB 值，着色器里换成线性。
@@ -33,8 +35,10 @@ private struct TraceLayerStyle {
     var gray: Float
     var lift: Float
     var haze: Float
-    /// 1 = 颜色在陆地灰与 gray 之间按省界系数插值（省界淡入）。
+    /// 淡入：0 = 不淡入；1 / 2 / 3 = 颜色在陆地灰与 gray 之间按省界 / 市界 / 区县界系数插值。
     var fade: Float
+    /// 精细陆地块：0 = 不管；1 = 块内不画（底图的粗陆地、国界、省界）；2 = 只在块内画（精细陆地与它的边界）。
+    var clip: Float = 0
 }
 
 /// 国名四边形（与 Metal 里的 Label 对齐）：屏幕矩形与字模贴图里的位置，都是像素。
@@ -53,12 +57,33 @@ struct TraceMapState {
     /// 画幅（点）与像素 / 点。
     var size: CGSize = .zero
     var scale: CGFloat = 2
+    /// 航线闪电（每段一道）。
+    var radiations: [TraceRadEvent] = []
+}
+
+/// 一段航线的闪电：从上一站沿边界劈到这一站（见 TraceRadiation）。
+struct TraceRadEvent: Equatable {
+    var fromLon: Double
+    var fromLat: Double
+    var fromCode: String
+    var lon: Double
+    var lat: Double
+    var code: String
+    /// 这一站出现的时刻：闪电从这一刻劈下去。
+    var start: Date
+    /// 这一站是航线的最后一站（当前探到的、或终点）：画面里唯一的最亮焦点。
+    var isLast = false
+    var key: String { "\(fromCode)|\(fromLon)|\(fromLat)>\(code)|\(lon)|\(lat)" }
+    /// 击中（主干从起点走到终点）用时。
+    static let strike = TimeInterval(TraceRadiation.strike)
+    /// 击中 + 辐射传遍全国 + 熄灭：之后只剩常亮的主干，不用再逐帧画。
+    static let duration: TimeInterval = 5
 }
 
 final class TraceMetalRenderer: NSObject {
     let device: MTLDevice
     private let queue: MTLCommandQueue
-    private let mapPipeline, linePipeline, starPipeline, rimPipeline, compositePipeline, labelPipeline: MTLRenderPipelineState
+    private let mapPipeline, linePipeline, starPipeline, rimPipeline, compositePipeline, labelPipeline, radPipeline: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthNone: MTLDepthStencilState
     private static let samples = 4
     static let offscreenFormat = MTLPixelFormat.rgba16Float
@@ -72,7 +97,8 @@ final class TraceMetalRenderer: NSObject {
         let primitive: MTLPrimitiveType
         let style: TraceLayerStyle
         let grid: Double?
-        let province: Bool
+        /// 按哪一档淡入：0 = 常显，1 / 2 / 3 = 省界 / 市界 / 区县界（系数为 0 时整层不画）。
+        let fade: Int
     }
     /// 网格建好后由主线程挂上；渲染线程读（都在 lock 里）。
     private var layers: [MapLayer] = []
@@ -86,7 +112,43 @@ final class TraceMetalRenderer: NSObject {
     /// 镜头此刻是否在动（飞行 / 惯性 / 自转 / 滑行）。
     var isMoving: Bool {
         lock.lock(); defer { lock.unlock() }
-        return state.flight.moving
+        let now = Date()
+        // 辐射在传播 / 余辉中，或还在后台计算：满帧
+        let radiating = state.radiations.contains { now.timeIntervalSince($0.start) < TraceRadEvent.duration || radBuffers[$0.key] == nil }
+        return state.flight.moving || radiating
+    }
+
+    // MARK: 边界辐射
+
+    /// 算好的闪电（按段缓存）：线段缓冲、顶点数；nil 值 = 没有可画的。
+    private var radBuffers: [String: (buffer: MTLBuffer, count: Int)?] = [:]
+    private var radPending = Set<String>()
+
+    /// 渲染线程调用：没算过的站交给后台算，算好挂上缓存。
+    private func radiationBuffers(_ events: [TraceRadEvent]) -> [(TraceRadEvent, MTLBuffer, Int)] {
+        var out: [(TraceRadEvent, MTLBuffer, Int)] = []
+        lock.lock()
+        for e in events {
+            if let entry = radBuffers[e.key] {
+                if let entry { out.append((e, entry.buffer, entry.count)) }
+            } else if !radPending.contains(e.key) {
+                radPending.insert(e.key)
+                let dev = device
+                Task.detached(priority: .userInitiated) { [weak self] in
+                    let bolt = TraceRadiation.bolt(from: (e.fromLon, e.fromLat, e.fromCode), to: (e.lon, e.lat, e.code))
+                    let v = bolt.vertices
+                    let buf = v.isEmpty ? nil : v.withUnsafeBytes { dev.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) }
+                    guard let self else { return }
+                    self.lock.lock()
+                    // 没有数据也记一笔（.some(nil)），免得每帧重算
+                    self.radBuffers[e.key] = .some(buf.map { ($0, v.count) })
+                    self.radPending.remove(e.key)
+                    self.lock.unlock()
+                }
+            }
+        }
+        lock.unlock()
+        return out
     }
 
     /// 光环：固定网格（每个顶点只存「第几个方向、第几圈」），形状与衰减在着色器里算；
@@ -98,6 +160,9 @@ final class TraceMetalRenderer: NSObject {
 
     private let stars: MTLTexture?
     private let atlas: TraceLabelAtlas?
+    /// 精细陆地块的矩形（西、南、东、北），固定 8 个，空位用西 > 东的空矩形。
+    private static let patchSlots = 8
+    private var patchBoxes = [SIMD4<Float>](repeating: SIMD4(1, 1, 0, 0), count: TraceMetalRenderer.patchSlots)
 
     private var msaaColor, msaaDepth, resolved: MTLTexture?
     private var targetSize = CGSize.zero
@@ -134,9 +199,11 @@ final class TraceMetalRenderer: NSObject {
               let star = pipeline("quadVertex", "starFragment", samples: n, blend: (.one, .oneMinusSourceAlpha), depth: true),
               let rim = pipeline("rimVertex", "rimFragment", samples: n, blend: (.one, .one), depth: true),
               let comp = pipeline("quadVertex", "compositeFragment", samples: 1, blend: nil, depth: false),
-              let label = pipeline("labelVertex", "labelFragment", samples: 1, blend: (.one, .oneMinusSourceAlpha), depth: false)
+              let label = pipeline("labelVertex", "labelFragment", samples: 1, blend: (.one, .oneMinusSourceAlpha), depth: false),
+              let rad = pipeline("radVertex", "radFragment", samples: n, blend: (.one, .one), depth: true)
         else { return nil }
         mapPipeline = map; linePipeline = line; starPipeline = star; rimPipeline = rim; compositePipeline = comp; labelPipeline = label
+        radPipeline = rad
 
         func depthState(_ compare: MTLCompareFunction, write: Bool) -> MTLDepthStencilState? {
             let d = MTLDepthStencilDescriptor()
@@ -178,18 +245,27 @@ final class TraceMetalRenderer: NSObject {
             pts.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: max(8, $0.count), options: .storageModeShared) }
         }
         var out: [MapLayer] = []
-        func add(_ pts: [SIMD2<Float>], index: [UInt32]? = nil, _ prim: MTLPrimitiveType, _ style: TraceLayerStyle, grid: Double? = nil, province: Bool = false) {
+        func add(_ pts: [SIMD2<Float>], index: [UInt32]? = nil, _ prim: MTLPrimitiveType, _ style: TraceLayerStyle, grid: Double? = nil, fade: Int = 0) {
             guard !pts.isEmpty, let b = buffer(pts) else { return }
             let ib = index.flatMap { idx in idx.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) } }
-            out.append(MapLayer(buffer: b, count: pts.count, index: ib, indexCount: index?.count ?? 0, primitive: prim, style: style, grid: grid, province: province))
+            out.append(MapLayer(buffer: b, count: pts.count, index: ib, indexCount: index?.count ?? 0, primitive: prim, style: style, grid: grid, fade: fade))
         }
         // 颜色取不透明灰（与原贴图同色），离地高度决定先后
         add(m.ocean, index: m.oceanIdx, .triangle, TraceLayerStyle(gray: 0.085, lift: 0, haze: 0.015, fade: 0))
         for (step, pts) in m.grids { add(pts, .line, TraceLayerStyle(gray: 0.15, lift: 0.0005, haze: 0, fade: 0), grid: step) }
-        add(m.land, .triangle, TraceLayerStyle(gray: 0.2, lift: 0.001, haze: 0, fade: 0))
-        add(m.provinces, .line, TraceLayerStyle(gray: 0.33, lift: 0.0015, haze: 0, fade: 1), province: true)
-        add(m.borders, .line, TraceLayerStyle(gray: 0.36, lift: 0.002, haze: 0, fade: 0))
-        lock.lock(); layers = out; lock.unlock()
+        add(m.land, .triangle, TraceLayerStyle(gray: 0.2, lift: 0.001, haze: 0, fade: 0, clip: 1))
+        add(m.fineLand, .triangle, TraceLayerStyle(gray: 0.2, lift: 0.001, haze: 0, fade: 0, clip: 2))
+        // 内河水面盖在精细陆地上（与海面同色），水中的岛再盖回陆地
+        add(m.fineWater, .triangle, TraceLayerStyle(gray: 0.085, lift: 0.00104, haze: 0, fade: 0, clip: 2))
+        add(m.fineIslands, .triangle, TraceLayerStyle(gray: 0.2, lift: 0.00108, haze: 0, fade: 0, clip: 2))
+        add(m.districts, .line, TraceLayerStyle(gray: 0.27, lift: 0.0012, haze: 0, fade: 3), fade: 3)
+        add(m.cities, .line, TraceLayerStyle(gray: 0.3, lift: 0.0013, haze: 0, fade: 2), fade: 2)
+        add(m.provinces, .line, TraceLayerStyle(gray: 0.33, lift: 0.0015, haze: 0, fade: 1, clip: 1), fade: 1)
+        add(m.fineBorders, .line, TraceLayerStyle(gray: 0.34, lift: 0.0017, haze: 0, fade: 0, clip: 2))
+        add(m.borders, .line, TraceLayerStyle(gray: 0.36, lift: 0.002, haze: 0, fade: 0, clip: 1))
+        var boxes = [SIMD4<Float>](repeating: SIMD4(1, 1, 0, 0), count: Self.patchSlots)
+        for (i, b) in m.patches.prefix(Self.patchSlots).enumerated() { boxes[i] = b }
+        lock.lock(); layers = out; patchBoxes = boxes; lock.unlock()
         onReady?()
     }
 
@@ -198,7 +274,7 @@ final class TraceMetalRenderer: NSObject {
     /// 画一帧到 display link 递来的画面缓冲（渲染线程上调用；每帧一块新缓冲，画完即提交）。
     func render(_ drawable: CAMetalDrawable) {
         TraceFPS.tick(.globe)
-        lock.lock(); let st = state, layers = self.layers; lock.unlock()
+        lock.lock(); let st = state, layers = self.layers; var boxes = patchBoxes; lock.unlock()
         let size = st.size, scale = st.scale, shift = st.shift, pan = st.pan, blurWidth = st.blurWidth
         guard size.width > 0, size.height > 0, let cmd = queue.makeCommandBuffer() else { return }
         let px = CGSize(width: size.width * scale, height: size.height * scale)
@@ -210,6 +286,9 @@ final class TraceMetalRenderer: NSObject {
         var u = TraceMapUniforms()
         u.lon = Float(cam.lon); u.lat = Float(cam.lat); u.morph = Float(cam.morph)
         u.province = Float(min(1, max(0, (cam.zoom - 3) / 3)))
+        // 市界从一屏约 ±7° 起淡入，区县界从一屏约 ±2° 起淡入（东京的区、深圳的区这时才分得开）
+        u.city = Float(min(1, max(0, (cam.zoom - 8) / 6)))
+        u.district = Float(min(1, max(0, (cam.zoom - 24) / 16)))
         u.radius = Float(radiusPt * scale)
         u.ox = Float((size.width / 2 + shift.width + pan.width) * scale)
         u.oy = Float((size.height / 2 + shift.height + pan.height) * scale)
@@ -244,16 +323,34 @@ final class TraceMetalRenderer: NSObject {
         e1.setFragmentBytes(&u, length: MemoryLayout<TraceMapUniforms>.stride, index: 1)
         for l in layers {
             if let g = l.grid, g != gridStep { continue }
-            if l.province && u.province <= 0 { continue }
+            let fade: Float = l.fade == 1 ? u.province : l.fade == 2 ? u.city : l.fade == 3 ? u.district : 1
+            if fade <= 0 { continue }
             var s = l.style
             e1.setRenderPipelineState(l.primitive == .line ? linePipeline : mapPipeline)
             e1.setVertexBuffer(l.buffer, offset: 0, index: 0)
             e1.setVertexBytes(&s, length: MemoryLayout<TraceLayerStyle>.stride, index: 2)
             e1.setFragmentBytes(&s, length: MemoryLayout<TraceLayerStyle>.stride, index: 2)
+            e1.setFragmentBytes(&boxes, length: MemoryLayout<SIMD4<Float>>.stride * boxes.count, index: 3)
             if let ib = l.index {
                 e1.drawIndexedPrimitives(type: l.primitive, indexCount: l.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
             } else {
                 e1.drawPrimitives(type: l.primitive, vertexStart: 0, vertexCount: l.count)
+            }
+        }
+        // 航线闪电：叠加混合，深度只测不写（地球背面的不画），盖在所有边界之上
+        let rads = radiationBuffers(st.radiations)
+        if !rads.isEmpty {
+            let now = Date()
+            e1.setRenderPipelineState(radPipeline)
+            e1.setDepthStencilState(depthTestOnly)
+            e1.setVertexBytes(&u, length: MemoryLayout<TraceMapUniforms>.stride, index: 1)
+            e1.setFragmentBytes(&u, length: MemoryLayout<TraceMapUniforms>.stride, index: 1)
+            for (ev, buf, count) in rads {
+                let age = now.timeIntervalSince(ev.start)
+                var r = SIMD4<Float>(Float(age), Float(abs(ev.lon * 7 + ev.lat * 13).truncatingRemainder(dividingBy: 97)), ev.isLast ? 1 : 0, 0)
+                e1.setVertexBuffer(buf, offset: 0, index: 0)
+                e1.setFragmentBytes(&r, length: MemoryLayout<SIMD4<Float>>.stride, index: 2)
+                e1.drawPrimitives(type: .line, vertexStart: 0, vertexCount: count)
             }
         }
         // 光环只属于地球形态：一开始展平就淡出
@@ -318,7 +415,8 @@ final class TraceMetalRenderer: NSObject {
 
     // MARK: 国名
 
-    /// 面积 × 缩放² 够大才出，大国优先，互不遮挡；地球形态下背面与贴近轮廓的不出。
+    /// 面积 × 缩放² 够大才出，大的优先，互不遮挡；地球形态下背面与贴近轮廓的不出。
+    /// 市、区名门槛低一些（它们小，按国名的门槛要放到极大才出），且要等对应的边界线淡入后才出。
     private func placeLabels(_ cam: TraceCam, size: CGSize, scale: CGFloat, shift: CGSize, pan: CGSize, atlas: TraceLabelAtlas) -> [TraceLabelQuad] {
         let proj = TraceGlobeProjection(cam: cam, size: size, shift: shift, pan: pan)
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 20, dy: 16)
@@ -328,7 +426,9 @@ final class TraceMetalRenderer: NSObject {
         var out: [TraceLabelQuad] = []
         for c in atlas.entries {
             guard taken.count < 60 else { break }
-            guard c.area * z2 > 300, cam.morph > 0.5 || simd_dot(c.label, center) > 0.17 else { continue }
+            let minArea = c.level == 0 ? 300.0 : 80
+            let minZoom = c.level == 2 ? 28.0 : c.level == 1 ? 10 : 0
+            guard c.area * z2 > minArea, cam.zoom >= minZoom, cam.morph > 0.5 || simd_dot(c.label, center) > 0.17 else { continue }
             let (pt, visible) = proj.project(lon: c.lon, lat: c.lat)
             guard visible, bounds.contains(pt) else { continue }
             let rect = CGRect(x: pt.x - c.size.width / 2, y: pt.y - c.size.height / 2, width: c.size.width, height: c.size.height)
@@ -347,9 +447,9 @@ final class TraceMetalRenderer: NSObject {
     #include <metal_stdlib>
     using namespace metal;
 
-    struct MapU { float lon, lat, morph, province, radius, ox, oy, w, h, scale, starU, starV, blurStart, blurEnd, blurRadius; };
-    struct Style { float gray, lift, haze, fade; };
-    struct MOut { float4 position [[position]]; float dl; float facing; };
+    struct MapU { float lon, lat, morph, province, radius, ox, oy, w, h, scale, starU, starV, blurStart, blurEnd, blurRadius, city, district; };
+    struct Style { float gray, lift, haze, fade, clip; };
+    struct MOut { float4 position [[position]]; float dl; float facing; float lat; };
     struct QOut { float4 position [[position]]; float2 uv; };
 
     // 「地球半径 = 1」的位置 → 裁剪空间：x 右、y 上、z 朝镜头（越大越近）
@@ -372,18 +472,101 @@ final class TraceMetalRenderer: NSObject {
         float s = 1.0 + st.lift;
         float3 sphere = float3(dot(p, east), dot(p, north), dot(p, fwd)) * s;
         float dl = lon - u.lon;
-        float3 flat = float3(dl * d2r * cos(cp), (lat - u.lat) * d2r, s);
+        // 平面：以视野中心为准的方位等距（离中心的方向不变，距离 = 球面角距），与球面只差径向伸缩——
+        // 展平只是把球面从中心往外慢慢摊开，没有极点 / 日界线那种边缘，任何位置都不会撕开
+        // 角距用 atan2(横向距离, 纵深)：小角度时 acos 的单精度误差放大到区县级缩放会抖几十个点
+        float facing = dot(p, fwd);
+        float l = length(sphere.xy) / s;
+        float k = l > 1e-7 ? atan2(l, facing) / l : 1.0;
+        float3 flat = float3(sphere.x / s * k, sphere.y / s * k, s);
         MOut o;
         o.position = toClip(mix(sphere, flat, u.morph), u);
         o.dl = dl;
-        o.facing = dot(p, fwd);
+        o.lat = lat;
+        o.facing = facing;
         return o;
     }
 
-    fragment float4 mapFragment(MOut in [[stage_in]], constant MapU& u [[buffer(1)]], constant Style& st [[buffer(2)]]) {
+    // 航线闪电：顶点 = 经度、纬度、亮起时刻（秒）、亮度等级（主干 1，辐射 0…0.95）；投影与 mapVertex 相同，离地 0.003 盖在边界上
+    struct RadV { float4 a; float4 b; };
+    struct RadOut { float4 position [[position]]; float dist; float w; float dl; float facing; float px; float down; float toA; float toB; };
+    vertex RadOut radVertex(uint vid [[vertex_id]], const device RadV* v [[buffer(0)]], constant MapU& u [[buffer(1)]]) {
+        const float d2r = 0.017453292519943295;
+        float lon = v[vid].a.x, lat = v[vid].a.y;
+        float cl = u.lon * d2r, cp = u.lat * d2r;
+        float3 p = float3(cos(lat * d2r) * cos(lon * d2r), cos(lat * d2r) * sin(lon * d2r), sin(lat * d2r));
+        float3 fwd = float3(cos(cp) * cos(cl), cos(cp) * sin(cl), sin(cp));
+        float3 east = float3(-sin(cl), cos(cl), 0.0);
+        float3 north = cross(fwd, east);
+        float s = 1.003;
+        float3 sphere = float3(dot(p, east), dot(p, north), dot(p, fwd)) * s;
+        float facing = dot(p, fwd);
+        float l = length(sphere.xy) / s;
+        float k = l > 1e-7 ? atan2(l, facing) / l : 1.0;
+        float3 flat = float3(sphere.x / s * k, sphere.y / s * k, s);
+        RadOut o;
+        o.position = toClip(mix(sphere, flat, u.morph), u);
+        // 公里换成屏幕像素：地球半径（像素）× 公里 / 6371（展平后中心处比例 1，球面上同一量级）
+        float pxPerKm = u.radius / 6371.0;
+        o.w = v[vid].a.w;
+        o.px = v[vid].b.x * pxPerKm;
+        o.down = v[vid].b.y * pxPerKm;
+        o.toA = v[vid].b.z * pxPerKm;
+        o.toB = v[vid].b.w * pxPerKm;
+        o.dist = v[vid].a.z; o.dl = lon - u.lon; o.facing = facing;
+        return o;
+    }
+    // r = (距这一站出现的秒数, 随机种子, 是否最后一站, 0)。每个顶点自带亮起时刻：没到就不画；到的一刻闪一下。
+    // 视觉层级（都按屏幕像素算，放大缩小一致）：
+    //   焦点 = 站点附近（约画面短边 6% 内）。最后一站是唯一的最亮焦点，其他站点次之；
+    //   主干在两站之间压到焦点亮度的 35%，分叉再压到 20%、且永远不超过主干——强调靠对比，不靠整体变亮。
+    //   分叉的粗细看下游枝干在屏幕上的总长，离主干越远越暗（画面短边 22% 处降到 1/e）。
+    //   只有最后一段保留常态分叉：之前各段的分叉闪过后约 3 秒淡出、只剩主干——画面上始终只有一组分叉，
+    //   否则每段都向全国辐射一遍，叠加起来会把整片照亮。
+    fragment float4 radFragment(RadOut in [[stage_in]], constant MapU& u [[buffer(1)]], constant float4& r [[buffer(2)]]) {
+        if (abs(in.dl) > 180.0) discard_fragment();
+        if (u.morph > 0.0 && in.facing < -0.99) discard_fragment();
+        float since = r.x - in.dist;
+        if (since < 0.0) discard_fragment();
+        float flick = 0.55 + 0.45 * fract(sin(in.dist * 1291.0 + r.y + floor(r.x * 24.0)) * 43758.5453);
+        float flash = exp(-since / 0.1) * flick;
+        float S = min(u.w, u.h);
+        float focus = max(0.6 * exp(-in.toA / (0.06 * S)), (r.z > 0.5 ? 1.0 : 0.75) * exp(-in.toB / (0.06 * S)));
+        float I;
+        if (in.w > 0.5) {
+            float restrike = r.x < 1.2 ? 0.5 * step(0.5, fract(r.x * 7.0)) * (1.2 - r.x) : 0.0;
+            I = (0.35 + 0.65 * focus) * (1.0 + 1.4 * flash + restrike);
+        } else {
+            float level = saturate(log(1.0 + in.down / (0.01 * S)) / log(201.0));
+            float lvl = 0.95 * level * exp(-in.px / (0.22 * S));
+            float trunk = lvl * lvl;
+            float b = (0.03 + 0.97 * trunk) * (1.4 * flash + 1.1 * exp(-since / 1.2) * sqrt(trunk)) + 0.55 * trunk * lvl;
+            float keep = r.z > 0.5 ? 1.0 : exp(-max(0.0, r.x - 3.0) / 0.8);
+            I = min(b, 0.6) * (0.2 + 0.8 * focus) * keep;
+        }
+        if (I < 0.003) discard_fragment();
+        return float4(float3(0.72, 0.8, 1.0) * I, 0.0);
+    }
+
+    fragment float4 mapFragment(MOut in [[stage_in]], constant MapU& u [[buffer(1)]], constant Style& st [[buffer(2)]],
+                                constant float4* patches [[buffer(3)]]) {
         // 三份副本只留离视野中心经度 ±180° 以内的那份
         if (abs(in.dl) > 180.0) discard_fragment();
-        float g = st.fade > 0.5 ? mix(0.2, st.gray, u.province) : st.gray;
+        // 对跖点附近（离中心 > 172°）在平面里是外圈的一个奇点：跨过它的小三角形 / 线段会被拉过整个画面，不画
+        if (u.morph > 0.0 && in.facing < -0.99) discard_fragment();
+        // 精细陆地块：块内底图的粗陆地 / 国界 / 省界不画，精细陆地与它的边界只在块内画
+        if (st.clip > 0.5) {
+            float lon = u.lon + in.dl;
+            lon -= 360.0 * floor((lon + 180.0) / 360.0);
+            bool inside = false;
+            for (int i = 0; i < 8; i++) {
+                float4 b = patches[i];
+                inside = inside || (lon >= b.x && lon <= b.z && in.lat >= b.y && in.lat <= b.w);
+            }
+            if (inside == (st.clip < 1.5)) discard_fragment();
+        }
+        float f = st.fade > 2.5 ? u.district : st.fade > 1.5 ? u.city : u.province;
+        float g = st.fade > 0.5 ? mix(0.2, st.gray, f) : st.gray;
         float l = srgbToLinear(g);
         // 海面：球面边缘往里一层很淡的漫反射（线性亮度上叠加，与原 SceneKit 版一致），展平后消失
         l += st.haze * pow(1.0 - saturate(in.facing), 3.0) * (1.0 - u.morph);
@@ -414,6 +597,12 @@ final class TraceMetalRenderer: NSObject {
         float k = v[vid].x, t = v[vid].y;
         float th = k / 120.0 * 6.283185307179586;
         float r = t == 0.0 ? 0.995 : 1.0 + params.y * t;
+        // 展平刚开始时轮廓随径向摊开略微外扩：光环跟着轮廓走（轮廓 = (1 − m)·sin c + m·c 的最大值）
+        float m = u.morph;
+        if (m > 0.0) {
+            float cs = acos(clamp(-m / (1.0 - m), -1.0, 1.0));
+            r *= (1.0 - m) * sin(cs) + m * cs;
+        }
         float falloff = exp(-1.8 * t) * (1.0 - t * t * (3.0 - 2.0 * t));
         float intensity = 0.096 * (1.0 - 0.3 * land[int(k) % 120]);
         ROut o;
@@ -480,6 +669,8 @@ final class TraceMetalRenderer: NSObject {
 /// 国名字模：所有国名一次性画进一张灰度贴图（按屏幕 2 倍），每帧只摆四边形。
 final class TraceLabelAtlas {
     struct Entry {
+        /// 0 = 国家；1 / 2 = 市县 / 区县（TraceGeoRegion.level）。
+        let level: Int
         let area: Double
         let label: SIMD3<Float>
         let lon: Double
@@ -496,7 +687,11 @@ final class TraceLabelAtlas {
     init?(device: MTLDevice) {
         let scale: CGFloat = 2
         let font = NSFont.systemFont(ofSize: WgType.caption, weight: .medium)
-        let countries = TraceGeoData.shared.countriesByArea
+        // 国名与重点地区的市、区名排在同一张字模里，按面积从大到小（标注时大的先占位）
+        let geo = TraceGeoData.shared
+        let countries = (geo.countriesByArea.map { (level: 0, name: $0.name, label: $0.label, lonLat: $0.labelLonLat, area: $0.area) }
+            + geo.regions.map { (level: $0.level, name: $0.name, label: $0.label, lonLat: $0.labelLonLat, area: $0.area) })
+            .sorted { $0.area > $1.area }
         let width = 2048
         // 先排版：一行行往下放
         var placed: [(CTLine, CGRect, CGSize)] = []
@@ -535,7 +730,7 @@ final class TraceLabelAtlas {
         tex.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: data, bytesPerRow: width)
         texture = tex
         entries = zip(countries, placed).map { c, p in
-            Entry(area: Double(c.area), label: c.label, lon: Double(c.labelLonLat.x), lat: Double(c.labelLonLat.y), size: p.2,
+            Entry(level: c.level, area: Double(c.area), label: c.label, lon: Double(c.lonLat.x), lat: Double(c.lonLat.y), size: p.2,
                   uv: SIMD4(Float(p.1.minX), Float(p.1.minY), Float(p.1.maxX), Float(p.1.maxY)))
         }
     }
@@ -550,12 +745,14 @@ struct TraceMetalMapView: NSViewRepresentable {
     var pan: CGSize = .zero
     /// 侧栏占的宽度（点）：这段底下做渐变模糊。
     var blurWidth: CGFloat = 0
+    /// 边界辐射（每个定位到的站一次）。
+    var radiations: [TraceRadEvent] = []
 
     func makeNSView(context: Context) -> TraceMetalNSView { TraceMetalNSView() }
 
     func updateNSView(_ view: TraceMetalNSView, context: Context) {
         view.isHidden = !visible
-        view.update(flight: flight, shift: shift, pan: pan, blurWidth: blurWidth, visible: visible)
+        view.update(flight: flight, shift: shift, pan: pan, blurWidth: blurWidth, visible: visible, radiations: radiations)
     }
 }
 
@@ -631,8 +828,9 @@ final class TraceMetalNSView: NSView, CAMetalDisplayLinkDelegate {
         needsLayout = true
     }
 
-    func update(flight: TraceFlight, shift: CGSize, pan: CGSize, blurWidth: CGFloat, visible: Bool) {
+    func update(flight: TraceFlight, shift: CGSize, pan: CGSize, blurWidth: CGFloat, visible: Bool, radiations: [TraceRadEvent] = []) {
         mapState.flight = flight
+        mapState.radiations = radiations
         mapState.shift = shift
         mapState.pan = pan
         mapState.blurWidth = blurWidth

@@ -320,6 +320,8 @@ struct TraceStop: Equatable {
     /// 代理段的站（节点、真实目标）：本机追不到，线型区分；tag 代替 TTL 编号。
     var isProxy = false
     var tag: String?
+    /// 所在国家（ISO 两位代码）：边界辐射只在这个国家里传播。
+    var code = ""
 
     var ttlText: String {
         if let tag { return tag }
@@ -348,7 +350,7 @@ struct TraceRoute: Equatable {
             } else {
                 // 第一站是路径起点（本地运营商公网边缘），画成准星
                 out.append(TraceStop(lon: g.lon, lat: g.lat, first: hop.ttl, last: hop.ttl, place: g.place,
-                                     latency: hop.best, appearAt: hop.locatedAt ?? hop.arrivedAt, isOrigin: out.isEmpty))
+                                     latency: hop.best, appearAt: hop.locatedAt ?? hop.arrivedAt, isOrigin: out.isEmpty, code: g.code))
             }
         }
         // 代理段：节点 → 真实目标。只画查到坐标的；没有本地起点时节点自己当起点
@@ -356,15 +358,15 @@ struct TraceRoute: Equatable {
             // 本机路径被网关截断：起点用本网络的学习记录（板块 07 写明来源）
             if out.isEmpty, let o = px.origin {
                 out.append(TraceStop(lon: o.geo.lon, lat: o.geo.lat, first: 0, last: 0, place: "\(o.geo.place)（学习）",
-                                     latency: nil, appearAt: px.resolvedAt, isOrigin: true, tag: "00"))
+                                     latency: nil, appearAt: px.resolvedAt, isOrigin: true, tag: "00", code: o.geo.code))
             }
             if let g = px.nodeGeo, let node = px.node {
                 out.append(TraceStop(lon: g.lon, lat: g.lat, first: 0, last: 0, place: "\(node) · \(g.place)",
-                                     latency: nil, appearAt: px.resolvedAt, isOrigin: out.isEmpty, isProxy: true, tag: "PX"))
+                                     latency: nil, appearAt: px.resolvedAt, isOrigin: out.isEmpty, isProxy: true, tag: "PX", code: g.code))
             }
             if let g = px.realGeo {
                 out.append(TraceStop(lon: g.lon, lat: g.lat, first: 0, last: 0, place: g.place,
-                                     latency: nil, appearAt: px.resolvedAt, isOrigin: out.isEmpty, isProxy: true, tag: "DST"))
+                                     latency: nil, appearAt: px.resolvedAt, isOrigin: out.isEmpty, isProxy: true, tag: "DST", code: g.code))
             }
         }
         let done = trace.reached || trace.finishedAt != nil
@@ -404,7 +406,12 @@ struct TraceMapLive: View {
                     Color.black.opacity(0.45 + 0.55 * min(1, cam.morph / 0.25))
                     // 地图全在 GPU（纯 Metal）：地球与平面是同一套网格（着色器里插值），星空、光环、国名、侧栏模糊也在同一帧里画；
                     // 这里只交镜头模型。侧栏底下的渐变模糊宽度 = 水平偏移 × 2
-                    TraceMetalMapView(flight: flight, visible: visible, shift: shift, pan: pan, blurWidth: shift.width * 2)
+                    TraceMetalMapView(flight: flight, visible: visible, shift: shift, pan: pan, blurWidth: shift.width * 2,
+                                      radiations: route.stops.indices.dropFirst().map { i in
+                                          let a = route.stops[i - 1], b = route.stops[i]
+                                          return TraceRadEvent(fromLon: a.lon, fromLat: a.lat, fromCode: a.code,
+                                                               lon: b.lon, lat: b.lat, code: b.code, start: b.appearAt,
+                                                               isLast: i == route.stops.count - 1) })
                         .allowsHitTesting(false)
                     if globeMode {
                         TraceGlobeShading(zoom: cam.zoom, shift: shift, pan: pan).equatable()
@@ -454,11 +461,6 @@ struct TraceRouteLayer: View {
     /// 压在实心前景色上的反色（目标标签字、中转点芯）。
     private var inverse: Color { scheme == .dark ? Color(white: 0.06) : Color(white: 0.97) }
 
-    /// 航线画出来的时长。
-    private static let drawOn: TimeInterval = 0.9
-    /// 脉冲速度（点 / 秒）。
-    private static let speed: CGFloat = 110
-
     var body: some View {
         Canvas { ctx, size in
             TraceFPS.tick(.route)
@@ -466,52 +468,10 @@ struct TraceRouteLayer: View {
             let marks = route.stops.map { proj.project(lon: $0.lon, lat: $0.lat) }
             let t = now.timeIntervalSinceReferenceDate
 
-            // 航线：拱起的大圆弧，虚点逐段画出；画完的段上脉冲从起点流向终点；转到地球背面的部分不画
-            for i in route.stops.indices.dropFirst() {
-                let a = route.stops[i - 1], b = route.stops[i]
-                let samples = proj.arc(from: (a.lon, a.lat), to: (b.lon, b.lat))
-                let p = Self.ease(now.timeIntervalSince(b.appearAt) / Self.drawOn)
-                let upto = Double(samples.count - 1) * Double(p)
-                var path = Path()
-                var pen = false
-                var length: CGFloat = 0
-                var prev: CGPoint?
-                for (k, s) in samples.enumerated() where Double(k) <= upto {
-                    if s.1 {
-                        if pen { path.addLine(to: s.0) } else { path.move(to: s.0) }
-                        if let q = prev, pen { length += hypot(s.0.x - q.x, s.0.y - q.y) }
-                        prev = s.0
-                    }
-                    pen = s.1
-                }
-                // 代理段：短划线，与逐跳实测的虚点区分
-                ctx.stroke(path, with: .color(.primary.opacity(b.isProxy ? 0.55 : 0.5)),
-                           style: StrokeStyle(lineWidth: b.isProxy ? 1 : 1.2, lineCap: .round, dash: b.isProxy ? [5, 4] : [0.1, 3.2]))
-                if p < 1 {
-                    // 画线中的笔头
-                    let head = samples[min(samples.count - 1, Int(upto))]
-                    if head.1 { ctx.fill(Path(ellipseIn: CGRect(x: head.0.x - 2, y: head.0.y - 2, width: 4, height: 4)), with: .color(.primary.opacity(0.9))) }
-                    continue
-                }
-                let count = max(1, Int(length / 90))
-                for j in 0..<count where length > 4 {
-                    let phase = (CGFloat(t) * Self.speed / length + CGFloat(j) / CGFloat(count)).truncatingRemainder(dividingBy: 1)
-                    for k in 0..<4 {
-                        let f = phase - CGFloat(k) * 5 / length
-                        guard f >= 0 else { break }
-                        let x = Double(f) * Double(samples.count - 1)
-                        let lo = samples[Int(x)], hi = samples[min(samples.count - 1, Int(x) + 1)]
-                        guard lo.1, hi.1 else { continue }
-                        let w = CGFloat(x - floor(x))
-                        let q = CGPoint(x: lo.0.x + (hi.0.x - lo.0.x) * w, y: lo.0.y + (hi.0.y - lo.0.y) * w)
-                        let rr: CGFloat = k == 0 ? 1.6 : 1.0
-                        ctx.fill(Path(ellipseIn: CGRect(x: q.x - rr, y: q.y - rr, width: rr * 2, height: rr * 2)),
-                                 with: .color(.primary.opacity(0.9 - Double(k) * 0.2)))
-                    }
-                }
-                // 抵达冲击环：段刚画完时在终点扩一次
-                let since = now.timeIntervalSince(b.appearAt) - Self.drawOn
-                if since >= 0, since < 0.9, marks[i].1 { ring(&ctx, at: marks[i].0, progress: since / 0.9, maxR: 16, alpha: 0.6) }
+            // 航线本身是 GPU 画的闪电（TraceMetalMap 的边界辐射层）；这里只在闪电击中终点时扩一次冲击环
+            for i in route.stops.indices.dropFirst() where marks[i].1 {
+                let since = now.timeIntervalSince(route.stops[i].appearAt) - TraceRadEvent.strike
+                if since >= 0, since < 0.9 { ring(&ctx, at: marks[i].0, progress: since / 0.9, maxR: 16, alpha: 0.6) }
             }
 
             // 站点（转到地球背面的不画）
@@ -576,10 +536,6 @@ struct TraceRouteLayer: View {
         ctx.draw(text, at: origin, anchor: .bottomLeading)
     }
 
-    static func ease(_ x: Double) -> CGFloat {
-        let v = min(1, max(0, x))
-        return CGFloat(1 - pow(1 - v, 3))
-    }
 }
 
 // MARK: - 左下：图号 / 计数 / 缩放 / 图例
@@ -598,7 +554,7 @@ private struct TraceMapLegend: View {
             }
             // 帧率单独一行：放在图号行末会把这一角拉得很宽，压到右下角的跳点表
             TraceFPSLabel()
-            Text(verbatim: "ORTHO ⇄ PLATE CARRÉE · NATURAL EARTH 50M").font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink4)
+            Text(verbatim: "ORTHO ⇄ AZIMUTHAL EQUIDISTANT · NATURAL EARTH 50M").font(WgInk.mono(.micro)).tracking(1).foregroundStyle(WgInk.ink4)
             HStack(spacing: WgSpace.m) {
                 HStack(spacing: WgSpace.xs) {
                     zoomButton("minus", help: "缩小", action: zoomOut)

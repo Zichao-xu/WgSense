@@ -167,7 +167,7 @@ final class TraceMapModel: ObservableObject {
 
     private func scroll(_ e: NSEvent, at p: CGPoint) {
         let ended = e.momentumPhase == .ended || (e.phase == .ended && e.momentumPhase == [])
-        if e.hasPreciseScrollingDeltas && !e.modifierFlags.contains(.command) {
+        if isTrackpad(e) && !e.modifierFlags.contains(.command) {
             // 触控板双指滑动：和按下拖一样转地球；松手后的惯性由系统的 momentum 事件继续送来
             if e.scrollingDeltaX != 0 || e.scrollingDeltaY != 0 {
                 nudge(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
@@ -175,13 +175,24 @@ final class TraceMapModel: ObservableObject {
         } else {
             // 鼠标滚轮 / ⌘+双指滑动：缩放。触控板按像素连续、跟手（松手后系统的 momentum 事件接着送，自带惯性）；
             // 滚轮一格约 1.15 倍，不跳格：从当前画面滑过去，连续滚动时目标累加、接着滑
-            if e.hasPreciseScrollingDeltas {
+            if isTrackpad(e) {
                 if e.scrollingDeltaY != 0 { zoom(by: exp(e.scrollingDeltaY * 0.01), at: p, animated: false) }
+            } else if e.hasPreciseScrollingDeltas {
+                // Mos 等平滑滚轮：像素级小步，同样累加目标、停手后缓停滑过去（惯性）
+                if e.scrollingDeltaY != 0 { zoom(by: exp(e.scrollingDeltaY * 0.01), at: p, glide: true) }
             } else if e.scrollingDeltaY != 0 {
                 zoom(by: exp(e.scrollingDeltaY * 0.14), at: p, glide: true)
             }
         }
-        if ended || !e.hasPreciseScrollingDeltas { flight.setSpin(true) }
+        if ended || !isTrackpad(e) { flight.setSpin(true) }
+    }
+
+    /// 真触控板：带手势阶段（按下/滑动/松手/惯性）且由硬件直接发出。
+    /// Mos 这类平滑滚动工具把滚轮改成像素级连续事件，hasPreciseScrollingDeltas 也是 true，
+    /// 但没有手势阶段或来源进程不是 0（合成事件），按滚轮算。
+    private func isTrackpad(_ e: NSEvent) -> Bool {
+        guard e.hasPreciseScrollingDeltas, e.phase != [] || e.momentumPhase != [] else { return false }
+        return e.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) ?? 0 == 0
     }
 
     private func key(_ e: NSEvent, window: NSWindow) -> Bool {

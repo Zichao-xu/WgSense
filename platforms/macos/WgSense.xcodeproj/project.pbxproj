@@ -26,6 +26,7 @@
 		3F5137C784574344F867063D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BD8D739D3B0B49B54B3F0C39 /* Localizable.xcstrings */; };
 		4150CA738E54AD565B5F2D9A /* PPOverviewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E158E212B731D8EB3325B66 /* PPOverviewPage.swift */; };
 		46F0735DC4E70670DF3FE481 /* WgSenseWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3750B94EFA321F4F3F8C19F3 /* WgSenseWidget.swift */; };
+		485605CDD96417A6F10723E0 /* TraceRadiation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02611306A3F020AE12A7424 /* TraceRadiation.swift */; };
 		48ADE081313F1751E1A488D2 /* ProxyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EC3834F9EE809E1C80F044 /* ProxyAPIClient.swift */; };
 		4C47BFC3EDD559AB83009878 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA034BB1EC7512467D785C99 /* MainView.swift */; };
 		515E6E39EDE64872F09A3711 /* TraceFakeIP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90098B54A7C90B1DDFE44D16 /* TraceFakeIP.swift */; };
@@ -76,6 +77,7 @@
 		C6D8922CDA57B0668AAA41F2 /* WgSenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A8FD83AD3FB5681EAE1110 /* WgSenseApp.swift */; };
 		CF0381EF47BE69482A7AD475 /* WgSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327C41F92B977872F228B46 /* WgSurfaces.swift */; };
 		D0739DCF9224C40F63F72E11 /* WgDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB2485CFB7FA7A48A19F6D4 /* WgDesign.swift */; };
+		D1105B190420CE11C124425B /* TraceRegions.bin in Resources */ = {isa = PBXBuildFile; fileRef = 0DA2AA96BEDDA7AEF6C95F1B /* TraceRegions.bin */; };
 		D566C0534547A0C2DB44525A /* WgRegionColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79083985675926A70F6D4CBC /* WgRegionColor.swift */; };
 		D625B3B980AFA0E6E41EF3EF /* DaemonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25978E89B4CCD23B64EA7345 /* DaemonModels.swift */; };
 		D7AB1A8196C7B0C6B61A378E /* PPStreamChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB602039AF8027B15350431B /* PPStreamChart.swift */; };
@@ -121,6 +123,7 @@
 		0AA301075B9E8FE140316B6D /* TraceGlobe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraceGlobe.swift; sourceTree = "<group>"; };
 		0B9DCCE34E27D91EFD69FC1D /* PPGroupTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPGroupTable.swift; sourceTree = "<group>"; };
 		0C8CD7D8ADC89A97CD38C8D1 /* ProfileFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileFileStore.swift; sourceTree = "<group>"; };
+		0DA2AA96BEDDA7AEF6C95F1B /* TraceRegions.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = TraceRegions.bin; sourceTree = "<group>"; };
 		13C4756EC6DAF2B9C8E8EC93 /* DaemonMaintenanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonMaintenanceService.swift; sourceTree = "<group>"; };
 		1B1C9D2B646A6CA9B40C0EBC /* WgScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgScrollView.swift; sourceTree = "<group>"; };
 		22BC696A3B3A005E9F558FD5 /* WgTunePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgTunePanel.swift; sourceTree = "<group>"; };
@@ -170,6 +173,7 @@
 		9F09A3413AE1F52A4503D1C4 /* WgStatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgStatusBarController.swift; sourceTree = "<group>"; };
 		A24F5FEF465654A8DDFCA386 /* TraceGeo.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = TraceGeo.bin; sourceTree = "<group>"; };
 		A6F32A96612A010AB2B369F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B02611306A3F020AE12A7424 /* TraceRadiation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraceRadiation.swift; sourceTree = "<group>"; };
 		B2FDC1F4BFF26310453EA1A3 /* TraceFPS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraceFPS.swift; sourceTree = "<group>"; };
 		B327C41F92B977872F228B46 /* WgSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgSurfaces.swift; sourceTree = "<group>"; };
 		B438DFC7DBCB7CDF8345792F /* PPProviderSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPProviderSupport.swift; sourceTree = "<group>"; };
@@ -329,6 +333,7 @@
 			isa = PBXGroup;
 			children = (
 				A24F5FEF465654A8DDFCA386 /* TraceGeo.bin */,
+				0DA2AA96BEDDA7AEF6C95F1B /* TraceRegions.bin */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -345,6 +350,7 @@
 				012D24F1F579861F9468D3C0 /* TraceGlobeGPU.swift */,
 				8C046E4DEBAEF95C9B37569D /* TraceGlobeMesh.swift */,
 				E5A98FCC223E24076B4D92EF /* TraceMetalMap.swift */,
+				B02611306A3F020AE12A7424 /* TraceRadiation.swift */,
 				C3746632F3F24FAAA82F8A29 /* TraceStage.swift */,
 				5E984E92C715846676406E39 /* TraceStore.swift */,
 				CB0405F95CE810AD587AE2C4 /* TraceView.swift */,
@@ -460,6 +466,7 @@
 				FA09F9B661FA4BBEF66444BA /* Assets.xcassets in Resources */,
 				EA45E94FFA4E175DB33049A1 /* Localizable.xcstrings in Resources */,
 				FF0720246E8311E94ACD18D1 /* TraceGeo.bin in Resources */,
+				D1105B190420CE11C124425B /* TraceRegions.bin in Resources */,
 				8F6D3160E20948EC11AE4544 /* WgTokens.json in Resources */,
 				6918E49EB490D2018E6CECCE /* speedlab.sh in Resources */,
 			);
@@ -560,6 +567,7 @@
 				9547FA4EB3DD47B86CF0CE50 /* TraceGlobeGPU.swift in Sources */,
 				A8DCD778C92DDABC7C2E0EDC /* TraceGlobeMesh.swift in Sources */,
 				80955297821C82C39FE5C9A8 /* TraceMetalMap.swift in Sources */,
+				485605CDD96417A6F10723E0 /* TraceRadiation.swift in Sources */,
 				3AE3936BA2CC7154DE9A16C7 /* TraceStage.swift in Sources */,
 				7F856ED1FC2A054F76D78710 /* TraceStore.swift in Sources */,
 				A731880294284B59A0967455 /* TraceView.swift in Sources */,
@@ -605,7 +613,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -614,7 +622,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 37;
+				MARKETING_VERSION = 38;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -688,7 +696,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -699,7 +707,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 37;
+				MARKETING_VERSION = 38;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};
@@ -713,7 +721,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -722,7 +730,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 37;
+				MARKETING_VERSION = 38;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -803,7 +811,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -814,7 +822,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 37;
+				MARKETING_VERSION = 38;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};

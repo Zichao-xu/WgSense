@@ -1,7 +1,7 @@
 import SwiftUI
 import simd
 
-// 地球相机与投影：缩小是可任意旋转的地球（正射投影），放大过程中球面逐渐展平成以视野中心为准的平面地图，
+// 地球相机与投影：缩小是可任意旋转的地球（正射投影），放大过程中球面逐渐展平成以视野中心为准的方位等距平面地图，
 // 中间没有切换的那一下（形态系数 morph 随缩放连续变化）。航线、标注、底图都走这一个投影。
 
 /// 相机：视野中心经纬度 + 缩放（地球半径 / 画幅短边的一半；0.9 ≈ 整个地球）。
@@ -26,12 +26,13 @@ struct TraceCam: Equatable {
     static var introStart: TraceCam { var c = idle; c.lon -= 60; c.lat = max(-20, c.lat - 15); c.zoom = 0.55; return c.clamped() }
 
     static let minZoom = 0.5
-    /// 省级：一屏约 3° 经度。
-    static let maxZoom = 40.0
+    /// 区县级：一屏约 0.3° 经度（东京的区、深圳的区分得开）。
+    static let maxZoom = 400.0
 
     /// 0 = 地球，1 = 平面。
+    /// 展平放在放大后段（一屏约 ±10° → ±4°）：这时球面与平面只差千分之几，看不出转变（MapLibre 也是放到城市级才切平面）。
     var morph: Double {
-        let x = min(1, max(0, (zoom - 1.8) / (4.5 - 1.8)))
+        let x = min(1, max(0, (zoom - 6) / (16 - 6)))
         return x * x * (3 - 2 * x)
     }
 
@@ -45,20 +46,26 @@ struct TraceCam: Equatable {
         return c
     }
 
-    /// 拖动：按当前形态把屏幕位移换算成经纬度。
+    /// 拖动：屏幕位移换算成经纬度（与 MapLibre 地球模式同一做法：北始终朝上，不做「抓住地面」）。
+    /// 横向按 1/cos(纬度) 加速，靠近两极时画面也跟得上手；缩小看地球时按纬度 60° 封顶（极区不至于转得太猛），
+    /// 放大过程中按缩放的对数逐渐放开封顶（MapLibre 是缩放级别 3 → 7，折算到这里约 2.5 → 40）。
     func dragged(dx: Double, dy: Double, minSide: Double) -> TraceCam {
-        let r = zoom * minSide / 2
-        let cosLat = max(0.2, cos(lat * .pi / 180))
-        let ex = 1 + (1 / cosLat - 1) * morph
-        return TraceCam(lon: lon - dx / r * 180 / .pi * ex, lat: lat + dy / r * 180 / .pi, zoom: zoom).clamped()
+        let v = angularVelocity(vx: dx, vy: dy, minSide: minSide)
+        return TraceCam(lon: lon + v.lon, lat: lat + v.lat, zoom: zoom).clamped()
     }
 
     /// 拖动速度（点/秒）换算成角速度（°/s），与 dragged 同一套比例。
     func angularVelocity(vx: Double, vy: Double, minSide: Double) -> (lon: Double, lat: Double) {
         let r = zoom * minSide / 2
-        let cosLat = max(0.2, cos(lat * .pi / 180))
-        let ex = 1 + (1 / cosLat - 1) * morph
-        return (-vx / r * 180 / .pi * ex, vy / r * 180 / .pi)
+        return (-vx / r * 180 / .pi * lonSpeed, vy / r * 180 / .pi)
+    }
+
+    /// 横向速度系数：1/cos(纬度)，按缩放在「纬度封顶 60°」与「不封顶」之间插值。
+    var lonSpeed: Double {
+        let capped = 1 / cos(min(abs(lat), 60) * .pi / 180)
+        let full = 1 / max(0.1, cos(lat * .pi / 180))
+        let w = min(1, max(0, log2(zoom / 2.5) / 4))
+        return capped + (full - capped) * w
     }
 
     /// 框住一组坐标：中心取球面平均，缩放让最远一点落在画幅约 40% 半径处；跨半球以上就是整个地球。
@@ -237,9 +244,10 @@ struct TraceFlight {
     mutating func release(lon: Double, lat: Double) {
         let now = Date()
         settle(now)
-        // 太快的甩动限一下速，免得一甩转好几圈
-        let cap = 240.0
-        fling = (max(-cap, min(cap, lon)), max(-cap, min(cap, lat)), now)
+        // 太快的甩动限一下速，免得一甩转好几圈；经度总滑动量（速度 × 时间常数）还要低于半圈，
+        // 否则看起来像往反方向转（MapLibre 限在 179.5°）
+        let cap = 240.0, lonCap = min(cap, 179.5 / Self.inertia)
+        fling = (max(-lonCap, min(lonCap, lon)), max(-cap, min(cap, lat)), now)
     }
 
     /// 允许 / 禁止自转。允许时等停手延迟（或当前飞行结束）后再开始；禁止时定格在当前画面。
@@ -292,7 +300,6 @@ struct TraceGlobeProjection {
     let origin: CGPoint
     let morph: Double
     private let east, north, forward: SIMD3<Float>
-    private let cosLat: Double
 
     /// shift：地球中心相对画幅中心的偏移（全息模式下画幅是整个窗口，地球对准侧栏右边、顶部浮层以下的区域），也决定地球大小的基准。
     /// pan：用户挪动视图的位移，只挪位置、不改大小。
@@ -306,7 +313,6 @@ struct TraceGlobeProjection {
         let l = Float(cam.lon * .pi / 180)
         east = SIMD3(-sin(l), cos(l), 0)
         north = simd_cross(forward, east)
-        cosLat = cos(cam.lat * .pi / 180)
     }
 
     /// 地球大小的基准：可见区域（画幅减去两侧偏移，即侧栏右边、顶部浮层以下）的短边。
@@ -324,7 +330,7 @@ struct TraceGlobeProjection {
         Float(traceAngle(ring.center, forward)) - ring.radius < reach
     }
 
-    /// 投一个点。alt 为离地高度（地球半径的倍数，航线拱起用）；refLon 让一整条线的经度连续（平面形态不跳 ±180）。
+    /// 投一个点。alt 为离地高度（地球半径的倍数，航线拱起用）；refLon 已不需要（方位投影没有 ±180 的跳变），保留参数免改调用方。
     func project(_ p: SIMD3<Float>, lon: Double, lat: Double, alt: Double = 0, refLon: inout SIMD2<Double>?) -> (CGPoint, Bool) {
         let x = Double(simd_dot(p, east)), y = Double(simd_dot(p, north)), z = Double(simd_dot(p, forward))
         let s = 1 + alt
@@ -335,12 +341,11 @@ struct TraceGlobeProjection {
             let l = hypot(x, y)
             if l > 1e-9 { sx = x / l; sy = y / l }
         }
-        // 平面：以视野中心为准的等距圆柱，中心处比例与球面一致
-        // 相对中心的经度差：一条线的首点取最近的一侧，之后按相邻两点的差累加，保证连续
-        func wrap(_ d: Double) -> Double { (d + 540).truncatingRemainder(dividingBy: 360) - 180 }
-        let dl = refLon.map { $0.x + wrap(lon - $0.y) } ?? wrap(lon - cam.lon)
-        refLon = SIMD2(dl, lon)
-        let px = dl * .pi / 180 * cosLat, py = (lat - cam.lat) * .pi / 180 + alt * 0.35
+        // 平面：以视野中心为准的方位等距（方向同球面，距离 = 角距），与 GPU 底图同一公式，展平只是径向伸缩
+        // 角距用 atan2（小角度时 acos 精度差，放大后会抖）
+        let l = hypot(x, y), c = atan2(l, z)
+        let k = l > 1e-12 ? c / l : 1
+        let px = x * k, py = y * k + alt * 0.35
         let m = morph
         if m > 0.5 { visible = true }
         let X = sx + (px - sx) * m, Y = sy + (py - sy) * m
