@@ -13,6 +13,7 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -266,12 +268,54 @@ func (m *darwinManager) waitForHandshake(timeout time.Duration) bool {
 
 // Connect 按 service 名连接:从 configDir 加载 {service}.conf → ConnectWithProfile。
 func (m *darwinManager) Connect(service string) error {
-	confPath := filepath.Join(m.configDir, service+".conf")
+	confPath, err := resolveProfilePath(m.configDir, service)
+	if err != nil {
+		return err
+	}
 	profile, err := config.ParseFile(confPath)
 	if err != nil {
 		return fmt.Errorf("加载配置 %s: %w", confPath, err)
 	}
+	if err := checkProfileComplete(profile); err != nil {
+		return fmt.Errorf("配置 %s: %w", filepath.Base(confPath), err)
+	}
 	return m.ConnectWithProfile(profile)
+}
+
+// checkProfileComplete 在连接前拦下空配置，否则要等 15 秒才报一个无关的握手失败。
+func checkProfileComplete(profile *config.Profile) error {
+	if profile.Interface.PrivateKey == "" || len(profile.Peers) == 0 {
+		return errors.New("内容是空的或不完整：缺少 PrivateKey 或 [Peer]，请重新导入")
+	}
+	return nil
+}
+
+// resolveProfilePath 找到 service 对应的配置文件。service 的文件不存在时：
+// 只有一份配置就用它（导入后还没点过「切换」），多份则要用户选，不替用户猜。
+func resolveProfilePath(dir, service string) (string, error) {
+	path := filepath.Join(dir, service+".conf")
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return path, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("读取配置目录 %s: %w", dir, err)
+	}
+	var confs []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".conf") {
+			confs = append(confs, e.Name())
+		}
+	}
+	switch len(confs) {
+	case 0:
+		return "", errors.New("还没有配置：请先导入 .conf 或用向导新建")
+	case 1:
+		log.Printf("[tunnel] 未选用配置，使用唯一的配置 %s", confs[0])
+		return filepath.Join(dir, confs[0]), nil
+	default:
+		return "", fmt.Errorf("有 %d 份配置但都未选用：请在配置列表点「切换」选一份", len(confs))
+	}
 }
 
 func (m *darwinManager) Disconnect(service string) error {
@@ -338,7 +382,23 @@ func (m *darwinManager) SaveProfile(name, content string) error {
 		return err
 	}
 	path := filepath.Join(m.configDir, name+".conf")
-	return os.WriteFile(path, []byte(content), 0600)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		return err
+	}
+	return matchDirOwner(path, m.configDir)
+}
+
+// matchDirOwner 让 daemon 代写的文件归配置目录的属主，否则 App 读不了 root 的 0600 文件。
+func matchDirOwner(path, dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	return os.Chown(path, int(stat.Uid), int(stat.Gid))
 }
 
 // LoadProfileContent 读取 {name}.conf 的文本内容。

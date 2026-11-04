@@ -24,6 +24,10 @@ import (
 
 const maxHealthFailures = 5
 
+// staleHandshakeAge 是分流隧道判定失效的握手年龄。WireGuard 会话 180 秒后作废，
+// 有流量时会在此之前重新握手。
+const staleHandshakeAge = 180 * time.Second
+
 // 网络变化靠系统路由套接字通知驱动；定时检查只做兜底（通知丢失、变化时恰好有连接操作占锁）。
 // 订阅失败时退回原来的高频轮询。
 const (
@@ -58,6 +62,8 @@ type Engine struct {
 	lastAutoUp      time.Time
 	lastHealthCheck time.Time
 	healthFailures  int
+	healthTx        uint64
+	healthRx        uint64
 	autoFailures    int
 	nextAutoAttempt time.Time
 	configPath      string
@@ -228,7 +234,7 @@ func (e *Engine) runOnNetworkChangeLocked() error {
 	if !trusted && state == tunnel.StateConnected && e.shouldKeepVPNUp(trusted) {
 		e.Logf("网络变化后验证隧道健康")
 		e.lastHealthCheck = time.Now()
-		if e.hc.IsStaleConnected(true) {
+		if e.tunnelStale() {
 			e.Logf("网络变化后隧道不可达，立即重启 WireGuard")
 			_ = e.tun.Disconnect(e.service)
 			if err := e.tun.Connect(e.service); err != nil {
@@ -327,7 +333,7 @@ func (e *Engine) applyPolicyLocked() error {
 			return nil
 		}
 		e.lastHealthCheck = time.Now()
-		if e.hc.IsStaleConnected(true) {
+		if e.tunnelStale() {
 			e.healthFailures++
 			e.Logf("隧道连通性探测失败（%d/%d）", e.healthFailures, maxHealthFailures)
 		} else {
@@ -393,6 +399,35 @@ func (e *Engine) recordAutoFailure() {
 	}
 	e.nextAutoAttempt = time.Now().Add(delay)
 	e.Logf("自动连接失败（%d），退避 %s", e.autoFailures, delay)
+}
+
+// tunnelStale 判断已连接的隧道是否失效。全局隧道探测外网；分流隧道不接管外网，
+// 探测目标不经隧道，结果与隧道无关，所以只看隧道自身的收发和握手。
+func (e *Engine) tunnelStale() bool {
+	coverage, ok := e.tun.(tunnel.CoverageProvider)
+	if !ok || coverage.Coverage(e.service).FullTunnel {
+		return e.hc.IsStaleConnected(true)
+	}
+	provider, ok := e.tun.(tunnel.RuntimeStatsProvider)
+	if !ok {
+		return false
+	}
+	stats, err := provider.RuntimeStats(e.service)
+	if err != nil {
+		return false
+	}
+	prevTx, prevRx := e.healthTx, e.healthRx
+	e.healthTx, e.healthRx = stats.PeerTxBytes, stats.PeerRxBytes
+	return splitTunnelStale(stats, prevTx, prevRx, time.Now())
+}
+
+// splitTunnelStale 要求一直在发、完全没收到、且握手已过期。空闲隧道没有流量也
+// 不会重新握手，这是正常状态，不能算失效。
+func splitTunnelStale(stats tunnel.RuntimeStats, prevTx, prevRx uint64, now time.Time) bool {
+	sending := stats.PeerTxBytes > prevTx
+	silent := stats.PeerRxBytes == prevRx
+	expired := now.Sub(time.Unix(stats.LastHandshakeUnix, 0)) > staleHandshakeAge
+	return sending && silent && expired
 }
 
 func (e *Engine) healthCheckDue() bool {

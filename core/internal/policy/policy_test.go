@@ -873,3 +873,71 @@ func TestTrafficSpeedResetsWhenCountersDrop(t *testing.T) {
 		t.Fatalf("计数回退后速度应归零，不应停留在旧值: %+v", s)
 	}
 }
+
+// coveredTunnel 是能报告覆盖范围和收发统计的隧道。
+type coveredTunnel struct {
+	mockTunnel
+	full  bool
+	stats tunnel.RuntimeStats
+}
+
+func (c *coveredTunnel) Coverage(string) tunnel.Coverage {
+	return tunnel.Coverage{FullTunnel: c.full}
+}
+func (c *coveredTunnel) Endpoints() []string { return nil }
+func (c *coveredTunnel) RuntimeStats(string) (tunnel.RuntimeStats, error) {
+	return c.stats, nil
+}
+
+func TestSplitTunnelIgnoresInternetProbe(t *testing.T) {
+	tun := &coveredTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}}
+	tun.stats.LastHandshakeUnix = time.Now().Unix()
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+	for i := 0; i < maxHealthFailures+1; i++ {
+		eng.lastHealthCheck = time.Time{}
+		tun.stats.PeerTxBytes += 100
+		tun.stats.PeerRxBytes += 100
+		if err := eng.RunOnce(); err != nil {
+			t.Fatal(err)
+		}
+		if eng.healthFailures != 0 {
+			t.Fatalf("分流隧道不该因外网探测失败计数: %d", eng.healthFailures)
+		}
+	}
+}
+
+func TestFullTunnelStillProbesInternet(t *testing.T) {
+	tun := &coveredTunnel{mockTunnel: mockTunnel{state: tunnel.StateConnected}, full: true}
+	cfg := config.Default()
+	cfg.DesiredVPNEnabled = true
+	eng := New(cfg, mockLocation{trusted: false}, tun, mockHealth{connected: false}, &mockPause{})
+	if err := eng.RunOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if eng.healthFailures != 1 {
+		t.Fatalf("全局隧道探测失败应计数: %d", eng.healthFailures)
+	}
+}
+
+func TestSplitTunnelStale(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	old := now.Add(-staleHandshakeAge - time.Second).Unix()
+	fresh := now.Add(-time.Minute).Unix()
+	cases := []struct {
+		name  string
+		stats tunnel.RuntimeStats
+		want  bool
+	}{
+		{"发了没收且握手过期", tunnel.RuntimeStats{PeerTxBytes: 200, PeerRxBytes: 50, LastHandshakeUnix: old}, true},
+		{"空闲", tunnel.RuntimeStats{PeerTxBytes: 100, PeerRxBytes: 50, LastHandshakeUnix: old}, false},
+		{"有回包", tunnel.RuntimeStats{PeerTxBytes: 200, PeerRxBytes: 60, LastHandshakeUnix: old}, false},
+		{"握手还新", tunnel.RuntimeStats{PeerTxBytes: 200, PeerRxBytes: 50, LastHandshakeUnix: fresh}, false},
+	}
+	for _, c := range cases {
+		if got := splitTunnelStale(c.stats, 100, 50, now); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}

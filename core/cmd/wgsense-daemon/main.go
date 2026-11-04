@@ -159,6 +159,9 @@ func main() {
 		cDir = filepath.Join(rtDir, "profiles")
 	}
 	os.MkdirAll(cDir, 0755)
+	if *managed {
+		repairProfileOwnership(managedOwner.Home, cDir, managedOwner.UID, chownToUser)
+	}
 
 	loc := location.New()
 	tun := tunnel.New(cDir)

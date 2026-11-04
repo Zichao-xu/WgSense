@@ -650,12 +650,31 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     // MARK: - Profile 管理
 
     func importProfile(name: String, content: String) async {
-        // 1. 先直接写文件（保证即使 daemon 离线也能导入成功）
+        do {
+            try await storeProfile(name, content: content)
+            try await adoptIfNoActiveProfile(content)
+        } catch {
+            alertMsg = "导入配置失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 先直接写文件（daemon 离线也能成功），写不进去时交给 daemon，两边都失败才算失败。
+    private func storeProfile(_ name: String, content: String) async throws {
         do {
             try profileStore.saveProfile(name, content: content)
-        } catch { /* 继续尝试 daemon */ }
-        // 2. 再通知 daemon（如果在线）
+        } catch {
+            try await controlAPI.importProfile(name: name, content: content)
+            return
+        }
         try? await controlAPI.importProfile(name: name, content: content)
+    }
+
+    /// daemon 只读 default.conf。还没有可用的当前配置时，这份配置直接启用；
+    /// 已有当前配置时不动它，换配置走「切换」。
+    private func adoptIfNoActiveProfile(_ content: String) async throws {
+        if await exportProfile(name: "default").isEmpty {
+            try await storeProfile("default", content: content)
+        }
     }
 
     /// 导出 profile 内容（先读磁盘，daemon 作为备选）
@@ -672,20 +691,21 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
 
     /// 加载 profile 内容供编辑（直接读磁盘）
     func loadProfileContent(name: String) async -> String {
-        profileStore.readProfile(name) ?? ""
+        await exportProfile(name: name)
     }
 
     /// 切换当前使用的 profile（复制为 default.conf → 重连）
     func switchProfile(_ name: String) async {
         // 1. 读取目标 profile 内容
-        guard let content = profileStore.readProfile(name) else {
+        let content = await exportProfile(name: name)
+        guard !content.isEmpty else {
             alertMsg = "无法读取配置「\(name)」"
             return
         }
 
         // 2. 写到 default.conf（ daemon 的默认配置路径）
         do {
-            try profileStore.saveDefault(content: content)
+            try await storeProfile("default", content: content)
         } catch {
             alertMsg = "切换配置失败：\(error.localizedDescription)"
             return
@@ -701,7 +721,8 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     func saveProfile(_ profile: WGProfile) async {
         // 1. 先直接写 .conf 文件
         do {
-            try profileStore.saveProfile(profile.name, content: profile.wireGuardConfig)
+            try await storeProfile(profile.name, content: profile.wireGuardConfig)
+            try await adoptIfNoActiveProfile(profile.wireGuardConfig)
         } catch {
             alertMsg = "保存配置失败：\(error.localizedDescription)"
             return
@@ -780,7 +801,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
     func updateProfile(name: String, content: String) async {
         // 直接覆盖写入磁盘
         do {
-            try profileStore.saveProfile(name, content: content)
+            try await storeProfile(name, content: content)
         } catch {
             alertMsg = "更新配置失败：\(error.localizedDescription)"
             return
@@ -788,7 +809,7 @@ class DaemonClient: NSObject, ObservableObject, UNUserNotificationCenterDelegate
         // 如果是当前使用的 profile，同步到 default 并重连
         if status?.service == name {
             do {
-                try profileStore.saveDefault(content: content)
+                try await storeProfile("default", content: content)
             } catch {
                 alertMsg = "配置已更新，但应用到当前连接失败：\(error.localizedDescription)"
             }
