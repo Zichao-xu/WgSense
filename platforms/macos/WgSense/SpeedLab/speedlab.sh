@@ -6,7 +6,8 @@
 #   MODE=probe          能力探测：系统、工具、全部网卡（地址/承载口/协商速率）、DNS 是否被劫持、WG peer
 #   MODE=http           公网测速：空载延迟 → 选源 → 下行 → 上行（速率读网卡计数器）
 #   MODE=iperf          iperf3 客户端：空载延迟 → 下行(-R) → 上行
-#   MODE=iperf-server   在本机起一次性 iperf3 服务端（端口被占自动顺延），输出实际端口
+#   MODE=iperf-server   在本机起一次性 iperf3 服务端（端口被占自动顺延），输出实际端口和区间日志
+#   MODE=iperf-tail     实时回传上面那份区间日志：上行的接收端数据
 #   MODE=iperf-stop     停掉上面起的服务端，删除临时部署的 iperf3
 #
 # IFACE=<网卡>  绑这张网卡 + 真 DNS 逐跳解析（绕开隧道、代理与 fake-ip）；不给 = 系统路由与 DNS。
@@ -15,7 +16,7 @@
 # 缺了直接报错（need），不偷偷补默认值。
 set -u
 : "${MODE:=probe}" "${IFACE:=}" "${DL_URLS:=}" "${UL_URLS:=}" "${PING_HOST:=}" "${EXIT_URL:=}"
-: "${IPERF_HOST:=}" "${IPERF_BIN:=}" "${DEPLOYED:=}"
+: "${IPERF_HOST:=}" "${IPERF_BIN:=}" "${DEPLOYED:=}" "${IPERF_LOG:=}"
 OS=$(uname -s)
 WORK=/tmp/wgsense-speed.$$
 LOCK=/tmp/wgsense-speed.lock
@@ -360,6 +361,32 @@ run_http() {
 
 iperf_bin() { if [ -n "$IPERF_BIN" ]; then echo "$IPERF_BIN"; elif has iperf3; then echo iperf3; fi; }
 
+# iperf3 的区间行 → r 事件（k = live 实时 / end 结束时回传，a、b = 区间起止秒）。
+# 只认 [SUM]（单流时认流行）；汇总行不要，比首个区间短一半以上的收尾碎片也不要（0.01 秒算出的速率没有意义）。
+ivals() {
+	awk -v k="$1" -v p="$IPERF_P" '
+	/sender|receiver/ { next }
+	(p > 1 && !/^\[SUM\]/) || (p <= 1 && !/^\[ *[0-9]+\]/) { next }
+	{
+		a = ""; v = ""
+		for (i = 2; i <= NF; i++) {
+			if ($i == "sec") { split($(i - 1), t, "-"); a = t[1]; b = t[2] }
+			else if ($i == "Gbits/sec") v = $(i - 1) * 1000
+			else if ($i == "Mbits/sec") v = $(i - 1)
+			else if ($i == "Kbits/sec") v = $(i - 1) / 1000
+			else if ($i == "bits/sec") v = $(i - 1) / 1000000
+		}
+		if (a == "" || v == "" || b <= a) next
+		if (!w) w = b - a
+		if (b - a < w / 2) next
+		printf "@{\"ev\":\"r\",\"k\":\"%s\",\"a\":%s,\"b\":%s,\"rx\":%s}\n", k, a, b, v
+		fflush()
+	}'
+}
+
+# 客户端输出里 --get-server-output 带回来的那段
+server_report() { sed -n '/^Server output:/,$p' "$WORK/iperf.ul" 2>/dev/null | ivals end; }
+
 run_iperf() {
 	B=$(iperf_bin); [ -n "$B" ] || fail "执行端没有 iperf3"
 	[ -n "$IPERF_HOST" ] || fail "没有指定 iperf3 对端"
@@ -370,16 +397,22 @@ run_iperf() {
 	phase idle; sample idle "$IDLE"
 	for d in $DIRS; do
 		r=""; [ "$d" = dl ] && r=-R
+		# 上行的发送端数字是写进发送缓冲的量，不是到达量：结束时把服务端（接收端）的区间数据也要回来
+		[ "$d" = ul ] && r=--get-server-output
 		phase "$d"
 		# 速率来源 = 网卡计数：iperf3 只造流量，和公网测速同一把尺子
 		if [ "$IPERF_RATE" = nic ]; then
-			"$B" -c "$IPERF_HOST" -p "$IPERF_PORT" -P "$IPERF_P" -t "$DUR" $r >/dev/null 2>&1 </dev/null & bg
+			"$B" -c "$IPERF_HOST" -p "$IPERF_PORT" -P "$IPERF_P" -t "$DUR" $r >"$WORK/iperf.$d" 2>&1 </dev/null & bg
 			sample "$d" "$DUR"
 			wait $! 2>/dev/null
+			[ "$d" = ul ] && server_report
 			sleep "$GAP"
 			continue
 		fi
-		"$B" -c "$IPERF_HOST" -p "$IPERF_PORT" -P "$IPERF_P" -t "$DUR" -i "$TICK" -f m --forceflush $r 2>&1 </dev/null | while read -r line; do
+		"$B" -c "$IPERF_HOST" -p "$IPERF_PORT" -P "$IPERF_P" -t "$DUR" -i "$TICK" -f m --forceflush $r 2>&1 </dev/null | tee "$WORK/iperf.$d" | while read -r line; do
+			# 服务端那段留给 server_report；这里得读到底，提前退出 tee 会写不全
+			case $line in "Server output:"*) so=1 ;; esac
+			[ -z "${so:-}" ] || continue
 			case $line in
 			*error*|*Error*) emit "{\"ev\":\"err\",\"msg\":\"$(jstr "$line")\"}" ;;
 			*sender*|*receiver*) ;;
@@ -394,24 +427,36 @@ run_iperf() {
 				fi ;;
 			esac
 		done
+		[ "$d" = ul ] && server_report
 		sleep "$GAP"
 	done
 }
 
 iperf_server() {
 	B=$(iperf_bin); [ -n "$B" ] || fail "对端没有 iperf3"
-	need IPERF_PORT IPERF_SPAN IPERF_TTL
+	need IPERF_PORT IPERF_SPAN IPERF_TTL TICK
+	# 服务端按采样间隔写区间日志（iperf3 的 -i 下限 0.1 秒）：这就是上行的接收端数据
+	si=$(awk -v t="$TICK" 'BEGIN { print (t < 0.1 ? 0.1 : t) }')
 	p=$IPERF_PORT; last=$((IPERF_PORT + IPERF_SPAN))
 	while [ $p -le $last ]; do
-		pf=/tmp/wgsense-iperf.$p.pid
-		rm -f "$pf"
-		"$B" -s -p "$p" -D -I "$pf" >/dev/null 2>&1 </dev/null
+		pf=/tmp/wgsense-iperf.$p.pid; lf=/tmp/wgsense-iperf.$p.log
+		rm -f "$pf" "$lf"
+		"$B" -s -p "$p" -D -I "$pf" -i "$si" -f m --forceflush --logfile "$lf" >/dev/null 2>&1 </dev/null
 		sleep 1
 		pid=$(cat "$pf" 2>/dev/null)
+		# 老版本 iperf3 不认这些选项：退回不写日志，App 看不到 log 就走回退
+		if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+			rm -f "$lf"
+			"$B" -s -p "$p" -D -I "$pf" >/dev/null 2>&1 </dev/null
+			sleep 1
+			pid=$(cat "$pf" 2>/dev/null)
+		fi
 		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-			# 一次性：最多存活 IPERF_TTL 秒，App 忘了停也会自己退出
-			( sleep "$IPERF_TTL"; kill "$pid" 2>/dev/null; rm -f "$pf" ) >/dev/null 2>&1 </dev/null &
+			# 一次性：最多存活 IPERF_TTL 秒，App 忘了停也会自己退出（已被 iperf-stop 收掉的不再动，端口可能换了新的一轮）
+			( sleep "$IPERF_TTL"; kill -0 "$pid" 2>/dev/null || exit 0
+			  kill "$pid" 2>/dev/null; rm -f "$pf" "$lf" ) >/dev/null 2>&1 </dev/null &
 			info port "$p"; info version "$("$B" --version 2>/dev/null | head -1)"
+			[ -f "$lf" ] && info log "$lf"
 			return 0
 		fi
 		p=$((p + 1))
@@ -419,11 +464,30 @@ iperf_server() {
 	fail "iperf3 服务端起不来（$IPERF_PORT-$last 端口都不可用）"
 }
 
+# 实时回传服务端的区间日志，日志被删（iperf-stop / 服务端到期）就结束。
+# 不用 tail -f：busybox 的每秒才看一次，读数会一秒一跳。
+iperf_tail() {
+	[ -r "$IPERF_LOG" ] || fail "读不到 $IPERF_LOG"
+	pick_nap
+	info tail 1
+	buf=""
+	while :; do
+		if read -r line; then
+			printf '%s\n' "$buf$line"; buf=""
+		else
+			buf=$buf$line  # 读到一半的行留着，下一轮接上
+			[ -f "$IPERF_LOG" ] || break
+			nap
+		fi
+	done < "$IPERF_LOG" | ivals live
+}
+
 iperf_stop() {
 	for pf in /tmp/wgsense-iperf.*.pid; do
 		[ -f "$pf" ] || continue
 		kill "$(cat "$pf")" 2>/dev/null; rm -f "$pf"
 	done
+	rm -f /tmp/wgsense-iperf.*.log
 	[ -n "$DEPLOYED" ] && rm -f "$DEPLOYED"
 	info stopped 1
 }
@@ -466,6 +530,7 @@ iperf)
 	need DUR DIRS TICK IDLE WATCHDOG IPERF_PORT IPERF_P IPERF_RATE GAP
 	lock; run_iperf ;;
 iperf-server) iperf_server ;;
+iperf-tail) need IPERF_LOG IPERF_P TICK; iperf_tail ;;
 iperf-stop) iperf_stop ;;
 *) fail "未知模式 $MODE" ;;
 esac

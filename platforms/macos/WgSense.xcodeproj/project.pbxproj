@@ -613,7 +613,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -622,7 +622,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 38;
+				MARKETING_VERSION = 39;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -696,7 +696,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -707,7 +707,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 38;
+				MARKETING_VERSION = 39;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};
@@ -721,7 +721,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WgSenseWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -730,7 +730,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 38;
+				MARKETING_VERSION = 39;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos.widget;
 				PRODUCT_NAME = WgSenseWidget;
 				SDKROOT = macosx;
@@ -811,7 +811,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WgSense;
@@ -822,7 +822,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 38;
+				MARKETING_VERSION = 39;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wgsense.macos;
 				SDKROOT = macosx;
 			};

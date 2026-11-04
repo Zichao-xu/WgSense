@@ -233,6 +233,15 @@ enum SLRateSource: String, Codable, CaseIterable, Identifiable {
     var title: String { self == .nic ? "网卡计数" : "iperf3 自报" }
 }
 
+/// 上行读数在哪一端量的。发送端的数字是写进发送缓冲的量，会比链路实际到达的更抖、峰值更高；
+/// 接收端才是到达量。下行本来就是接收端，不需要这个。
+enum SLRateSide: String, Codable {
+    case receiver, sender
+    /// HUD 用。
+    var key: String { rawValue }
+    var title: String { self == .receiver ? "接收端" : "发送端" }
+}
+
 /// 稳定值取什么统计量。
 enum SLStatistic: String, Codable, CaseIterable, Identifiable {
     case median, mean
@@ -272,6 +281,9 @@ struct SLEvent: Decodable {
     /// src：该候选源是否入选；conn：第几条连接。
     var keep: Bool?
     var n: Int?
+    /// r：iperf3 区间的起止秒。
+    var a: Double?
+    var b: Double?
 
     static func parse(_ line: Substring) -> SLEvent? {
         guard line.first == "@" else { return nil }
@@ -371,6 +383,17 @@ struct SLTrail {
 /// 一次测量里 HUD 要的全部统计。样本到达时增量更新一次（每秒约 10 次），
 /// 而不是每帧（120 次 × 平滑窗口 8 点）重新排序求中位数。
 struct SLTrails {
+    /// 按到达时间回放样本重建。上行的区间可能和其余不同（接收端的区间由服务端决定）。
+    static func replay(idle: [SLTimedSample], down: [SLTimedSample], up: [SLTimedSample],
+                       tick: Double, upTick: Double, method: SLParams) -> SLTrails {
+        var t = SLTrails()
+        let all = idle.map { ("idle", $0) } + down.map { ("dl", $0) } + up.map { ("ul", $0) }
+        for (ph, s) in all.sorted(by: { $0.1.at < $1.1.at }) {
+            t.add(ph, value: s.v, rtt: s.rtt, at: s.at, tick: ph == "ul" ? upTick : tick, method: method)
+        }
+        return t
+    }
+
     var idleMedian = SLTrail(), loadMedian = SLTrail()
     var downStable = SLTrail(), upStable = SLTrail()
     var rttLo = SLTrail(), rttHi = SLTrail()
@@ -435,6 +458,9 @@ struct SLResult: Codable, Identifiable, Equatable {
     var upSeries: [Double] = []
     /// 采样间隔（秒）；旧记录没有这个字段，按 1 秒算。
     var tick: Double?
+    /// 上行读数在哪一端量的、接收端的区间（秒）；旧记录没有，都按发送端和 tick 算。
+    var upSide: SLRateSide?
+    var upTick: Double?
     var error: String?
 
     /// 线路键：同一组 A/B/C 的历史互相比较。

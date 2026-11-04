@@ -306,10 +306,14 @@ struct SLCurve: View {
         let down = lab.downSeries.isEmpty ? (lab.lastForCurrent?.downSeries ?? []) : lab.downSeries
         let up = lab.upSeries.isEmpty ? (lab.lastForCurrent?.upSeries ?? []) : lab.upSeries
         let top = max(1, (down + up).max() ?? 1) * 1.1
+        let live = !lab.upSeries.isEmpty
+        let upSide = live ? lab.upSide : lab.lastForCurrent.map { $0.upSide ?? .sender }
         VStack(alignment: .leading, spacing: WgSpace.s) {
             Canvas { ctx, size in
                 let tick = lab.downSeries.isEmpty && lab.upSeries.isEmpty ? (lab.lastForCurrent?.tick ?? 1) : lab.tick
                 let n = max(Int(Double(lab.params.duration) / tick), down.count, up.count, 2)
+                let upTick = live ? lab.upTick : (lab.lastForCurrent?.upTick ?? tick)
+                let upN = upTick == tick ? n : max(Int(Double(lab.params.duration) / upTick), up.count, 2)
                 for f in [0.0, 0.5, 1.0] {
                     var g = Path()
                     let y = size.height * (1 - f)
@@ -318,7 +322,7 @@ struct SLCurve: View {
                     ctx.draw(Text(verbatim: SLFormat.compact(top * f, unit: lab.params.unit)).font(.system(size: WgType.micro, design: .monospaced))
                         .foregroundColor(Color.primary.opacity(0.4)), at: CGPoint(x: 4, y: max(6, y - 6)), anchor: .leading)
                 }
-                func line(_ series: [Double], dash: [CGFloat], half: Int) {
+                func line(_ series: [Double], n: Int, dash: [CGFloat], half: Int) {
                     guard series.count > 1 else { return }
                     var p = Path()
                     let width = size.width / 2
@@ -329,8 +333,8 @@ struct SLCurve: View {
                     }
                     ctx.stroke(p, with: .color(.primary), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: dash))
                 }
-                line(down, dash: [2, 2.5], half: 0)
-                line(up, dash: [], half: 1)
+                line(down, n: n, dash: [2, 2.5], half: 0)
+                line(up, n: upN, dash: [], half: 1)
                 var mid = Path()
                 mid.move(to: CGPoint(x: size.width / 2, y: 0)); mid.addLine(to: CGPoint(x: size.width / 2, y: size.height))
                 ctx.stroke(mid, with: .color(Color.primary.opacity(0.18)), lineWidth: 0.5)
@@ -340,7 +344,7 @@ struct SLCurve: View {
             HStack {
                 Text(verbatim: "↓ 下行 ┄").font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
                 Spacer()
-                Text(verbatim: "↑ 上行 ─").font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
+                Text(verbatim: "↑ 上行 ─" + (upSide.map { " \($0.title)" } ?? "")).font(WgInk.mono(.micro)).foregroundStyle(WgInk.ink3)
             }
         }
     }
@@ -430,15 +434,16 @@ struct SLMethodForm: View {
             }
 
             section("iperf3（目标是另一台机器）", commands: [
-                "iperf3 -s -p \(m.iperfPort) -D   # 对端；端口被占顺延到 \(m.iperfPort + m.iperfPortSpan)，\(m.iperfServerTTL) 秒后自退",
-                "iperf3 -c <对端> -p \(m.iperfPort) -P \(m.iperfStreams) -t \(m.duration)\(m.iperfRate == .tool ? " -i \(SLParams.num(m.tick))" : "") -R   # 下行；去掉 -R 为上行",
-                m.iperfRate == .tool ? "# 速率取 iperf3 每 \(SLParams.num(m.tick)) 秒报的 [SUM] 行" : "# 速率读网卡计数，iperf3 只造流量",
+                "iperf3 -s -p \(m.iperfPort) -D -i \(SLParams.num(max(m.tick, 0.1))) -f m --forceflush --logfile <日志>   # 对端；端口被占顺延到 \(m.iperfPort + m.iperfPortSpan)，\(m.iperfServerTTL) 秒后自退",
+                "iperf3 -c <对端> -p \(m.iperfPort) -P \(m.iperfStreams) -t \(m.duration)\(m.iperfRate == .tool ? " -i \(SLParams.num(m.tick))" : "") -R   # 下行；上行去掉 -R，加 --get-server-output",
+                m.iperfRate == .tool ? "# 下行速率取 iperf3 每 \(SLParams.num(m.tick)) 秒报的 [SUM] 行" : "# 下行速率读网卡计数，iperf3 只造流量",
+                "# 上行取接收端：实时回传对端日志的 [SUM] 行；对端不是我们起的，测完用 --get-server-output 带回的换掉；都拿不到才用发送端，读数旁标 src",
                 "sleep \(m.directionGap)   # 两个方向之间",
             ]) {
                 int("并发流", "", \.iperfStreams, 1...64, "条")
                 int("端口", "", \.iperfPort, 1024...65000, "")
                 int("端口顺延范围", "被占时往后试几个", \.iperfPortSpan, 0...50, "个")
-                pick("速率来源", "网卡计数与公网测速同一把尺子；iperf3 自报只算它自己的流量", \.iperfRate, SLRateSource.allCases, title: \.title)
+                pick("速率来源", "网卡计数与公网测速同一把尺子；iperf3 自报只算它自己的流量。上行有接收端数据时不看这一项", \.iperfRate, SLRateSource.allCases, title: \.title)
                 int("方向间隔", "", \.directionGap, 0...10, "秒")
                 int("服务端寿命", "App 忘了停时服务端自己退出", \.iperfServerTTL, 30...3600, "秒")
             }

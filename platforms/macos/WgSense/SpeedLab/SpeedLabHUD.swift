@@ -38,6 +38,9 @@ struct SLHUDData {
     var isPublic = true
     var unit: SLUnit = .mbps
     var tick: Double = 0.1
+    /// 上行的区间与数据来源（接收端的区间由服务端决定）。
+    var upTick: Double = 0.1
+    var upSide: SLRateSide?
     /// 本次测量用的测法（结果算法跟着它走）。
     var method = SLParams()
     /// 样本到达时算好的统计轨迹（Store 增量维护；离线渲染可用 replayTrails() 从样本回放）。
@@ -53,12 +56,7 @@ struct SLHUDData {
 
     /// 按到达时间回放样本重建轨迹（Store 实时增量维护，这里给离线渲染用）。
     mutating func replayTrails() {
-        var t = SLTrails()
-        let all = idle.map { ("idle", $0) } + down.map { ("dl", $0) } + up.map { ("ul", $0) }
-        for (ph, s) in all.sorted(by: { $0.1.at < $1.1.at }) {
-            t.add(ph, value: s.v, rtt: s.rtt, at: s.at, tick: tick, method: method)
-        }
-        trails = t
+        trails = .replay(idle: idle, down: down, up: up, tick: tick, upTick: upTick, method: method)
     }
 }
 
@@ -383,12 +381,14 @@ private struct SLHUDPainter {
         stroke([CGPoint(x: x - 150, y: y + 52), CGPoint(x: x + 150, y: y + 52)], v == nil ? g4 : g3, 1)
         guard let st = d.stat(left: left) else { return }
         var items: [(String, String)] = [("peak", SLFormat.compact(st.peak, unit: d.unit))]
-        let body = Array(samples.map(\.v).dropFirst(Int(2 / max(d.tick, 0.05))))
+        let body = Array(samples.map(\.v).dropFirst(Int(2 / max(left ? d.tick : d.upTick, 0.05))))
         if body.count > 3 { items.append(("cv", String(format: "%.1f%%", cv(body)))) }
         let a = d.done ? SLMotion.flick(k(d.finishedAt)) : 1
         var line = ""
         for (kk, vv) in items { line += "[\(kk)] \(vv)   " }
         text(String(line.dropLast(3)), x, y + 72, 12, g1, anchor: .center, a: a)
+        // 数据来源单独一行：并进上一行会撞到另一侧的读数
+        if !left, let side = d.upSide { text("[src] \(side.key)", x, y + 90, 12, g2, anchor: .center, a: a) }
         _ = enter
     }
 

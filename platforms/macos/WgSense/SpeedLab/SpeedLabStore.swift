@@ -42,6 +42,8 @@ final class SpeedLabStore: ObservableObject {
     @Published private(set) var rttNow: Double?
     @Published private(set) var downSeries: [Double] = []
     @Published private(set) var upSeries: [Double] = []
+    /// 上行读数在哪一端量的；没有读数时为空。
+    @Published private(set) var upSide: SLRateSide?
     @Published private(set) var info: [String: String] = [:]
     @Published private(set) var note: String = ""
     @Published private(set) var error: String?
@@ -69,6 +71,15 @@ final class SpeedLabStore: ObservableObject {
     @Published private(set) var reconnects: [SLConnEvent] = []
     /// HUD 用的统计轨迹：样本到达时增量更新一次。
     @Published private(set) var trails = SLTrails()
+    /// 上行读数现在听谁的：接收端的实时回传接上之前先等一等，不把发送端的数字画上去。
+    private enum UpFeed { case sender, waiting, receiver }
+    private var upFeed = UpFeed.sender
+    /// 等接收端时压着的发送端样本：超时没等到就放出来。
+    private var upHeld: [SLTimedSample] = []
+    /// 测完时服务端回传的区间（速率, 区间长度）：实时那条断过或根本没有时用它。
+    private var upReport: [(v: Double, dt: Double)] = []
+    /// 接收端的区间（秒）；nil = 和采样间隔相同。
+    private var upInterval: Double?
     private var capabilities: [String: [String: String]] = [:]
     private let defaults = UserDefaults.standard
 
@@ -304,7 +315,8 @@ final class SpeedLabStore: ObservableObject {
     /// 执行端回报的采样间隔（秒）：默认每秒 10 次，执行端不支持亚秒等待时退回 1。
     var tick: Double { info["tick"].flatMap(Double.init) ?? 1 }
     var downStat: SLStat? { SLStat.from(downSeries, rtts: downRTTs, tick: tick, method: runMethod ?? params) }
-    var upStat: SLStat? { SLStat.from(upSeries, rtts: upRTTs, tick: tick, method: runMethod ?? params) }
+    var upTick: Double { upInterval ?? tick }
+    var upStat: SLStat? { SLStat.from(upSeries, rtts: upRTTs, tick: upTick, method: runMethod ?? params) }
     var idleRTT: Double? { idleRTTs.isEmpty ? nil : SLStat.median(idleRTTs) }
 
     func clearHistory() {
@@ -320,6 +332,7 @@ final class SpeedLabStore: ObservableObject {
         phase = .prepare
         downNow = nil; upNow = nil; rttNow = nil
         downSeries = []; upSeries = []
+        upSide = nil; upFeed = .sender; upHeld = []; upReport = []; upInterval = nil
         idleRTTs = []; downRTTs = []; upRTTs = []
         info = [:]; error = nil; note = "连接执行端…"
         startedAt = Date(); finishedAt = nil
@@ -360,6 +373,7 @@ final class SpeedLabStore: ObservableObject {
         }
         if Task.isCancelled, result.error == nil { result.error = "已停止" }
         if target.isPublic { SLSourceCatalog.shared.record(sourceResults) }
+        settleUp()
 
         result.down = downStat
         result.up = upStat
@@ -367,6 +381,8 @@ final class SpeedLabStore: ObservableObject {
         result.downSeries = downSeries
         result.upSeries = upSeries
         result.tick = tick
+        result.upSide = upSide
+        result.upTick = upTick
         result.linkText = info["link"] ?? ""
         result.linkMbps = linkMbps
         result.exit = info["exit"] ?? ""
@@ -410,6 +426,8 @@ final class SpeedLabStore: ObservableObject {
         let targetShell = SLShell(endpoint: target)
         var port = params.iperfPort
         var deployed: String?
+        var receiverLog: String?
+        var tail: Task<Void, Never>?
 
         // 目标端：能登上去就临时起服务端，测完必停；WG peer 要求它自己开着。
         if target.kind != .peer {
@@ -420,6 +438,7 @@ final class SpeedLabStore: ObservableObject {
             if let path = bin.path { vars["IPERF_BIN"] = path }
             let events = try await targetShell.collect(vars)
             if let p = events.first(where: { $0.k == "port" })?.v.flatMap(Int.init) { port = p }
+            receiverLog = events.first(where: { $0.k == "log" })?.v
         }
 
         do {
@@ -432,15 +451,33 @@ final class SpeedLabStore: ObservableObject {
             vars["IPERF_PORT"] = "\(port)"
             if let path = bin.path { vars["IPERF_BIN"] = path }
             info["target"] = "\(host):\(port)"
+            if let receiverLog, params.directions != .down { tail = followReceiver(on: target, log: receiverLog) }
             try await consume(SLShell(endpoint: runner).stream(vars), runner: runner)
             if let deployedRunner = bin.deployed, runner.kind == .ssh {
                 _ = try? await SLShell(endpoint: runner).collect(["MODE": "iperf-stop", "DEPLOYED": deployedRunner])
             }
         } catch {
+            tail?.cancel()
             await stopServer(on: target, deployed: deployed)
             throw error
         }
+        tail?.cancel()
         await stopServer(on: target, deployed: deployed)
+    }
+
+    /// 实时回传目标端的区间日志。回传接不上不算错：上行退回发送端，并如实标注。
+    private func followReceiver(on target: SLEndpoint, log: String) -> Task<Void, Never> {
+        var vars = params.scriptVars
+        vars["MODE"] = "iperf-tail"
+        vars["IPERF_LOG"] = log
+        return Task {
+            do {
+                for try await event in SLShell(endpoint: target).stream(vars) {
+                    if event.ev == "info", event.k == "tail" { upFeed = .waiting }
+                    if event.ev == "r" { takeReceiver(event) }
+                }
+            } catch {}
+        }
     }
 
     private func stopServer(on target: SLEndpoint, deployed: String?) async {
@@ -523,6 +560,8 @@ final class SpeedLabStore: ObservableObject {
                 if let dir = event.ph { reconnects.append(SLConnEvent(dir: dir, n: event.n ?? 0, at: Date())) }
             case "s":
                 take(event)
+            case "r":
+                takeReceiver(event)
             case "err":
                 throw SLShell.Failure(message: event.msg ?? "执行端报错")
             default:
@@ -533,8 +572,8 @@ final class SpeedLabStore: ObservableObject {
 
     private func take(_ event: SLEvent) {
         let rtt = event.rtt
-        if let ph = event.ph {
-            let v = ph == "dl" ? (event.rx ?? 0) : (ph == "ul" ? (event.tx ?? 0) : (rtt ?? 0))
+        if let ph = event.ph, ph != "ul" {
+            let v = ph == "dl" ? (event.rx ?? 0) : (rtt ?? 0)
             trails.add(ph, value: v, rtt: rtt, at: Date(), tick: tick, method: activeMethod)
         }
         rttNow = rtt
@@ -549,15 +588,71 @@ final class SpeedLabStore: ObservableObject {
             if let rtt { downRTTs.append(rtt) }
             grow(v)
         case "ul":
-            let v = event.tx ?? 0
-            upNow = v
-            upSeries.append(v)
-            upTimed.append(SLTimedSample(v: v, rtt: rtt, at: Date()))
-            if let rtt { upRTTs.append(rtt) }
-            grow(v)
+            let sample = SLTimedSample(v: event.tx ?? 0, rtt: rtt, at: Date())
+            switch upFeed {
+            case .sender:
+                showUp(sample, side: .sender)
+            case .receiver:
+                break  // 这条事件只带来了 rtt
+            case .waiting:
+                upHeld.append(sample)
+                if Double(upHeld.count) * tick >= Self.receiverGrace { releaseHeld() }
+            }
         default:
             break
         }
+    }
+
+    /// 上行开跑后等接收端的第一条回传最多这么久（秒）。
+    private static let receiverGrace = 2.0
+
+    private func showUp(_ s: SLTimedSample, side: SLRateSide) {
+        upSide = side
+        trails.add("ul", value: s.v, rtt: s.rtt, at: s.at, tick: upTick, method: activeMethod)
+        upNow = s.v
+        upSeries.append(s.v)
+        upTimed.append(s)
+        if let rtt = s.rtt { upRTTs.append(rtt) }
+        grow(s.v)
+    }
+
+    /// 接收端没等到：压着的发送端样本放出来，之后听发送端的。
+    private func releaseHeld() {
+        upFeed = .sender
+        upHeld.forEach { showUp($0, side: .sender) }
+        upHeld = []
+    }
+
+    /// 接收端的一条区间：实时回传直接上屏；测完回传的先收着，settleUp 再决定用不用。
+    private func takeReceiver(_ event: SLEvent) {
+        guard let v = event.rx, let a = event.a, let b = event.b else { return }
+        if event.k == "end" { upReport.append((v, b - a)); return }
+        // 日志里也有下行的区间（服务端是发送方），只取上行阶段；已退回发送端就不再半路换
+        guard phase == .ul, upFeed != .sender else { return }
+        if upFeed == .waiting {
+            upFeed = .receiver
+            upHeld = []
+            upInterval = b - a
+        }
+        showUp(SLTimedSample(v: v, rtt: rttNow, at: Date()), side: .receiver)
+    }
+
+    /// 上行收尾：实时那条断过或根本没有（对端不是我们起的），用服务端回传的全程换掉曲线；
+    /// 两样都没有就是发送端，upSide 如实留着。
+    private func settleUp() {
+        if upFeed == .waiting { releaseHeld() }
+        let n = upReport.count
+        guard n > 0, upFeed != .receiver || Double(upSeries.count) < Double(n) * 0.9 else { return }
+        let old = upTimed, began = phaseDates[.ul] ?? Date()
+        upInterval = SLStat.median(upReport.map(\.dt))
+        upSeries = upReport.map(\.v)
+        // 回传的样本没有到达时刻：沿用原来那条的时刻与延迟，时间线不变
+        upTimed = upReport.enumerated().map { i, r in
+            let o = old.isEmpty ? nil : old[min(i * old.count / n, old.count - 1)]
+            return SLTimedSample(v: r.v, rtt: o?.rtt, at: o?.at ?? began)
+        }
+        upSide = .receiver
+        trails = .replay(idle: idleTimed, down: downTimed, up: upTimed, tick: tick, upTick: upTick, method: activeMethod)
     }
 
     var linkMbps: Int? {
@@ -689,6 +784,8 @@ extension SLHUDData {
         upThreads = isPublic ? lab.activeMethod.httpUpThreads : lab.activeMethod.iperfStreams
         unit = lab.params.unit
         tick = lab.tick
+        upTick = lab.upTick
+        upSide = lab.upSide
         method = lab.activeMethod
         trails = lab.trails
         error = lab.error
