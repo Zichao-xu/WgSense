@@ -46,8 +46,16 @@ struct FirewallStatus: Codable, Equatable {
     var locked: Bool?
     /// 本套规则生效以来被拒绝的出站包数。
     var blocked_packets: UInt64?
+    /// 放行项当前解析到的地址，普通拦截模式下才有。
+    var allowed_hosts: [FirewallAllowedHost]?
     var error: String?
     var updated_at: String?
+}
+
+/// 一个放行项及其解析结果。
+struct FirewallAllowedHost: Codable, Equatable {
+    var host: String
+    var ips: [String]?
 }
 
 /// 出站拦截设置，单独存于 daemon 的 firewall.json，不随 /api/config 同步。
@@ -59,6 +67,8 @@ struct FirewallSettings: Codable, Equatable {
     var allow_bypass: Bool?
     /// 连诊断探测（ICMP 回显，traceroute / ping）也拦（默认 nil/false = 普通拦截模式下放行探测）。
     var block_probes: Bool?
+    /// 拦截境外直连时额外放行的域名或 IP。nil = 运行中的服务还不支持。
+    var allow_hosts: [String]?
 }
 
 /// 隧道覆盖范围（daemon /api/status 的 coverage）。

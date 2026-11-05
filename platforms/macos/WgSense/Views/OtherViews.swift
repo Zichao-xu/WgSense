@@ -150,6 +150,7 @@ struct SettingsView: View {
     @State private var applyingConfig = false
     @State private var transferToggling = false
     @State private var firewallSaving = false
+    @State private var firewallHostDraft = ""
     @State private var ipv6Saving = false
     @State private var ipv6Prefix = ""
     @State private var ipv6Targets = ""
@@ -361,7 +362,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var firewallSection: some View {
         WgSection(title: "出站拦截",
-                  footer: "作用于整台电脑。拦截境外直连：物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器，WG 断开时境外直连一律拒绝，在家时境外流量经网关代理照常。放行诊断探测：只放 ICMP 回显请求（traceroute / ping），隧道锁定与国内模式下不放。隧道锁定：全局隧道连着时物理网卡只放行局域网和 WG 服务器，绑定物理网卡的程序也绕不开隧道；隧道一断开立即恢复上面的规则。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
+                  footer: "作用于整台电脑。拦截境外直连：物理网卡只放行国内（含 IPv6）、局域网和 WG 服务器，WG 断开时境外直连一律拒绝，在家时境外流量经网关代理照常。放行诊断探测：只放 ICMP 回显请求（traceroute / ping），隧道锁定与国内模式下不放。隧道锁定：全局隧道连着时物理网卡只放行局域网和 WG 服务器，绑定物理网卡的程序也绕不开隧道；隧道一断开立即恢复上面的规则。放行域名：本机代理软件直连的自建节点填这里，每分钟重新解析、跟随 DDNS，只在拦截境外直连时生效，隧道锁定与国内模式下不放。国内模式连隧道和网关代理也挡。daemon 意外退出时规则保持生效，紧急解除：sudo /usr/local/libexec/wgsense-daemon --firewall-clear") {
             if let response = client.firewall,
                let block = firewallBinding(\.auto_block),
                let forceDomestic = firewallBinding(\.force_domestic),
@@ -404,6 +405,8 @@ struct SettingsView: View {
                         .disabled(!block.wrappedValue || !probesSupported)
                 }
                 WgRowDivider()
+                allowHostRows(response)
+                WgRowDivider()
                 WgRow(symbol: "lock.shield", tint: .green, title: "隧道锁定",
                       subtitle: Text(lockSubtitle(response.status))) {
                     Toggle("", isOn: Binding(
@@ -427,6 +430,60 @@ struct SettingsView: View {
                       subtitle: Text(client.firewallError ?? "需要以 root 运行的正式网络服务"))
             }
         }
+    }
+
+    /// 放行名单：每项一行，末行输入新域名。
+    @ViewBuilder
+    private func allowHostRows(_ response: FirewallResponse) -> some View {
+        // 新版服务总会返回 allow_hosts；没有这个字段 = 运行中的服务还不支持，不能装作生效
+        if let hosts = response.settings.allow_hosts {
+            ForEach(hosts, id: \.self) { host in
+                WgRow(symbol: "checkmark.shield", tint: .green, title: LocalizedStringKey(host),
+                      subtitle: Text(allowHostSubtitle(host, status: response.status))) {
+                    Button {
+                        var next = response.settings
+                        next.allow_hosts = hosts.filter { $0 != host }
+                        saveFirewall(next)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("移出放行名单")
+                }
+                WgRowDivider()
+            }
+            WgRow(symbol: "plus.circle", tint: .blue, title: "放行域名",
+                  subtitle: Text("本机代理软件直连的自建节点，填域名或 IP")) {
+                HStack(spacing: WgSpace.s) {
+                    TextField("jp.example.com", text: $firewallHostDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                        .onSubmit { addAllowHost(response) }
+                    Button("放行") { addAllowHost(response) }
+                        .disabled(firewallHostDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        } else {
+            WgRow(symbol: "plus.circle", tint: .gray, title: "放行域名",
+                  subtitle: Text("需要新版网络服务：当前服务不支持"))
+        }
+    }
+
+    private func addAllowHost(_ response: FirewallResponse) {
+        let host = firewallHostDraft.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else { return }
+        var next = client.firewall?.settings ?? response.settings
+        next.allow_hosts = (next.allow_hosts ?? []) + [host]
+        firewallHostDraft = ""
+        saveFirewall(next)
+    }
+
+    private func allowHostSubtitle(_ host: String, status: FirewallStatus) -> String {
+        guard status.active, status.locked != true, !status.forced else {
+            return "当前模式下不放行"
+        }
+        let ips = status.allowed_hosts?.first { $0.host == host }?.ips ?? []
+        return ips.isEmpty ? "暂未解析到地址，尚未放行" : ips.joined(separator: "  ")
     }
 
     private func lockSubtitle(_ status: FirewallStatus) -> String {

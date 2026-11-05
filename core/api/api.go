@@ -331,7 +331,8 @@ func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPost:
-		var settings firewall.Settings
+		// 从当前设置解码：旧版 App 不带 allow_hosts 时不能把放行名单清空。
+		settings := fw.Settings()
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&settings); err != nil {
 			writeError(w, err)
 			return

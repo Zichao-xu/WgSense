@@ -220,3 +220,103 @@ func TestParseLabelPackets(t *testing.T) {
 		t.Fatalf("got %d", got)
 	}
 }
+
+func newHostTest(t *testing.T, s Settings, resolve func(string) []string) (*Controller, *fakeBackend) {
+	t.Helper()
+	b := &fakeBackend{}
+	c := New(filepath.Join(t.TempDir(), "firewall.json"), b, nil)
+	c.PhysicalInterfaces = func() []string { return []string{"en0"} }
+	c.ActiveInterfaces = func() []string { return []string{"en0"} }
+	c.ResolveHost = resolve
+	if err := c.Update(s); err != nil {
+		t.Fatal(err)
+	}
+	return c, b
+}
+
+func TestAllowHostsAddedToBlockRules(t *testing.T) {
+	c, b := newHostTest(t, Settings{Block: true, AllowHosts: []string{" JP4.Example.com. ", "jp4.example.com", "9.9.9.9"}},
+		func(host string) []string {
+			if host == "jp4.example.com" {
+				return []string{"126.1.2.3"}
+			}
+			return []string{host}
+		})
+	for _, want := range []string{"126.1.2.3", "9.9.9.9"} {
+		if !strings.Contains(b.pf, want) {
+			t.Fatalf("missing %s in %q", want, b.pf)
+		}
+	}
+	if got := c.Settings().AllowHosts; len(got) != 2 || got[0] != "jp4.example.com" {
+		t.Fatalf("hosts not normalized: %v", got)
+	}
+	if st := c.Status(); len(st.AllowedHosts) != 2 || st.AllowedHosts[0].IPs[0] != "126.1.2.3" {
+		t.Fatalf("status must show resolved hosts: %+v", st)
+	}
+}
+
+func TestAllowHostsFollowDNSAndSurviveFailure(t *testing.T) {
+	answer := []string{"126.1.2.3"}
+	c, b := newHostTest(t, Settings{Block: true, AllowHosts: []string{"jp4.example.com"}},
+		func(string) []string { return answer })
+	expire := func() {
+		e := c.hostCache["jp4.example.com"]
+		e.at = time.Now().Add(-2 * hostTTL)
+		c.hostCache["jp4.example.com"] = e
+	}
+
+	for _, bad := range [][]string{nil, {"198.18.0.9"}} {
+		answer = bad
+		expire()
+		if err := c.Sync(); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(b.pf, "126.1.2.3") {
+			t.Fatalf("answer %v must keep the last real IP: %q", bad, b.pf)
+		}
+	}
+
+	answer = []string{"126.4.5.6"}
+	expire()
+	if err := c.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.pf, "126.4.5.6") || strings.Contains(b.pf, "126.1.2.3") {
+		t.Fatalf("rules must follow the new IP: %q", b.pf)
+	}
+}
+
+func TestAllowHostsNotUsedWhenLockedOrDomestic(t *testing.T) {
+	resolve := func(string) []string { return []string{"126.1.2.3"} }
+	_, domestic := newHostTest(t, Settings{Block: true, ForceDomestic: true, AllowHosts: []string{"jp4.example.com"}}, resolve)
+	if strings.Contains(domestic.pf, "126.1.2.3") {
+		t.Fatalf("domestic mode must not allow hosts: %q", domestic.pf)
+	}
+
+	c, b := newHostTest(t, Settings{Block: true, AllowHosts: []string{"jp4.example.com"}}, resolve)
+	c.TunnelLocked = func() bool { return true }
+	if err := c.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.pf, "126.1.2.3") {
+		t.Fatalf("tunnel lock must not allow hosts: %q", b.pf)
+	}
+}
+
+func TestAllowHostsRejectInvalidAndPersist(t *testing.T) {
+	c, _ := newHostTest(t, Settings{Block: true, AllowHosts: []string{"jp4.example.com"}},
+		func(string) []string { return nil })
+	if err := c.Update(Settings{Block: true, AllowHosts: []string{"a b; pass out all"}}); err == nil {
+		t.Fatal("invalid host must be rejected")
+	}
+	if got := c.Settings().AllowHosts; len(got) != 1 {
+		t.Fatalf("rejected update must not change settings: %v", got)
+	}
+	reloaded := New(c.path, &fakeBackend{}, nil)
+	if got := reloaded.Settings().AllowHosts; len(got) != 1 || got[0] != "jp4.example.com" {
+		t.Fatalf("hosts must persist: %v", got)
+	}
+	if empty := New("", &fakeBackend{}, nil).Settings().AllowHosts; empty == nil {
+		t.Fatal("allow_hosts must be non-nil so the UI can detect support")
+	}
+}

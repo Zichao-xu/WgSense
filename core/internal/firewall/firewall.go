@@ -44,6 +44,9 @@ type Settings struct {
 	// BlockProbes 连诊断探测（出站 ICMP 回显请求，traceroute / ping）也拦。
 	// 默认 false：普通拦截模式下放行探测，路由追踪能看到真实路径；国内模式与隧道锁定始终不放行。
 	BlockProbes bool `json:"block_probes"`
+	// AllowHosts 拦截境外直连时额外放行的域名或 IP（如本机代理软件直连的自建节点）。
+	// 域名由 daemon 定时解析成 IP 写进规则；隧道锁定与国内模式下不放行。
+	AllowHosts []string `json:"allow_hosts"`
 }
 
 // Status 是当前实际生效情况，供 UI 展示。
@@ -56,8 +59,10 @@ type Status struct {
 	Locked bool `json:"locked"`
 	// BlockedPackets 自本套规则生效以来被拒绝的出站包数，非零说明有程序试图绕开。
 	BlockedPackets uint64 `json:"blocked_packets"`
-	Error          string `json:"error,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
+	// AllowedHosts 放行项当前解析到的地址，普通拦截模式下才有。
+	AllowedHosts []AllowedHost `json:"allowed_hosts,omitempty"`
+	Error        string        `json:"error,omitempty"`
+	UpdatedAt    string        `json:"updated_at,omitempty"`
 }
 
 // Backend 执行真正的系统修改；测试里替换为假实现。
@@ -84,12 +89,15 @@ type Controller struct {
 	TunnelEndpoints    func() []string
 	// TunnelLocked 报告全局隧道是否连着；为 true 且未关闭锁定时启用隧道锁定。
 	TunnelLocked func() bool
+	// ResolveHost 把放行域名解析成地址，失败返回空。
+	ResolveHost func(string) []string
 
 	appliedPF   string
 	synced      bool
 	status      Status
 	countedAt   time.Time
 	blockedSeen uint64
+	hostCache   map[string]hostEntry
 }
 
 // counterInterval 限制读取拦截计数的频率（每次要启动 pfctl）。
@@ -108,6 +116,7 @@ func New(path string, backend Backend, logf func(string, ...interface{})) *Contr
 		ActiveInterfaces:   activeInterfaces,
 		TunnelEndpoints:    func() []string { return nil },
 		TunnelLocked:       func() bool { return false },
+		ResolveHost:        lookupHost,
 	}
 	if path != "" {
 		if data, err := os.ReadFile(path); err == nil {
@@ -116,6 +125,12 @@ func New(path string, backend Backend, logf func(string, ...interface{})) *Contr
 			}
 		}
 	}
+	hosts, err := NormalizeHosts(c.settings.AllowHosts)
+	if err != nil {
+		logf("放行名单有无效项，已忽略: %v", err)
+		hosts = []string{}
+	}
+	c.settings.AllowHosts = hosts
 	return c
 }
 
@@ -137,11 +152,16 @@ func (c *Controller) Status() Status {
 func (c *Controller) Update(s Settings) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	hosts, err := NormalizeHosts(s.AllowHosts)
+	if err != nil {
+		return err
+	}
+	s.AllowHosts = hosts
 	if err := c.save(s); err != nil {
 		return err
 	}
 	c.settings = s
-	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t 隧道锁定=%t 放行探测=%t", s.Block, s.ForceDomestic, !s.AllowBypass, !s.BlockProbes)
+	c.logf("拦截设置已更新: 拦截=%t 国内模式=%t 隧道锁定=%t 放行探测=%t 放行名单=%v", s.Block, s.ForceDomestic, !s.AllowBypass, !s.BlockProbes, s.AllowHosts)
 	return c.syncLocked()
 }
 
@@ -194,10 +214,18 @@ func (c *Controller) syncLocked() error {
 		if !s.BlockProbes {
 			status.Reason += "；诊断探测（ICMP 回显）放行"
 		}
+		status.AllowedHosts = c.resolveAllowHosts(s.AllowHosts)
+		endpoints := append([]string(nil), c.TunnelEndpoints()...)
+		for _, host := range status.AllowedHosts {
+			endpoints = append(endpoints, host.IPs...)
+		}
+		if len(status.AllowedHosts) > 0 {
+			status.Reason += fmt.Sprintf("；另放行 %d 个自定义地址", len(status.AllowedHosts))
+		}
 		if len(ifaces) == 0 {
 			status.Reason += "（当前无物理网卡）"
 		} else {
-			rules = RenderPF(RuleInput{Interfaces: ifaces, AllowFakeIP: true, Endpoints: c.TunnelEndpoints(), CNFile: CNTablePath(), AllowProbes: !s.BlockProbes})
+			rules = RenderPF(RuleInput{Interfaces: ifaces, AllowFakeIP: true, Endpoints: endpoints, CNFile: CNTablePath(), AllowProbes: !s.BlockProbes})
 		}
 	default:
 		status.Reason = "未开启拦截"
